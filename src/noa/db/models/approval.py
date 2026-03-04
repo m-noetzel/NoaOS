@@ -26,6 +26,9 @@ class Approval(Base):
     decision: Mapped[str] = mapped_column(
         String(16), nullable=False, default="pending",
     )
+    domain: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="private",
+    )
     requested_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
