@@ -1,0 +1,25 @@
+FROM python:3.11-slim
+
+# System dependencies
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       git curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Node.js 20 (required for Claude Code)
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Claude Code
+RUN npm install -g @anthropic-ai/claude-code
+
+# Non-root user
+RUN groupadd -g 1000 devuser \
+    && useradd -m -u 1000 -g devuser -s /bin/bash devuser
+
+WORKDIR /workspace
+
+USER devuser
+
+CMD ["bash"]
