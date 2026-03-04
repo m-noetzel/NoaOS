@@ -55,6 +55,7 @@ markers = [
     "oc4: Phase OC4 — Policy Engine & Approval Framework",
     "dw1: Phase DW1 — Private Worker with Ollama & RPC Contract",
     "dw2: Phase DW2 — External Worker Skeleton",
+    "dw3: Phase DW3 — Docker Network Isolation & Verification",
 ]
 asyncio_mode = "auto"
 
@@ -79,4 +80,8 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["jose", "jose.*", "passlib", "passlib.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["yaml"]
 ignore_missing_imports = true
