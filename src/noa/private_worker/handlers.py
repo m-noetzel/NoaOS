@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
-HandlerFunc = Callable[[dict[str, Any]], dict[str, Any]]
+HandlerFunc = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 
 
 async def _handle_remember(payload: dict[str, Any]) -> dict[str, Any]:
