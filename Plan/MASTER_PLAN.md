@@ -18,7 +18,7 @@ The plan is organized into **waves** — groups of related phases that deliver a
 | **F3** | FastAPI Skeleton & Health Endpoints | **Complete** | 15 | agent/f3-api-skeleton | ~30 min | ~15 min | QA PASS 2026-03-04 |
 | **F4** | Authentication & Session Management | **Complete** | 20 | agent/f4-auth | ~45 min | ~30 min | QA PASS_WITH_NOTES 2026-03-04 |
 | — | — **WAVE 2: ORCHESTRATION CORE** — | — | — | — | — | — | — |
-| **OC1** | LangGraph Orchestrator Skeleton | Pending | ~15 | — | ~45 min | — | — |
+| **OC1** | LangGraph Orchestrator Skeleton | **Complete** | 26 | agent/oc1-orchestrator | ~45 min | ~40 min | QA PASS 2026-03-04 |
 | **OC2** | Run/Event Model & SSE Streaming | Pending | ~20 | — | ~45 min | — | — |
 | **OC3** | Audit Logging with Hash Chain | Pending | ~12 | — | ~30 min | — | — |
 | **OC4** | Policy Engine & Approval Framework | Pending | ~18 | — | ~45 min | — | — |
