@@ -53,6 +53,7 @@ markers = [
     "oc2: Phase OC2 — Run/Event Model & SSE Streaming",
     "oc3: Phase OC3 — Audit Logging with Hash Chain",
     "oc4: Phase OC4 — Policy Engine & Approval Framework",
+    "dw1: Phase DW1 — Private Worker with Ollama & RPC Contract",
 ]
 asyncio_mode = "auto"
 
