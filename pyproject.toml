@@ -54,6 +54,7 @@ markers = [
     "oc3: Phase OC3 — Audit Logging with Hash Chain",
     "oc4: Phase OC4 — Policy Engine & Approval Framework",
     "dw1: Phase DW1 — Private Worker with Ollama & RPC Contract",
+    "dw2: Phase DW2 — External Worker Skeleton",
 ]
 asyncio_mode = "auto"
 
