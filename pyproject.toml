@@ -55,6 +55,7 @@ markers = [
     "oc4: Phase OC4 — Policy Engine & Approval Framework",
     "dw1: Phase DW1 — Private Worker with Ollama & RPC Contract",
     "dw2: Phase DW2 — External Worker Skeleton",
+    "dw4: Phase DW4 — Privacy Router & Classification",
 ]
 asyncio_mode = "auto"
 
