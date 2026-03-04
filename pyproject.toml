@@ -43,14 +43,16 @@ packages = ["src/noa"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", ".pip_libs"]
 markers = [
     "f1: Phase F1 — Project Scaffold & Docker Compose",
     "f2: Phase F2 — Postgres Schema & Alembic Migrations",
     "f3: Phase F3 — FastAPI Skeleton & Health Endpoints",
     "f4: Phase F4 — Authentication & Session Management",
     "oc1: Phase OC1 — LangGraph Orchestrator Skeleton",
+    "oc2: Phase OC2 — Run/Event Model & SSE Streaming",
     "oc3: Phase OC3 — Audit Logging with Hash Chain",
+    "oc4: Phase OC4 — Policy Engine & Approval Framework",
 ]
 asyncio_mode = "auto"
 
