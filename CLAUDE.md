@@ -63,6 +63,23 @@ The orchestrator MUST pause and wait for the human at these points:
 4. **Skill patches** — After retrospective proposes changes to skill files
 5. **Wave completion** — Before marking a wave complete (human reviews wave summary)
 
+### Push Notifications (ntfy)
+
+The orchestrator MUST send a push notification before pausing or waiting for human input. Use:
+
+```bash
+python /workspace/tools/notify.py "Title" "Message"
+```
+
+**Required notification triggers:**
+
+1. **Human gates** — Before pausing at any gate listed above. Title: `Gate: <gate name>`. Message: what happened and what approval is needed.
+2. **Permission prompts** — Before attempting any tool call or action that is NOT in the allow-list. Title: `Approval Needed`. Message: which tool/action and why.
+3. **Escalations** — On any escalation to human (test failures, QA failures, security concerns). Title: `Escalation`. Message: the situation and what is needed.
+4. **Pipeline milestones** — When a phase or wave completes. Title: `Phase Complete` or `Wave Complete`. Message: summary and next steps.
+
+The topic is configured via `NTFY_TOPIC` env var (default: `noaos-by2lnbzr`). Never skip a notification — the human may not be watching the terminal.
+
 ### Escalation Protocol
 
 | Situation | Action |
