@@ -1,0 +1,95 @@
+# Noa Phase 1 — Single Machine Deployment
+# SPEC.md §7.1, §20.1
+#
+# Networks:
+#   noa-internal: Private domain (internal: true — no internet)
+#   noa-external: External domain (internet access for LLM APIs)
+#
+# The noa-api container bridges both networks (gateway).
+# Private and external workers are on separate networks with no route.
+
+services:
+  noa-api:
+    build:
+      context: .
+      dockerfile: docker/noa-api/Dockerfile
+    ports:
+      - "127.0.0.1:8000:8000"  # LAN only, never 0.0.0.0 (§20.1)
+    networks:
+      - noa-internal
+      - noa-external
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://noa:noa@postgres:5432/noa
+      - NOA_ENV=production
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set}
+      - LOG_LEVEL=INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    networks:
+      - noa-internal
+    environment:
+      POSTGRES_USER: noa
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: noa
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U noa"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  private-worker:
+    build:
+      context: .
+      dockerfile: docker/private-worker/Dockerfile
+    networks:
+      - noa-internal
+    # Container hardening (§8.1)
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - private-data:/data  # Dedicated encrypted volume for private data
+    tmpfs:
+      - /tmp:size=256M
+    restart: unless-stopped
+
+  external-worker:
+    build:
+      context: .
+      dockerfile: docker/external-worker/Dockerfile
+    networks:
+      - noa-external
+    # Container hardening (§8.2)
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - coding-workspace:/workspace  # Only writable volume
+    tmpfs:
+      - /tmp:size=256M
+    restart: unless-stopped
+
+networks:
+  noa-internal:
+    driver: bridge
+    internal: true   # NO internet access — private domain (§20.1)
+  noa-external:
+    driver: bridge
+    internal: false  # Internet access allowed — external domain
+
+volumes:
+  postgres-data:
+  private-data:
+  coding-workspace:

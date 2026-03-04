@@ -10,8 +10,8 @@ services:
       - ./artifacts_out:/artifacts:rw
     read_only: true
     tmpfs:
-      - /tmp:size=256m
-      - /home/devuser:size=128m,uid=1000,gid=1000
+      - /tmp:size=512m
+      - /home/devuser:size=256m,uid=1000,gid=1000
     cap_drop:
       - ALL
     security_opt:
@@ -19,9 +19,9 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "2.0"
-          memory: 2g
-          pids: 512
+          cpus: "4.0"
+          memory: 4g
+          pids: 1024
     networks:
       - noa-isolated
     stdin_open: true

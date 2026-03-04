@@ -1,0 +1,71 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "noa"
+version = "0.1.0"
+description = "Noa — governed personal AI agent"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.10,<3.0",
+    "pydantic-settings>=2.7,<3.0",
+]
+
+[project.optional-dependencies]
+api = [
+    "fastapi>=0.115.0,<1.0",
+    "uvicorn[standard]>=0.34.0,<1.0",
+    "sqlalchemy[asyncio]>=2.0,<3.0",
+    "asyncpg>=0.30.0,<1.0",
+    "alembic>=1.14.0,<2.0",
+    "python-jose[cryptography]>=3.3,<4.0",
+    "passlib[bcrypt]>=1.7,<2.0",
+    "structlog>=24.0,<26.0",
+    "httpx>=0.28.0,<1.0",
+]
+orchestrator = [
+    "langgraph>=0.2,<1.0",
+    "langchain-core>=0.3,<1.0",
+]
+dev = [
+    "pytest>=8.2,<10.0",
+    "pytest-asyncio>=0.25,<1.0",
+    "pytest-cov>=6.0,<7.0",
+    "pyyaml>=6.0,<7.0",
+    "ruff>=0.8,<1.0",
+    "mypy>=1.13,<2.0",
+    "httpx>=0.28.0,<1.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/noa"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = [
+    "f1: Phase F1 — Project Scaffold & Docker Compose",
+    "f2: Phase F2 — Postgres Schema & Alembic Migrations",
+    "f3: Phase F3 — FastAPI Skeleton & Health Endpoints",
+    "f4: Phase F4 — Authentication & Session Management",
+]
+
+[tool.ruff]
+target-version = "py311"
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "S", "B", "A", "C4", "SIM"]
+ignore = ["S101"]  # allow assert in tests
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["langgraph.*", "langchain_core.*"]
+ignore_missing_imports = true
