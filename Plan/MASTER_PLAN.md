@@ -20,7 +20,7 @@ The plan is organized into **waves** — groups of related phases that deliver a
 | — | — **WAVE 2: ORCHESTRATION CORE** — | — | — | — | — | — | — |
 | **OC1** | LangGraph Orchestrator Skeleton | **Complete** | 26 | agent/oc1-orchestrator | ~45 min | ~40 min | QA PASS 2026-03-04 |
 | **OC2** | Run/Event Model & SSE Streaming | Pending | ~20 | — | ~45 min | — | — |
-| **OC3** | Audit Logging with Hash Chain | Pending | ~12 | — | ~30 min | — | — |
+| **OC3** | Audit Logging with Hash Chain | **Complete** | 18 | agent/oc3-audit | ~30 min | ~20 min | QA PASS_WITH_NOTES 2026-03-04 |
 | **OC4** | Policy Engine & Approval Framework | Pending | ~18 | — | ~45 min | — | — |
 | — | — **WAVE 3: DOMAIN WORKERS & ISOLATION** — | — | — | — | — | — | — |
 | **DW1** | Private Worker with Ollama & RPC Contract | Pending | ~20 | — | ~45 min | — | — |
