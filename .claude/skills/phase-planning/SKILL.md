@@ -1,6 +1,6 @@
 ---
 name: phase-planning
-description: Plan and track implementation phases. Reads SPECS.md and MASTER_PLAN.md, writes structured phase entries with spec-traceability, file tables, and test gates.
+description: Plan and track implementation phases. Reads SPEC.md and MASTER_PLAN.md, writes structured phase entries with spec-traceability, file tables, and test gates.
 argument-hint: [phase-id-and-description]
 disable-model-invocation: true
 allowed-tools: Read, Grep, Glob, Edit
@@ -27,14 +27,14 @@ Read `Plan/MASTER_PLAN.md` and extract:
 
 ### Step 2: Find Spec Requirements
 
-Read `SPECS.md` and find sections relevant to `$ARGUMENTS`. Extract:
+Read `SPEC.md` and find sections relevant to `$ARGUMENTS`. Extract:
 - Section numbers (e.g., §3.2, §7.4)
 - Specific requirements that the phase must satisfy
 - Data model definitions that the phase touches
 - Acceptance criteria from §9 (Definition of Done) if applicable
 
-**CRITICAL:** If no SPECS.md section supports this phase, STOP and tell the user:
-> "No SPECS.md section covers this feature. The spec may need updating before planning this phase. Spec is human-only — please add the relevant section and re-run /phase-planning."
+**CRITICAL:** If no SPEC.md section supports this phase, STOP and tell the user:
+> "No SPEC.md section covers this feature. The spec may need updating before planning this phase. Spec is human-only — please add the relevant section and re-run /phase-planning."
 
 ### Step 3: Write Phase Entry
 
@@ -45,7 +45,7 @@ Add a detailed phase section to `Plan/MASTER_PLAN.md` using this EXACT format:
 
 **Goal:** {1-2 sentence problem statement — what is wrong or missing, and what this phase fixes}
 
-**Spec refs:** SPECS.md §{X.Y}, §{Z.W}
+**Spec refs:** SPEC.md §{X.Y}, §{Z.W}
 
 **Depends on:** {comma-separated phase IDs, or "None"}
 **Blocks:** {comma-separated phase IDs, or "None"}
@@ -139,7 +139,7 @@ These are approximate. Use `~{N}` format for pending phases. Replace with exact 
 
 ## Rules
 
-1. **Every phase MUST reference at least one SPECS.md section** — no orphan phases
+1. **Every phase MUST reference at least one SPEC.md section** — no orphan phases
 2. **Duration estimates in minutes**, prefixed with `~`
 3. **Test counts are estimates** for pending phases, exact for completed
 4. **Use consistent status markers**: Pending, In Progress, Complete, Blocked

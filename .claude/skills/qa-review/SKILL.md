@@ -20,7 +20,7 @@ The argument is: `$ARGUMENTS`
 ### You CAN read:
 - `tests/` — all test files
 - `src/` — all source code
-- `SPECS.md` — the product specification
+- `SPEC.md` — the product specification
 - `Plan/MASTER_PLAN.md` — phase plan and deliverables
 - `Plan/DECISION_LOG.md` — decisions made during implementation
 - `Plan/ISSUES.md` — known issues
@@ -30,7 +30,7 @@ The argument is: `$ARGUMENTS`
 ### You CANNOT write to:
 - `src/` — never modify implementation code
 - `tests/` — never modify tests
-- `SPECS.md` or `STRATEGY.md` — protected documents
+- `SPEC.md` or `STRATEGY.md` — protected documents
 - `CLAUDE.md` — project instructions
 
 ### You CAN write to:
@@ -38,42 +38,46 @@ The argument is: `$ARGUMENTS`
 
 ---
 
-## 2. Review Process (6 Checks)
+## 2. Review Process
 
-### Check 1: Spec Compliance
-- Read SPECS.md sections referenced in the phase plan
+### Step 0: Load Checklist
+Read `Plan/QA_CHECKLIST.md` — this defines the deterministic criteria. Your review MUST evaluate every must-have (M1-M5) and should-have (S1-S4) item. The checklist is the authority for PASS/FAIL, not subjective judgment.
+
+### Check 1: Spec Compliance (covers M1, M5)
+- Read SPEC.md sections referenced in the phase plan
 - Read the implementation in `src/`
 - Verify every spec requirement for this phase is implemented
 - Flag any spec requirements that are missing or incorrectly implemented
 - Severity: **BLOCKING** if spec requirement is violated
 
-### Check 2: Test Coverage vs Spec
+### Check 2: Test Coverage vs Spec (covers M1, M2)
 - Read the test file for this phase
 - Map each test to its spec requirement (via docstrings)
 - Identify spec requirements that have NO corresponding test
+- Verify at least 1 negative/error-path test exists
 - Identify tests that don't trace to any spec requirement
-- Severity: **BLOCKING** if critical spec requirement is untested
+- Severity: **BLOCKING** if critical spec requirement is untested or no negative tests
 
-### Check 3: Code Quality
+### Check 3: Code Quality (covers S2, S4)
 - Is the implementation unnecessarily complex?
 - Are there copy-paste patterns that should be extracted?
 - Does it follow the existing project conventions?
+- Does it follow ARCH_INVARIANTS.md layering and dependency rules?
 - Are there obvious performance issues?
 - Severity: **NON-BLOCKING** (note for improvement)
 
-### Check 4: Security
+### Check 4: Security (covers M3)
 - Are there injection vulnerabilities (SQL, command, prompt)?
 - Is user input validated at system boundaries?
 - Are secrets or credentials hardcoded?
 - Does the implementation respect the domain isolation model?
 - Severity: **BLOCKING** if security vulnerability found
 
-### Check 5: Missing Edge Cases
-- What happens with empty input?
-- What happens with malformed data?
-- What happens at boundary values?
-- Are error paths handled?
-- Severity: **NON-BLOCKING** unless the edge case could cause data loss or security issues
+### Check 5: Determinism & Edge Cases (covers M4, S1)
+- No tests depend on wall-clock time, network, or unseeded randomness
+- Tests pass consistently (no flaky patterns)
+- Boundary conditions and error paths handled
+- Severity: **BLOCKING** for M4 violations, **NON-BLOCKING** for S1
 
 ### Check 6: Decision Review
 - Read `Plan/DECISION_LOG.md` entries for this phase
@@ -117,13 +121,29 @@ Write your review to `Plan/REVIEWS/review_{phase-id}.md` using this exact format
 **Date:** {YYYY-MM-DD}
 **Verdict:** {PASS | PASS_WITH_NOTES | FAIL}
 
+## Checklist Score
+**Must-haves:** {passed}/{total} | **Should-haves:** {passed}/{total}
+
+| ID | Criterion | Result | Notes |
+|----|-----------|--------|-------|
+| M1 | Spec Traceability | PASS/FAIL | {details} |
+| M2 | Negative Tests | PASS/FAIL | {details} |
+| M3 | Security Boundaries | PASS/FAIL | {details} |
+| M4 | Determinism | PASS/FAIL | {details} |
+| M5 | Implementation Completeness | PASS/FAIL | {details} |
+| S1 | Error Handling & Boundaries | PASS/OPEN | {details} |
+| S2 | Code Consistency | PASS/OPEN | {details} |
+| S3 | Migration & Rollback | PASS/OPEN/N/A | {details} |
+| S4 | Documentation | PASS/OPEN | {details} |
+
 ## Spec Compliance
-- [ ] {Requirement 1 from SPECS.md §X.Y}: {PASS/FAIL + notes}
+- [ ] {Requirement 1 from SPEC.md §X.Y}: {PASS/FAIL + notes}
 - [ ] {Requirement 2}: {PASS/FAIL + notes}
 
 ## Test Coverage
 - **Tests reviewed:** {count}
 - **Tests with spec traceability:** {count}/{total}
+- **Negative tests:** {count}
 - **Untested spec requirements:** {list or "None"}
 
 ## Security
@@ -131,9 +151,6 @@ Write your review to `Plan/REVIEWS/review_{phase-id}.md` using this exact format
 
 ## Code Quality
 - {Observation or "Meets project conventions"}
-
-## Missing Edge Cases
-- {Edge case or "None identified"}
 
 ## Blocking Issues (FAIL only)
 1. {Issue description — what's wrong and what must change}

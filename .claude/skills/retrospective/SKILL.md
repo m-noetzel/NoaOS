@@ -24,14 +24,14 @@ The argument is: `$ARGUMENTS`
 - `Plan/ISSUES.md` — problems encountered and resolutions
 - `Plan/RETROS/` — prior retrospectives (for trend analysis)
 - `.claude/skills/*/SKILL.md` — current skill definitions (to propose patches)
-- `SPECS.md` — for context on requirements
+- `SPEC.md` — for context on requirements
 - `tests/` — test files (to analyze test patterns)
 
 ### You CANNOT write to:
 - `src/` — never modify implementation code
 - `tests/` — never modify tests
 - `.claude/skills/` — never modify skills directly (propose patches only)
-- `SPECS.md` or `STRATEGY.md` — protected documents
+- `SPEC.md` or `STRATEGY.md` — protected documents
 - `CLAUDE.md` — project instructions
 
 ### You CAN write to:

@@ -1,6 +1,6 @@
 ---
 name: project-setup
-description: Bootstrap a new Python project with SPECS.md, CLAUDE.md, MASTER_PLAN.md, test infrastructure, and git. Sets up test-first workflow from day one.
+description: Bootstrap a new Python project with SPEC.md, CLAUDE.md, MASTER_PLAN.md, test infrastructure, and git. Sets up test-first workflow from day one.
 argument-hint: [project-name] [short-description]
 disable-model-invocation: true
 ---
@@ -18,7 +18,7 @@ Create a complete Python project skeleton with test-first infrastructure.
 
 Generate the following files in the CURRENT working directory. Do NOT create a subdirectory — the user has already `cd`'d into the project root.
 
-### 1. `SPECS.md` — Product Specification
+### 1. `SPEC.md` — Product Specification
 
 The product contract. Humans write this, agents read it. Create a skeleton that the user fills in:
 
@@ -64,7 +64,7 @@ Rules for any AI agent working on this project:
 
 **Before starting ANY work:**
 1. Read this entire file
-2. Read `SPECS.md` — the product contract. Never deviate without user approval.
+2. Read `SPEC.md` — the product contract. Never deviate without user approval.
 3. Read `Plan/MASTER_PLAN.md` — check current phase status
 4. Skip completed phases (marked with checkmarks)
 
@@ -79,13 +79,13 @@ Rules for any AI agent working on this project:
 
 **NEVER DO:**
 - NEVER read `.env` files (they contain secrets)
-- NEVER modify SPECS.md (human-only)
-- NEVER deviate from SPECS.md without explicit user approval
+- NEVER modify SPEC.md (human-only)
+- NEVER deviate from SPEC.md without explicit user approval
 - NEVER skip test gates
 - NEVER write implementation before tests exist
 
 **ALWAYS DO:**
-- CHECK SPECS.md before starting any work
+- CHECK SPEC.md before starting any work
 - Write tests FIRST using `/write-tests`
 - Update MASTER_PLAN.md before and after each phase
 - Mock only external boundaries (LLM, network, filesystem) in tests
@@ -113,7 +113,7 @@ tests/
 └── conftest.py      # Shared fixtures
 Plan/
 ├── MASTER_PLAN.md   # Phase tracking
-SPECS.md             # Product spec (READ-ONLY)
+SPEC.md             # Product spec (READ-ONLY)
 CLAUDE.md            # This file
 \`\`\`
 ```
@@ -263,6 +263,6 @@ htmlcov/
 3. Initialize git: `git init`
 4. Stage and commit: `git add -A && git commit -m "Initial project setup with test-first infrastructure"`
 5. Tell the user what was created and suggest next steps:
-   - "Fill in SPECS.md with your product requirements"
+   - "Fill in SPEC.md with your product requirements"
    - "Run `/phase-planning` to plan your first phase"
    - "Run `/write-tests` before writing any code"

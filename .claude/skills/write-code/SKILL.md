@@ -19,7 +19,7 @@ The argument is: `$ARGUMENTS`
 
 ### You CAN read:
 - `tests/` — test files are your contract (what to implement)
-- `SPECS.md` — the product specification (understand intent behind tests)
+- `SPEC.md` — the product specification (understand intent behind tests)
 - `src/models/*.py` — ORM models and Pydantic schemas
 - `src/config/*.py` — settings, profiles, constants
 - `src/` — all existing source code (understand patterns, reuse components)
@@ -28,7 +28,7 @@ The argument is: `$ARGUMENTS`
 
 ### You CANNOT do:
 - **NEVER modify any file in `tests/`** — tests are the contract, not your code
-- **NEVER modify `SPECS.md` or `STRATEGY.md`** — protected documents
+- **NEVER modify `SPEC.md` or `STRATEGY.md`** — protected documents
 - **NEVER modify `CLAUDE.md`** — project instructions
 
 ### You CAN write to:
@@ -49,7 +49,7 @@ Read the test file for the phase specified in `$ARGUMENTS`:
 
 ### Step 2: Read the spec for intent
 
-Read the SPECS.md sections referenced in the test docstrings. Understand:
+Read the SPEC.md sections referenced in the test docstrings. Understand:
 - Why this behavior matters
 - What constraints apply
 - What security or correctness invariants must hold

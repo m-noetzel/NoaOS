@@ -10,7 +10,7 @@ Tests observable behavior — what the system detects — with realistic inputs.
 
 ```python
 def test_jailbreak_patterns_detected(self):
-    """SPECS.md §15: Jailbreak patterns must be detected and flagged."""
+    """SPEC.md §15: Jailbreak patterns must be detected and flagged."""
     guard = PromptGuard()
 
     # DAN mode
@@ -25,7 +25,7 @@ def test_jailbreak_patterns_detected(self):
     assert guard.is_suspicious("unlock capabilities")
 
 def test_prompt_injection_detected(self):
-    """SPECS.md §15: Prompt injection attempts must be detected."""
+    """SPEC.md §15: Prompt injection attempts must be detected."""
     guard = PromptGuard()
 
     # Instruction override
@@ -55,12 +55,12 @@ Tests a property that must always hold — determinism. No implementation knowle
 
 ```python
 def test_deterministic(self):
-    """SPECS.md §5.2: Same input always produces identical output."""
+    """SPEC.md §5.2: Same input always produces identical output."""
     text = _long_text()
     assert create_chunks(text) == create_chunks(text)
 
 def test_sequence_numbers_contiguous(self):
-    """SPECS.md §5.2: Sequence numbers start at 0 and increment by one."""
+    """SPEC.md §5.2: Sequence numbers start at 0 and increment by one."""
     chunks = create_chunks(_long_text())
     assert [c.sequence_number for c in chunks] == list(range(len(chunks)))
 ```

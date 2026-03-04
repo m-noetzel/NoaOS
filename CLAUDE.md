@@ -46,11 +46,11 @@ Each phase follows this exact sequence:
 
 1. **Plan** (`/phase-planning {id}`): Create phase entry in MASTER_PLAN.md
 2. **Test** (`/write-tests {id}`): Write failing tests derived from spec
-3. **Verify Red**: Run tests — confirm they all FAIL (no implementation yet)
+3. **Verify Red**: Run tests — at least one new test must FAIL with an assertion error (not ImportError/NotImplementedError). Tests for already-existing helpers/utilities may pass. Log which tests failed and why.
 4. **Implement** (`/write-code {id}`): Write code to make tests pass
-5. **Verify Green**: Run tests — confirm they all PASS
-6. **Review** (`/qa-review {id}`): QA agent produces verdict
-7. **Iterate**: If FAIL, fix blocking issues and re-review (max 2 cycles)
+5. **Verify Green**: Run tests — all phase tests PASS. Also run `ruff check` + `mypy` (static gates must pass before merge).
+6. **Review** (`/qa-review {id}`): QA agent evaluates against `Plan/QA_CHECKLIST.md` and produces verdict
+7. **Iterate**: If FAIL, fix blocking issues and re-review (max 2 cycles). On 2nd FAIL, write `Plan/RCA/rca_{phase-id}.md` (cause, fix, prevention rule).
 8. **Complete**: Update MASTER_PLAN.md status, write changelog entry
 
 ### Human Gates
@@ -70,7 +70,7 @@ The orchestrator MUST pause and wait for the human at these points:
 | Agent returns unexpected result | Orchestrator investigates, logs to `Plan/ISSUES.md` |
 | Test agent can't derive tests from spec | STOP, ask human to clarify spec |
 | Code agent can't pass tests after 2 attempts | Orchestrator tries once, then escalates to human |
-| QA fails a phase twice | Escalate to human |
+| QA fails a phase twice | Write `Plan/RCA/rca_{phase-id}.md` (cause, fix, prevention rule), then escalate to human |
 | Security concern raised by any agent | Immediate CRITICAL escalation to human |
 
 ### Status Transparency
@@ -97,3 +97,31 @@ Execute wave → /retrospective → Propose skill patches → Human approves →
 - Human approves the **wave plan as a whole**
 - Individual phases execute autonomously within an approved wave
 - Orchestrator has discretion to reorder phases within a wave if dependencies require it
+
+### Git Workflow (Worktree-Based Isolation)
+
+The orchestrator runs inside a Docker container with access to `/workspace` (git repo) and `/artifacts` (output).
+
+**Non-negotiable rules:**
+1. **No GitHub push.** Only the human pushes to remote after review.
+2. **No Docker/compose/mount modifications.**
+3. **Git worktrees** for agent isolation. Never have multiple agents editing the same worktree.
+4. **Merge lock**: `/workspace/.agent_locks/merge.lock` (directory-based lock).
+5. **Merge into main only after tests pass.** If tests fail, do not merge; leave branch and write a failure report.
+
+**Worktree layout:**
+- Agent worktrees: `/workspace/.agent_worktrees/<agent_id>-<task_slug>`
+- Branch naming: `agent/<agent_id>-<task_slug>`
+
+**Process:**
+1. Create branch from main: `agent/<agent_id>-<task_slug>`
+2. Create worktree under `.agent_worktrees/`
+3. Run worker agent in that worktree
+4. Worker commits with message: `<scope>: <summary>`
+5. Acquire merge lock → checkout main → merge `--no-ff` → run static gates (`ruff check`, `mypy`) → run tests → release lock
+6. If merge/static gates/tests fail: abort, keep branch, write report to `/artifacts/merge_failure_<branch>.md`
+7. Cleanup: remove merged worktrees, delete merged branches (local only)
+
+**Required outputs:**
+- `/artifacts/plan.md` — tasks, branches, worktrees
+- `/artifacts/integration_report.md` — what merged, test results, what left unmerged
