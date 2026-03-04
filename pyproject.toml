@@ -70,3 +70,7 @@ plugins = ["pydantic.mypy"]
 [[tool.mypy.overrides]]
 module = ["langgraph.*", "langchain_core.*"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["jose", "jose.*", "passlib", "passlib.*"]
+ignore_missing_imports = true
