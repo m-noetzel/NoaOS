@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Any
 
-from fastapi import FastAPI
+from fastapi import APIRouter, Depends, FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
 from noa.api.middleware import RequestIDMiddleware, register_error_handlers
+from noa.api.v1.auth import router as auth_router
 from noa.api.v1.health import router as health_router
 
 
@@ -72,5 +74,20 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     # Versioned API routes
     app.include_router(health_router, prefix="/api/v1")
+    # Auth routes
+    app.include_router(auth_router)
+
+    # Protected chat stub (used by auth tests to verify middleware)
+    from noa.auth.middleware import require_auth
+
+    _chat_router = APIRouter(prefix="/api/v1", tags=["chat"])
+
+    @_chat_router.post("/chat")
+    async def chat_stub(
+        payload: dict[str, Any] = Depends(require_auth),  # noqa: B008
+    ) -> dict[str, Any]:
+        return {"ok": True, "data": {"message": "stub"}}
+
+    app.include_router(_chat_router)
 
     return app

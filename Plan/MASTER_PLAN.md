@@ -16,7 +16,7 @@ The plan is organized into **waves** — groups of related phases that deliver a
 | **F1** | Project Scaffold & Docker Compose | **Complete** | 17 | agent/f1-scaffold | ~30 min | ~30 min | QA PASS 2026-03-04 |
 | **F2** | Postgres Schema & Alembic Migrations | **Complete** | 21 | agent/f2-schema | ~45 min | ~30 min | QA PASS 2026-03-04 |
 | **F3** | FastAPI Skeleton & Health Endpoints | **Complete** | 15 | agent/f3-api-skeleton | ~30 min | ~15 min | QA PASS 2026-03-04 |
-| **F4** | Authentication & Session Management | In Progress | ~18 | agent/f4-auth | ~45 min | — | Started 2026-03-04 |
+| **F4** | Authentication & Session Management | **Complete** | 20 | agent/f4-auth | ~45 min | ~30 min | QA PASS_WITH_NOTES 2026-03-04 |
 | — | — **WAVE 2: ORCHESTRATION CORE** — | — | — | — | — | — | — |
 | **OC1** | LangGraph Orchestrator Skeleton | Pending | ~15 | — | ~45 min | — | — |
 | **OC2** | Run/Event Model & SSE Streaming | Pending | ~20 | — | ~45 min | — | — |
