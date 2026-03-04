@@ -49,6 +49,7 @@ markers = [
     "f2: Phase F2 — Postgres Schema & Alembic Migrations",
     "f3: Phase F3 — FastAPI Skeleton & Health Endpoints",
     "f4: Phase F4 — Authentication & Session Management",
+    "oc1: Phase OC1 — LangGraph Orchestrator Skeleton",
 ]
 asyncio_mode = "auto"
 
