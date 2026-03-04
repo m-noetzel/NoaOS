@@ -12,6 +12,7 @@ from starlette.middleware.cors import CORSMiddleware
 from noa.api.middleware import RequestIDMiddleware, register_error_handlers
 from noa.api.v1.auth import router as auth_router
 from noa.api.v1.health import router as health_router
+from noa.api.v1.runs import router as runs_router
 
 
 @asynccontextmanager
@@ -76,6 +77,8 @@ def create_app() -> FastAPI:
     app.include_router(health_router, prefix="/api/v1")
     # Auth routes
     app.include_router(auth_router)
+    # Runs routes (SSE streaming per §22.4)
+    app.include_router(runs_router)
 
     # Protected chat stub (used by auth tests to verify middleware)
     from noa.auth.middleware import require_auth
