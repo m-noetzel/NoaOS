@@ -51,6 +51,8 @@ markers = [
     "f4: Phase F4 — Authentication & Session Management",
     "oc1: Phase OC1 — LangGraph Orchestrator Skeleton",
     "oc3: Phase OC3 — Audit Logging with Hash Chain",
+    "oc4: Phase OC4 — Policy Engine & Approval Framework",
+    "dw2: Phase DW2 — External Worker Skeleton",
 ]
 asyncio_mode = "auto"
 
