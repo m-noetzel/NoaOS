@@ -14,7 +14,7 @@ The plan is organized into **waves** — groups of related phases that deliver a
 |----|-------|--------|-------|--------|------|--------|-------|
 | — | — **WAVE 1: PROJECT FOUNDATION** — | — | — | — | — | — | — |
 | **F1** | Project Scaffold & Docker Compose | **Complete** | 17 | agent/f1-scaffold | ~30 min | ~30 min | QA PASS 2026-03-04 |
-| **F2** | Postgres Schema & Alembic Migrations | Pending | ~15 | — | ~45 min | — | — |
+| **F2** | Postgres Schema & Alembic Migrations | **Complete** | 21 | agent/f2-schema | ~45 min | ~30 min | QA PASS 2026-03-04 |
 | **F3** | FastAPI Skeleton & Health Endpoints | Pending | ~12 | — | ~30 min | — | — |
 | **F4** | Authentication & Session Management | Pending | ~18 | — | ~45 min | — | — |
 | — | — **WAVE 2: ORCHESTRATION CORE** — | — | — | — | — | — | — |
