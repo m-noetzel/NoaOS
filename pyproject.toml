@@ -50,6 +50,7 @@ markers = [
     "f3: Phase F3 — FastAPI Skeleton & Health Endpoints",
     "f4: Phase F4 — Authentication & Session Management",
 ]
+asyncio_mode = "auto"
 
 [tool.ruff]
 target-version = "py311"
