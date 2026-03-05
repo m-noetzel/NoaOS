@@ -10,9 +10,9 @@ from fastapi import APIRouter, Depends, FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
 from noa.api.middleware import RequestIDMiddleware, register_error_handlers
+from noa.api.v1.approvals import router as approvals_router
 from noa.api.v1.auth import router as auth_router
 from noa.api.v1.health import router as health_router
-from noa.api.v1.approvals import router as approvals_router
 from noa.api.v1.runs import router as runs_router
 
 
