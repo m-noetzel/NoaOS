@@ -66,6 +66,7 @@ markers = [
     "ab2: Phase AB2 — Output Validation Pipeline",
     "ab5: Phase AB5 — Coding Task Contract & Worker",
     "ab3: Phase AB3 — Task Scheduling & Prioritization",
+    "ab4: Phase AB4 — Durable Queue & Private Domain Availability",
 ]
 asyncio_mode = "auto"
 
