@@ -33,3 +33,4 @@ class UsageStats(Base):
     )
     run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("runs.id"))
     session_id: Mapped[uuid.UUID | None] = mapped_column()
+    task_id: Mapped[uuid.UUID | None] = mapped_column()
