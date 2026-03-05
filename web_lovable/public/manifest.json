@@ -1,0 +1,16 @@
+{
+  "name": "Noa — Personal Agent Console",
+  "short_name": "Noa",
+  "description": "Personal Agent for Decision & Execution",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0f",
+  "theme_color": "#0a0a0f",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "64x64",
+      "type": "image/x-icon"
+    }
+  ]
+}
