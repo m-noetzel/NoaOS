@@ -53,9 +53,13 @@ describe("ChatView", () => {
     // Check that expected model provider options are present
     const options = screen.getAllByRole("option");
     const optionValues = options.map((opt) => opt.textContent?.toLowerCase());
-    expect(optionValues).toContain(expect.stringContaining("ollama"));
-    expect(optionValues).toContain(expect.stringContaining("anthropic"));
-    expect(optionValues).toContain(expect.stringContaining("openai"));
+    expect(optionValues).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("ollama"),
+        expect.stringContaining("anthropic"),
+        expect.stringContaining("openai"),
+      ]),
+    );
   });
 
   it("prevents submitting an empty message", async () => {
