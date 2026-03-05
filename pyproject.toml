@@ -64,6 +64,7 @@ markers = [
     "ti5: Phase TI5 — Web Search Tool (Provider-Agnostic)",
     "ti6: Phase TI6 — Tool Interface, Registry & Governance",
     "ab2: Phase AB2 — Output Validation Pipeline",
+    "ab5: Phase AB5 — Coding Task Contract & Worker",
 ]
 asyncio_mode = "auto"
 
