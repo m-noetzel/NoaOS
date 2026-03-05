@@ -35,11 +35,11 @@ The plan is organized into **waves** — groups of related phases that deliver a
 | **TI5** | Web Search Tool (Provider-Agnostic, Tavily first) | **Complete** | 13 | agent/ti5-web-search-tool | ~20 min | ~10 min | Merged 505e494 2026-03-05 |
 | **TI6** | Tool Interface, Registry & Governance (MCP-ready) | **Complete** | 36 | agent/ti6-tool-governance | ~60 min | ~20 min | Merged d735763 2026-03-05 |
 | — | — **WAVE 5: ADVANCED BACKEND** — | — | — | — | — | — | — |
-| **AB1** | Cost Control & Token Tracking | Pending | ~15 | — | ~30 min | — | — |
-| **AB2** | Output Validation Pipeline | Pending | ~15 | — | ~30 min | — | — |
-| **AB3** | Task Scheduling & Prioritization | Pending | ~15 | — | ~30 min | — | — |
-| **AB4** | Durable Queue & Private Domain Availability | Pending | ~12 | — | ~30 min | — | — |
-| **AB5** | Coding Task Contract & Worker | Pending | ~15 | — | ~30 min | — | — |
+| **AB1** | Cost Control & Token Tracking | Pending | ~15 | — | ~20 min | — | — |
+| **AB2** | Output Validation Pipeline | Pending | ~15 | — | ~20 min | — | — |
+| **AB3** | Task Scheduling & Prioritization | Pending | ~15 | — | ~20 min | — | — |
+| **AB4** | Durable Queue & Private Domain Availability | Pending | ~12 | — | ~20 min | — | — |
+| **AB5** | Coding Task Contract & Worker | Pending | ~15 | — | ~20 min | — | — |
 | — | — **WAVE 6: WEB CLIENT** — | — | — | — | — | — | — |
 | **WC1** | React Project Setup & Chat UI with SSE | Pending | ~15 | — | ~45 min | — | — |
 | **WC2** | Run Timeline & Event Details | Pending | ~12 | — | ~30 min | — | — |
@@ -901,7 +901,7 @@ Adds cost control, output validation, task scheduling, durable queuing, and the 
 
 ---
 
-### Phase AB1: Cost Control & Token Tracking (~30 min)
+### Phase AB1: Cost Control & Token Tracking (~20 min)
 
 **Goal:** No cost control exists. This phase implements token tracking, cost estimation, and hard budget limits (monthly, daily, per-task).
 
@@ -909,6 +909,11 @@ Adds cost control, output validation, task scheduling, durable queuing, and the 
 
 **Depends on:** OC1, OC3
 **Blocks:** None
+
+**Integration contracts (R4):**
+- `CostTracker.record(provider, model, input_tokens, output_tokens, cost_usd)` — called by workers after each LLM call
+- `CostLimiter.check(scope: "monthly"|"daily"|"task", task_id?)` → `bool` — called by orchestrator before dispatching
+- `UsageAPI` endpoints return per-message, session, daily, monthly breakdowns
 
 **Deliverables:**
 1. Token tracking per LLM call (provider, model, input/output tokens, cost)
@@ -943,7 +948,7 @@ pytest tests/unit/test_cost.py -v
 
 ---
 
-### Phase AB2: Output Validation Pipeline (~30 min)
+### Phase AB2: Output Validation Pipeline (~20 min)
 
 **Goal:** No output validation exists. This phase implements the validation pipeline that checks all worker outputs before Noa acts on them (schema validation, size limits, content filtering, prompt injection detection).
 
@@ -951,6 +956,11 @@ pytest tests/unit/test_cost.py -v
 
 **Depends on:** OC1, DW1, DW2
 **Blocks:** None
+
+**Integration contracts (R4):**
+- `ValidationPipeline.validate(output: dict, context: ValidationContext)` → `ValidationResult` — called by orchestrator after every worker response
+- `ValidationResult` has `passed: bool`, `failures: list[ValidationFailure]`, `filtered_output: dict`
+- Pipeline stages: schema → size → content_filter → coding_check → tool_check → policy
 
 **Deliverables:**
 1. Schema validation for all worker responses per §16.1
@@ -987,7 +997,7 @@ pytest tests/unit/test_validation.py -v
 
 ---
 
-### Phase AB3: Task Scheduling & Prioritization (~30 min)
+### Phase AB3: Task Scheduling & Prioritization (~20 min)
 
 **Goal:** No task scheduling exists. This phase implements deterministic task ordering with priority tiers, FIFO within tiers, and dependency resolution.
 
@@ -995,6 +1005,13 @@ pytest tests/unit/test_validation.py -v
 
 **Depends on:** OC4
 **Blocks:** AB4
+
+**Integration contracts (R4):**
+- `TaskScheduler.enqueue(task, priority, dependencies?)` → `queue_position`
+- `TaskScheduler.next()` → highest-priority unblocked task (FIFO within tier)
+- `TaskScheduler.cancel(task_id)`, `TaskScheduler.retry(task_id)`
+- Priority enum: `critical > high > normal > background`
+- Max dependency chain depth: 5; circular deps rejected
 
 **Deliverables:**
 1. Priority-based task queue (critical > high > normal > background) per §23.1
@@ -1030,7 +1047,7 @@ pytest tests/unit/test_scheduler.py -v
 
 ---
 
-### Phase AB4: Durable Queue & Private Domain Availability (~30 min)
+### Phase AB4: Durable Queue & Private Domain Availability (~20 min)
 
 **Goal:** No resilience for private domain unavailability exists. This phase implements the durable queue that holds private tasks when the private domain is down, with retry, timeout, and user notification.
 
@@ -1038,6 +1055,13 @@ pytest tests/unit/test_scheduler.py -v
 
 **Depends on:** DW1, AB3
 **Blocks:** None
+
+**Integration contracts (R4):**
+- `DurableQueue.enqueue(task_type, payload, idempotency_key, timeout)` → `queue_id`
+- `DurableQueue.poll()` → next ready task (respects retry backoff)
+- `HealthChecker.is_available()` → `bool` (polls private container every 30s)
+- Retry schedule: 5s, 15s, 45s exponential backoff; max queue depth: 50
+- Idempotency window: 24h; duplicate keys rejected
 
 **Deliverables:**
 1. Durable queue in Postgres (survives API restart) per §17.2
@@ -1073,7 +1097,7 @@ pytest tests/unit/test_durable_queue.py -v
 
 ---
 
-### Phase AB5: Coding Task Contract & Worker (~30 min)
+### Phase AB5: Coding Task Contract & Worker (~20 min)
 
 **Goal:** No coding task execution exists. This phase implements the coding task contract (input/output schema), the shell sandbox within the external container, and structured output from coding tasks.
 
@@ -1081,6 +1105,12 @@ pytest tests/unit/test_durable_queue.py -v
 
 **Depends on:** DW2
 **Blocks:** None
+
+**Integration contracts (R4):**
+- `CodingContract` Pydantic models for input (repo, objective, constraints, test_command, max_iterations=3) and output (diff, test_results, lint, summary)
+- `ShellSandbox.run(cmd, timeout=300, mem_limit="4g")` → `ShellResult(stdout, stderr, exit_code)`
+- Max concurrent shells: 2; workspace scoping enforced via chroot/namespace
+- Every command + exit code logged to audit
 
 **Deliverables:**
 1. Coding task input/output schema per §15
