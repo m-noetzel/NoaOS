@@ -69,6 +69,9 @@ services:
       dockerfile: docker/external-worker/Dockerfile
     networks:
       - noa-external
+    labels:
+      noa.egress.allowlist: "api.anthropic.com,api.openai.com,*.googleapis.com,api.notion.com,api.tavily.com,registry.npmjs.org,pypi.org,files.pythonhosted.org"
+      noa.dns.logging: "true"
     # Container hardening (§8.2)
     read_only: true
     cap_drop:
