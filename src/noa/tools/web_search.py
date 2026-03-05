@@ -26,8 +26,11 @@ class WebSearchTool:
         risk_tier: Always "low".
     """
 
+    name: str = "web_search"
     domain: str = "external"
-    risk_tier: str = "low"
+    risk_tiers: dict[str, str] = {
+        "web_search": "low",
+    }
 
     def __init__(self, *, provider: SearchProvider | Any) -> None:
         """Initialize with a search provider.
@@ -36,6 +39,16 @@ class WebSearchTool:
             provider: SearchProvider implementation (or mock).
         """
         self._provider = provider
+
+    async def execute(
+        self, *, function: str, args: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Dispatch to the appropriate method by function name."""
+        method = getattr(self, function, None)
+        if method is None:
+            raise ValueError(f"Unknown function: {function}")
+        result = await method(**args)
+        return {"results": result} if isinstance(result, list) else result
 
     async def web_search(
         self,

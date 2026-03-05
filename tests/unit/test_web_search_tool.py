@@ -54,7 +54,7 @@ class TestWebSearchToolMetadata:
         """
         from noa.tools.web_search import WebSearchTool
 
-        assert WebSearchTool.risk_tier == "low"
+        assert all(v == "low" for v in WebSearchTool.risk_tiers.values())
 
 
 # ---------------------------------------------------------------------------

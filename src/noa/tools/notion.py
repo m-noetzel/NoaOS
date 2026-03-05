@@ -35,6 +35,7 @@ class NotionTool:
         risk_tiers: Per-action risk tiers.
     """
 
+    name: str = "notion"
     domain: str = "external"
     risk_tiers: dict[str, str] = {
         "search_pages": "low",
@@ -45,6 +46,15 @@ class NotionTool:
 
     def __init__(self, *, api_client: Any) -> None:
         self._client = api_client
+
+    async def execute(
+        self, *, function: str, args: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Dispatch to the appropriate method by function name."""
+        method = getattr(self, function, None)
+        if method is None:
+            raise ValueError(f"Unknown function: {function}")
+        return await method(**args)
 
     async def search_pages(
         self,

@@ -26,6 +26,7 @@ class GmailTool:
         risk_tiers: Per-action risk tiers.
     """
 
+    name: str = "gmail"
     domain: str = "external"
     risk_tiers: dict[str, str] = {
         "search_emails": "low",
@@ -41,6 +42,15 @@ class GmailTool:
             api_client: Async client for Gmail API calls.
         """
         self._client = api_client
+
+    async def execute(
+        self, *, function: str, args: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Dispatch to the appropriate method by function name."""
+        method = getattr(self, function, None)
+        if method is None:
+            raise ValueError(f"Unknown function: {function}")
+        return await method(**args)
 
     async def search_emails(
         self,

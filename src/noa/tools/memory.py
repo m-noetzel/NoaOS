@@ -27,8 +27,13 @@ class MemoryTool:
         risk_tier: Always "low" per §12.5.
     """
 
+    name: str = "memory"
     domain: str = "private"
-    risk_tier: str = "low"
+    risk_tiers: dict[str, str] = {
+        "remember": "low",
+        "recall": "low",
+        "auto_extract": "low",
+    }
 
     def __init__(
         self,
@@ -38,6 +43,15 @@ class MemoryTool:
     ) -> None:
         self._rpc = rpc_client
         self.auto_extraction_enabled = auto_extraction_enabled
+
+    async def execute(
+        self, *, function: str, args: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Dispatch to the appropriate method by function name."""
+        method = getattr(self, function, None)
+        if method is None:
+            raise ValueError(f"Unknown function: {function}")
+        return await method(**args)
 
     async def remember(
         self,

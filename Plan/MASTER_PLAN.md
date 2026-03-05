@@ -28,12 +28,12 @@ The plan is organized into **waves** — groups of related phases that deliver a
 | **DW3** | Docker Network Isolation & Verification | **Complete** | 16 | agent/dw3-network-isolation | ~30 min | ~10 min | QA PASS 2026-03-05 |
 | **DW4** | Privacy Router & Classification | **Complete** | 21 | agent/dw4-privacy-router | ~45 min | ~15 min | QA PASS_WITH_NOTES 2026-03-05 |
 | — | — **WAVE 4: TOOL INTEGRATIONS** — | — | — | — | — | — | — |
-| **TI1** | Memory Tool (Remember/Recall) | Pending | ~15 | — | ~30 min | — | — |
-| **TI2** | Google Calendar Tool | Pending | ~15 | — | ~30 min | — | — |
-| **TI3** | Gmail Tool | Pending | ~18 | — | ~30 min | — | — |
-| **TI4** | Notion Tool | Pending | ~15 | — | ~30 min | — | — |
-| **TI5** | Web Search Tool (Provider-Agnostic, Tavily first) | Pending | ~10 | — | ~20 min | — | — |
-| **TI6** | Tool Governance (Idempotency, Rate Limits, Previews) | Pending | ~20 | — | ~45 min | — | — |
+| **TI1** | Memory Tool (Remember/Recall) | **Complete** | 29 | agent/ti1-memory-tool | ~30 min | ~15 min | Merged fd4c71b 2026-03-05 |
+| **TI2** | Google Calendar Tool | **Complete** | 17 | agent/ti2-calendar-tool | ~30 min | ~10 min | Merged 5cf5ae2 2026-03-05 |
+| **TI3** | Gmail Tool | **Complete** | 14 | agent/ti3-gmail-tool | ~30 min | ~10 min | Merged 6d1cdcf 2026-03-05 |
+| **TI4** | Notion Tool | **Complete** | 13 | agent/ti4-notion-tool | ~30 min | ~10 min | Merged 2b487de 2026-03-05 |
+| **TI5** | Web Search Tool (Provider-Agnostic, Tavily first) | **Complete** | 13 | agent/ti5-web-search-tool | ~20 min | ~10 min | Merged 505e494 2026-03-05 |
+| **TI6** | Tool Interface, Registry & Governance (MCP-ready) | Pending | ~25 | — | ~60 min | — | Includes ToolInterface Protocol, Registry, MCPToolAdapter stub |
 | — | — **WAVE 5: ADVANCED BACKEND** — | — | — | — | — | — | — |
 | **AB1** | Cost Control & Token Tracking | Pending | ~15 | — | ~30 min | — | — |
 | **AB2** | Output Validation Pipeline | Pending | ~15 | — | ~30 min | — | — |
@@ -806,32 +806,75 @@ pytest tests/unit/test_web_search_tool.py -v
 
 ---
 
-### Phase TI6: Tool Governance (Idempotency, Rate Limits, Previews) (~45 min)
+### Phase TI6: Tool Interface, Registry & Governance (MCP-ready) (~60 min)
 
-**Goal:** No tool governance exists. This phase adds idempotency enforcement, rate limiting, and dry-run preview generation across all tools.
+**Goal:** All 5 MVP tools exist as standalone classes with no unified interface. The orchestrator's `tool_node` uses a hardcoded `execute_tool` placeholder. This phase introduces a `ToolInterface` Protocol that all tools implement, a `ToolRegistry` that the orchestrator dispatches through, an `MCPToolAdapter` stub for future MCP server integration, and governance layers (idempotency, rate limiting, dry-run previews) that wrap the unified interface.
 
-**Spec refs:** SPEC.md §19.1, §19.2, §19.3, §25.4
+**Spec refs:** SPEC.md §2.1 (static allowlists), §12 (tool definitions), §16 (output validation), §19.1 (idempotency), §19.2 (previews), §19.3 (rate limits), §25.4 (Idempotency-Key header)
 
 **Depends on:** OC4, TI1-TI5
 **Blocks:** None
 
 **Deliverables:**
-1. Idempotency key enforcement on all write tools per §19.1
-2. Per-tool rate limiting per §19.3
-3. Dry-run preview generation for all Medium-risk actions per §19.2
-4. Idempotency-Key header support on all write API endpoints per §25.4
+
+*Tool Interface & Registry:*
+1. `ToolInterface` Protocol — unified contract: `name`, `domain`, `risk_tiers`, `async execute(function, args) → dict`
+2. `ToolRegistry` — static `dict[str, ToolInterface]`, wired into orchestrator `tool_node`
+3. Refactor all 5 MVP tools (MemoryTool, CalendarTool, GmailTool, NotionTool, WebSearchTool) to implement `ToolInterface`
+4. `MCPToolAdapter` stub — implements `ToolInterface`, wraps future MCP `call_tool()`. Risk tiers come from static config, NOT from MCP server discovery. Transport layer (stdio/SSE) deferred.
+5. Wire `tool_node` to dispatch through `ToolRegistry` instead of `execute_tool` placeholder
+
+*Governance:*
+6. Idempotency key enforcement on all write tools per §19.1
+7. Per-tool rate limiting per §19.3
+8. Dry-run preview generation for all Medium-risk actions per §19.2
+9. Idempotency-Key header support on all write API endpoints per §25.4
+
+**Architecture:**
+
+```
+tool_node (orchestrator)
+    → ToolRegistry.dispatch(name, function, args)
+        → GovernanceWrapper (idempotency + rate limit + preview)
+            → ToolInterface.execute(function, args)
+                → NativeTool (CalendarTool, GmailTool, ...)
+                   OR
+                → MCPToolAdapter → MCP Server (future)
+```
+
+**Key constraint:** The `ToolRegistry` is a static dict populated at startup from config. Tools cannot register themselves at runtime. This preserves §2.1 (static allowlists). MCP servers are declared in config with explicit risk-tier mappings — they do NOT self-declare capabilities.
 
 **Files:**
 
 | File | Action | Description |
 |------|--------|-------------|
-| `src/noa/tools/governance.py` | **CREATE** | Idempotency, rate limiting, preview middleware |
+| `src/noa/tools/interface.py` | **CREATE** | `ToolInterface` Protocol + `ToolRegistry` |
+| `src/noa/tools/mcp_adapter.py` | **CREATE** | `MCPToolAdapter` stub (implements ToolInterface, defers transport) |
+| `src/noa/tools/governance.py` | **CREATE** | `GovernanceWrapper` — idempotency, rate limiting, preview middleware |
 | `src/noa/tools/idempotency.py` | **CREATE** | Idempotency key store + dedup logic |
 | `src/noa/tools/rate_limiter.py` | **CREATE** | Per-tool rate limiting per §19.3 |
+| `src/noa/tools/memory.py` | **EDIT** | Implement `ToolInterface` (add `execute()` dispatcher) |
+| `src/noa/tools/calendar.py` | **EDIT** | Implement `ToolInterface` |
+| `src/noa/tools/gmail.py` | **EDIT** | Implement `ToolInterface` |
+| `src/noa/tools/notion.py` | **EDIT** | Implement `ToolInterface` |
+| `src/noa/tools/web_search.py` | **EDIT** | Implement `ToolInterface` |
+| `src/noa/orchestrator/nodes/tools.py` | **EDIT** | Replace `execute_tool` with `ToolRegistry.dispatch()` |
 | `src/noa/api/middleware.py` | **EDIT** | Add Idempotency-Key header support |
-| `tests/unit/test_tool_governance.py` | **CREATE** | Tool governance tests |
+| `tests/unit/test_tool_interface.py` | **CREATE** | ToolInterface, Registry, MCPToolAdapter tests |
+| `tests/unit/test_tool_governance.py` | **CREATE** | Governance tests (idempotency, rate limits, previews) |
 
-**Tests (~20):**
+**Tests (~25):**
+
+*Interface & Registry:*
+- ToolInterface: all 5 MVP tools satisfy the Protocol
+- ToolRegistry: dispatch routes to correct tool
+- ToolRegistry: unknown tool raises error
+- ToolRegistry: allowlist matches registry keys
+- MCPToolAdapter: implements ToolInterface
+- MCPToolAdapter: execute() raises NotImplementedError (transport not wired)
+- MCPToolAdapter: risk_tiers come from static config, not server
+
+*Governance:*
 - Idempotency: duplicate send_email with same key → no re-send per §19.1
 - Idempotency: duplicate create_event with same key → returns previous result
 - Rate limits: send_email blocked after 10/hour per §19.3
@@ -841,9 +884,13 @@ pytest tests/unit/test_web_search_tool.py -v
 - Preview format: includes diff-like summary of changes
 - API header: Idempotency-Key deduplicates within 24 hours
 
+*Integration:*
+- tool_node dispatches through ToolRegistry (not execute_tool)
+- GovernanceWrapper wraps ToolInterface transparently
+
 **Test gate:**
 ```bash
-pytest tests/unit/test_tool_governance.py -v
+pytest tests/unit/test_tool_interface.py tests/unit/test_tool_governance.py -v
 ```
 
 ---

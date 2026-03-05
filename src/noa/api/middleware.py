@@ -1,4 +1,4 @@
-"""Middleware: request ID, error handling — SPEC.md §25.3."""
+"""Middleware: request ID, error handling, idempotency — SPEC.md §25.3, §25.4."""
 
 from __future__ import annotations
 
@@ -16,6 +16,18 @@ from noa.api.schemas.common import error_envelope
 
 # Context var to carry trace_id through the request lifecycle
 trace_id_ctx: ContextVar[str] = ContextVar("trace_id", default="")
+
+
+def extract_idempotency_key(headers: dict[str, str]) -> str | None:
+    """Extract Idempotency-Key from request headers per §25.4.
+
+    Args:
+        headers: Request headers dict.
+
+    Returns:
+        The idempotency key string, or None if not present.
+    """
+    return headers.get("Idempotency-Key")
 
 
 class RequestIDMiddleware(BaseHTTPMiddleware):
