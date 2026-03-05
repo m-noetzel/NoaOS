@@ -14,3 +14,5 @@ build/
 *.sqlite3
 .agent_worktrees/
 .agent_locks/
+.claude/worktrees/
+.npm-cache/
