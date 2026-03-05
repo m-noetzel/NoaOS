@@ -63,10 +63,11 @@ markers = [
     "ti4: Phase TI4 — Notion Tool",
     "ti5: Phase TI5 — Web Search Tool (Provider-Agnostic)",
     "ti6: Phase TI6 — Tool Interface, Registry & Governance",
+    "ab1: Phase AB1 — Cost Control & Token Tracking",
     "ab2: Phase AB2 — Output Validation Pipeline",
-    "ab5: Phase AB5 — Coding Task Contract & Worker",
     "ab3: Phase AB3 — Task Scheduling & Prioritization",
     "ab4: Phase AB4 — Durable Queue & Private Domain Availability",
+    "ab5: Phase AB5 — Coding Task Contract & Worker",
 ]
 asyncio_mode = "auto"
 

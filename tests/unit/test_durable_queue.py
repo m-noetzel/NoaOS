@@ -10,6 +10,7 @@ notifications.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
@@ -295,6 +296,78 @@ class TestHealthChecker:
             poll_interval=10,
         )
         assert checker.poll_interval == 10
+
+    @pytest.mark.asyncio
+    async def test_poll_once_healthy(self):
+        """_poll_once returns True when endpoint returns 200."""
+        from noa.queue.health import HealthChecker
+
+        mock_client = AsyncMock()
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.aclose = AsyncMock()
+
+        checker = HealthChecker(
+            poll_url="http://private:8080/health",
+            http_client=mock_client,
+        )
+        assert await checker._poll_once() is True  # noqa: SLF001
+
+    @pytest.mark.asyncio
+    async def test_poll_once_unhealthy(self):
+        """_poll_once returns False when endpoint returns non-200."""
+        from noa.queue.health import HealthChecker
+
+        mock_client = AsyncMock()
+        mock_response = MagicMock()
+        mock_response.status_code = 503
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.aclose = AsyncMock()
+
+        checker = HealthChecker(
+            poll_url="http://private:8080/health",
+            http_client=mock_client,
+        )
+        assert await checker._poll_once() is False  # noqa: SLF001
+
+    @pytest.mark.asyncio
+    async def test_start_stop_lifecycle(self):
+        """start() begins polling, stop() cancels it."""
+        from noa.queue.health import HealthChecker
+
+        mock_client = AsyncMock()
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_client.get = AsyncMock(return_value=mock_response)
+
+        checker = HealthChecker(
+            poll_url="http://private:8080/health",
+            poll_interval=1,
+            http_client=mock_client,
+        )
+        await checker.start()
+        assert checker._running is True  # noqa: SLF001
+        # Let one poll cycle complete
+        await asyncio.sleep(0.1)
+        assert checker.is_available() is True
+        await checker.stop()
+        assert checker._running is False  # noqa: SLF001
+
+    @pytest.mark.asyncio
+    async def test_on_change_callback(self):
+        """on_change is called when availability changes."""
+        from noa.queue.health import HealthChecker
+
+        changes: list[bool] = []
+        checker = HealthChecker(
+            poll_url="http://private:8080/health",
+            on_change=lambda v: changes.append(v),
+        )
+        checker.set_available(True)
+        checker.set_available(True)  # no change, no callback
+        checker.set_available(False)
+        assert changes == [True, False]
 
 
 # ---------------------------------------------------------------------------

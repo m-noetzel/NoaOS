@@ -75,6 +75,7 @@ def get_usage(
     user_id: uuid.UUID,
     period: str,
     session_id: uuid.UUID | None = None,
+    now: datetime | None = None,
 ) -> UsageSummary:
     """Get aggregated usage for a given period.
 
@@ -83,6 +84,7 @@ def get_usage(
         user_id: User to query usage for.
         period: One of "daily", "monthly", "session".
         session_id: Required when period is "session".
+        now: Override current time for testability.
 
     Returns:
         UsageSummary with totals.
@@ -93,7 +95,8 @@ def get_usage(
         func.coalesce(func.sum(UsageStats.output_tokens), 0),
     ).filter(UsageStats.user_id == user_id)
 
-    now = datetime.now(UTC)
+    if now is None:
+        now = datetime.now(UTC)
 
     if period == "daily":
         start = now.replace(hour=0, minute=0, second=0, microsecond=0)

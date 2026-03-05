@@ -72,11 +72,19 @@ class CodingWorker:
             f"Objective: {task.objective}"
         )
 
+        # Parse files_modified from diff
+        files_modified: list[str] = []
+        for line in diff.splitlines():
+            if line.startswith("+++ b/"):
+                files_modified.append(line[6:])
+
         return CodingTaskOutput(
             diff=diff,
             test_results=test_results,
             lint=lint,
+            status="success" if success else "failure",
+            files_modified=files_modified,
+            tests_passed=success,
             summary=summary,
             iterations_used=iterations_used,
-            success=success,
         )

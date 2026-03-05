@@ -362,3 +362,59 @@ class TestEnqueuePosition:
         pos = scheduler.enqueue("first", priority=Priority.CRITICAL)
         assert isinstance(pos, int)
         assert pos >= 0
+
+
+# ---------------------------------------------------------------------------
+# 10. Standalone dependency utilities (§23.3 — dependencies.py)
+# ---------------------------------------------------------------------------
+
+
+class TestDependencyUtilities:
+    """Test standalone detect_cycle() and chain_depth() from dependencies.py."""
+
+    def test_detect_cycle_no_cycle(self):
+        """No cycle in a simple chain A → B → C."""
+        from noa.scheduler.dependencies import DependencyEdge, detect_cycle
+
+        edges = [
+            DependencyEdge(from_task="B", to_task="A"),
+            DependencyEdge(from_task="C", to_task="B"),
+        ]
+        new = DependencyEdge(from_task="D", to_task="C")
+        assert detect_cycle(edges, new) is False
+
+    def test_detect_cycle_with_cycle(self):
+        """Cycle detected when A → B → C → A."""
+        from noa.scheduler.dependencies import DependencyEdge, detect_cycle
+
+        edges = [
+            DependencyEdge(from_task="A", to_task="B"),
+            DependencyEdge(from_task="B", to_task="C"),
+        ]
+        new = DependencyEdge(from_task="C", to_task="A")
+        assert detect_cycle(edges, new) is True
+
+    def test_chain_depth_simple(self):
+        """Chain depth of 3 for A → B → C."""
+        from noa.scheduler.dependencies import DependencyEdge, chain_depth
+
+        edges = [
+            DependencyEdge(from_task="B", to_task="A"),
+            DependencyEdge(from_task="C", to_task="B"),
+        ]
+        assert chain_depth(edges, "C") == 3
+        assert chain_depth(edges, "A") == 1
+
+    def test_chain_depth_no_deps(self):
+        """Chain depth of 1 for a task with no dependencies."""
+        from noa.scheduler.dependencies import chain_depth
+
+        assert chain_depth([], "solo") == 1
+
+    def test_dependency_type_enum(self):
+        """DependencyType enum has expected values."""
+        from noa.scheduler.dependencies import DependencyType
+
+        assert DependencyType.EXPLICIT.value == "explicit"
+        assert DependencyType.SEQUENTIAL.value == "sequential"
+        assert DependencyType.INDEPENDENT.value == "independent"

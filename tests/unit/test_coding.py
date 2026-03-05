@@ -29,16 +29,23 @@ class TestCodingTaskInput:
 
     def test_valid_input_accepted(self, tmp_path: Path) -> None:
         """A fully-specified coding task input is accepted."""
-        from noa.coding.contract import CodingTaskInput
+        from noa.coding.contract import CodingConstraints, CodingTaskInput, RiskTier
 
         task = CodingTaskInput(
             repo=str(tmp_path),
+            base_commit="abc123",
             objective="Fix the login bug",
-            constraints=["no new dependencies"],
+            constraints=CodingConstraints(language="python", style="pep8"),
+            acceptance_criteria=["tests pass", "no regressions"],
             test_command="pytest tests/",
+            risk_tier=RiskTier.MEDIUM,
             max_iterations=3,
         )
         assert task.repo == str(tmp_path)
+        assert task.base_commit == "abc123"
+        assert task.constraints.language == "python"
+        assert task.acceptance_criteria == ["tests pass", "no regressions"]
+        assert task.risk_tier == RiskTier.MEDIUM
         assert task.max_iterations == 3
 
     def test_missing_repo_rejected(self) -> None:
@@ -48,7 +55,6 @@ class TestCodingTaskInput:
         with pytest.raises(Exception):  # noqa: B017
             CodingTaskInput(
                 objective="Fix bug",
-                constraints=[],
                 test_command="pytest",
             )  # type: ignore[call-arg]
 
@@ -59,7 +65,6 @@ class TestCodingTaskInput:
         with pytest.raises(Exception):  # noqa: B017
             CodingTaskInput(
                 repo=str(tmp_path),
-                constraints=[],
                 test_command="pytest",
             )  # type: ignore[call-arg]
 
@@ -71,20 +76,22 @@ class TestCodingTaskInput:
             CodingTaskInput(
                 repo=str(tmp_path),
                 objective="Fix bug",
-                constraints=[],
             )  # type: ignore[call-arg]
 
-    def test_default_max_iterations(self, tmp_path: Path) -> None:
-        """max_iterations defaults to 3."""
-        from noa.coding.contract import CodingTaskInput
+    def test_defaults_match_spec(self, tmp_path: Path) -> None:
+        """Defaults: max_iterations=3, risk_tier=low, empty constraints."""
+        from noa.coding.contract import CodingTaskInput, RiskTier
 
         task = CodingTaskInput(
             repo=str(tmp_path),
             objective="Fix bug",
-            constraints=[],
             test_command="pytest",
         )
         assert task.max_iterations == 3
+        assert task.risk_tier == RiskTier.LOW
+        assert task.base_commit is None
+        assert task.acceptance_criteria == []
+        assert task.constraints.language is None
 
 
 # ---------------------------------------------------------------------------
@@ -96,23 +103,28 @@ class TestCodingTaskOutput:
     """CodingTaskOutput contains diff, test_results, lint, summary."""
 
     def test_output_has_required_fields(self) -> None:
-        """Output includes diff, test_results, lint, and summary."""
+        """Output matches SPEC.md §15 structured JSON summary."""
         from noa.coding.contract import CodingTaskOutput
 
         output = CodingTaskOutput(
             diff="--- a/foo.py\n+++ b/foo.py\n@@ -1 +1 @@\n-old\n+new",
             test_results="3 passed",
             lint="no issues",
+            status="success",
+            files_modified=["foo.py"],
+            tests_passed=True,
             summary="Fixed the bug",
             iterations_used=1,
-            success=True,
         )
         assert output.diff is not None
         assert output.test_results == "3 passed"
         assert output.lint == "no issues"
+        assert output.status == "success"
+        assert output.files_modified == ["foo.py"]
+        assert output.tests_passed is True
         assert output.summary == "Fixed the bug"
         assert output.iterations_used == 1
-        assert output.success is True
+        assert output.success is True  # convenience property
 
 
 # ---------------------------------------------------------------------------
@@ -254,7 +266,6 @@ class TestCodingWorker:
         task = CodingTaskInput(
             repo=str(tmp_path),
             objective="Fix the bug",
-            constraints=[],
             test_command="echo PASS",
             max_iterations=1,
         )
@@ -273,14 +284,14 @@ class TestCodingWorker:
         task = CodingTaskInput(
             repo=str(tmp_path),
             objective="Impossible task",
-            constraints=[],
             test_command="false",  # always fails
             max_iterations=2,
         )
         worker = CodingWorker()
         output = await worker.execute(task)
         assert output.iterations_used <= 2
-        assert output.success is False
+        assert output.status == "failure"
+        assert output.tests_passed is False
 
     @pytest.mark.asyncio
     async def test_worker_captures_diff(self, tmp_path: Path) -> None:
@@ -294,7 +305,6 @@ class TestCodingWorker:
         task = CodingTaskInput(
             repo=str(tmp_path),
             objective="Modify hello.txt",
-            constraints=[],
             test_command="echo PASS",
             max_iterations=1,
         )
