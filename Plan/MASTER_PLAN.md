@@ -33,7 +33,7 @@ The plan is organized into **waves** — groups of related phases that deliver a
 | **TI3** | Gmail Tool | **Complete** | 14 | agent/ti3-gmail-tool | ~30 min | ~10 min | Merged 6d1cdcf 2026-03-05 |
 | **TI4** | Notion Tool | **Complete** | 13 | agent/ti4-notion-tool | ~30 min | ~10 min | Merged 2b487de 2026-03-05 |
 | **TI5** | Web Search Tool (Provider-Agnostic, Tavily first) | **Complete** | 13 | agent/ti5-web-search-tool | ~20 min | ~10 min | Merged 505e494 2026-03-05 |
-| **TI6** | Tool Interface, Registry & Governance (MCP-ready) | Pending | ~25 | — | ~60 min | — | Includes ToolInterface Protocol, Registry, MCPToolAdapter stub |
+| **TI6** | Tool Interface, Registry & Governance (MCP-ready) | **Complete** | 36 | agent/ti6-tool-governance | ~60 min | ~20 min | Merged d735763 2026-03-05 |
 | — | — **WAVE 5: ADVANCED BACKEND** — | — | — | — | — | — | — |
 | **AB1** | Cost Control & Token Tracking | Pending | ~15 | — | ~30 min | — | — |
 | **AB2** | Output Validation Pipeline | Pending | ~15 | — | ~30 min | — | — |
