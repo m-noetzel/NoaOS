@@ -65,6 +65,7 @@ markers = [
     "ti6: Phase TI6 — Tool Interface, Registry & Governance",
     "ab2: Phase AB2 — Output Validation Pipeline",
     "ab5: Phase AB5 — Coding Task Contract & Worker",
+    "ab3: Phase AB3 — Task Scheduling & Prioritization",
 ]
 asyncio_mode = "auto"
 
