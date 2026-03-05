@@ -5,6 +5,9 @@ services:
       dockerfile: Dockerfile.dev
     container_name: noa-dev
     working_dir: /workspace
+    ports:
+      - "127.0.0.1:5173:5173"   # vite dev server
+      - "127.0.0.1:4173:4173"   # vite preview server
     volumes:
       - ./:/workspace:rw
       - ./artifacts_out:/artifacts:rw

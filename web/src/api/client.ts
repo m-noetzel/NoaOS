@@ -1,137 +1,133 @@
-/**
- * API client with auth token management and auto-refresh.
- * All requests go through apiClient which adds Authorization header
- * and handles 401 token refresh transparently.
- */
+import type { ApiResponse, AuthTokens, RefreshRequest } from "./types";
+import { getAccessToken, getRefreshToken, setTokens, clearTokens } from "@/auth/tokens";
 
-const API_BASE = "http://localhost:8000/api/v1";
+// In dev, Vite proxy handles /api → backend. In production, same origin.
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
+const USE_MOCKS = import.meta.env.VITE_USE_MOCKS === "true";
 
-interface ApiResponse<T = unknown> {
-  data: T;
-  meta?: {
-    request_id: string;
-    trace_id: string;
-    timestamp: string;
-  };
-  error?: {
-    code: string;
-    message: string;
-  };
+const WEB_DEVICE_ID = "web-client";
+
+let isRefreshing = false;
+let refreshPromise: Promise<boolean> | null = null;
+
+function generateIdempotencyKey(): string {
+  return crypto.randomUUID();
 }
 
-async function refreshTokens(): Promise<boolean> {
-  const refreshToken = localStorage.getItem("refresh_token");
-  if (!refreshToken) return false;
+async function refreshAccessToken(): Promise<boolean> {
+  const refresh = getRefreshToken();
+  if (!refresh) return false;
 
   try {
-    const res = await fetch(`${API_BASE}/auth/refresh`, {
+    const body: RefreshRequest = { refresh_token: refresh, device_id: WEB_DEVICE_ID };
+    const res = await fetch(`${BASE_URL}/api/v1/auth/refresh`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        refresh_token: refreshToken,
-        device_id: "web-client",
-      }),
+      body: JSON.stringify(body),
     });
 
-    if (!res.ok) return false;
-
-    const json: ApiResponse<{
-      access_token: string;
-      refresh_token: string;
-    }> = await res.json();
-
-    if (json.data) {
-      localStorage.setItem("access_token", json.data.access_token);
-      localStorage.setItem("refresh_token", json.data.refresh_token);
-      return true;
+    if (!res.ok) {
+      clearTokens();
+      return false;
     }
-    return false;
+
+    const envelope: ApiResponse<AuthTokens> = await res.json();
+    if (!envelope.ok || envelope.error) {
+      clearTokens();
+      return false;
+    }
+
+    setTokens(envelope.data.access_token, envelope.data.refresh_token);
+    return true;
   } catch {
+    clearTokens();
     return false;
   }
 }
 
-async function request<T = unknown>(
+async function handleTokenRefresh(): Promise<boolean> {
+  if (isRefreshing && refreshPromise) {
+    return refreshPromise;
+  }
+
+  isRefreshing = true;
+  refreshPromise = refreshAccessToken().finally(() => {
+    isRefreshing = false;
+    refreshPromise = null;
+  });
+
+  return refreshPromise;
+}
+
+export async function apiRequest<T>(
   path: string,
-  options: RequestInit = {},
+  options: RequestInit = {}
 ): Promise<ApiResponse<T>> {
-  const token = localStorage.getItem("access_token");
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...(options.headers as Record<string, string>),
+  if (USE_MOCKS) {
+    const { handleMockRequest } = await import("./mock/handlers");
+    return handleMockRequest<T>(path, options);
+  }
+
+  const method = (options.method || "GET").toUpperCase();
+  const isWrite = method === "POST" || method === "PUT" || method === "DELETE" || method === "PATCH";
+
+  const makeRequest = async (): Promise<Response> => {
+    const token = getAccessToken();
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...(options.headers as Record<string, string>),
+    };
+
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+
+    // §25.4: Idempotency key for all write operations
+    if (isWrite) {
+      headers["Idempotency-Key"] = generateIdempotencyKey();
+    }
+
+    return fetch(`${BASE_URL}${path}`, { ...options, headers });
   };
 
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
+  let response = await makeRequest();
 
-  let res = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers,
-  });
-
-  // Auto-refresh on 401
-  if (res.status === 401) {
-    const refreshed = await refreshTokens();
+  // 401 → try refresh → retry once
+  if (response.status === 401) {
+    const refreshed = await handleTokenRefresh();
     if (refreshed) {
-      const newToken = localStorage.getItem("access_token");
-      headers["Authorization"] = `Bearer ${newToken}`;
-      res = await fetch(`${API_BASE}${path}`, {
-        ...options,
-        headers,
-      });
+      response = await makeRequest();
+    } else {
+      clearTokens();
+      window.location.href = "/login";
+      throw new Error("Session expired");
     }
   }
 
-  const json: ApiResponse<T> = await res.json();
-
-  if (!res.ok && !json.data) {
-    throw new Error(json.error?.message ?? `Request failed: ${res.status}`);
+  // §19.3: Rate limit handling
+  if (response.status === 429) {
+    const retryAfter = response.headers.get("Retry-After");
+    throw new Error(
+      retryAfter
+        ? `Rate limited. Try again in ${retryAfter} seconds.`
+        : "Too many requests. Please wait before trying again."
+    );
   }
 
-  return json;
-}
-
-export const apiClient = {
-  get<T = unknown>(path: string): Promise<ApiResponse<T>> {
-    return request<T>(path, { method: "GET" });
-  },
-
-  post<T = unknown>(
-    path: string,
-    body?: unknown,
-  ): Promise<ApiResponse<T>> {
-    return request<T>(path, {
-      method: "POST",
-      body: body ? JSON.stringify(body) : undefined,
-    });
-  },
-};
-
-export async function login(
-  username: string,
-  password: string,
-): Promise<{ access_token: string; refresh_token: string }> {
-  const res = await apiClient.post<{
-    access_token: string;
-    refresh_token: string;
-  }>("/auth/login", {
-    username,
-    password,
-    device_id: "web-client",
-  });
-
-  const tokens = res.data;
-  localStorage.setItem("access_token", tokens.access_token);
-  localStorage.setItem("refresh_token", tokens.refresh_token);
-  return tokens;
-}
-
-export async function logout(): Promise<void> {
-  try {
-    await apiClient.post("/auth/logout");
-  } finally {
-    localStorage.removeItem("access_token");
-    localStorage.removeItem("refresh_token");
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.error?.message || `Request failed: ${response.status}`);
   }
+
+  return response.json();
 }
+
+export function getSSEUrl(path: string): string {
+  return `${BASE_URL}${path}`;
+}
+
+export function isUsingMocks(): boolean {
+  return USE_MOCKS;
+}
+
+export { BASE_URL, WEB_DEVICE_ID };

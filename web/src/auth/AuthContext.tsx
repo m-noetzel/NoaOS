@@ -1,0 +1,61 @@
+import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
+import { apiRequest, WEB_DEVICE_ID } from "@/api/client";
+import type { AuthTokens, LoginRequest } from "@/api/types";
+import { setTokens, clearTokens, hasTokens } from "./tokens";
+
+interface AuthState {
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  login: (email: string, password: string) => Promise<void>;
+  logout: () => void;
+}
+
+const AuthContext = createContext<AuthState | null>(null);
+
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [isAuthenticated, setIsAuthenticated] = useState(() => hasTokens());
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    setIsAuthenticated(hasTokens());
+  }, []);
+
+  const login = useCallback(async (email: string, password: string) => {
+    setIsLoading(true);
+    try {
+      const body: LoginRequest = { email, password, device_id: WEB_DEVICE_ID };
+      const res = await apiRequest<AuthTokens>("/api/v1/auth/login", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok || res.error) {
+        throw new Error(res.error?.message || "Login failed");
+      }
+
+      setTokens(res.data.access_token, res.data.refresh_token);
+      setIsAuthenticated(true);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  const logout = useCallback(() => {
+    // Best-effort server logout
+    apiRequest("/api/v1/auth/logout", { method: "POST" }).catch(() => {});
+    clearTokens();
+    setIsAuthenticated(false);
+  }, []);
+
+  return (
+    <AuthContext.Provider value={{ isAuthenticated, isLoading, login, logout }}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export function useAuth() {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error("useAuth must be used within AuthProvider");
+  return ctx;
+}
