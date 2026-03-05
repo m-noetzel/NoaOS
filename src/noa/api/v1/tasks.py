@@ -1,6 +1,7 @@
 """Task queue endpoints — SPEC.md §23.4.
 
 Provides REST endpoints for task queue management:
+- GET /tasks — list all tasks
 - POST /tasks — enqueue a task
 - GET /tasks/next — dequeue highest-priority unblocked task
 - POST /tasks/{task_id}/cancel — cancel a task
@@ -67,6 +68,27 @@ class NextTaskResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
+
+
+@router.get("")
+async def list_tasks(
+    user: dict[str, Any] = Depends(require_auth),  # noqa: B008
+    scheduler: TaskScheduler = Depends(get_scheduler),  # noqa: B008
+) -> dict[str, Any]:
+    """List all tasks in the queue per §23.4."""
+    tasks = []
+    for task_id, entry in scheduler._tasks.items():
+        tasks.append({
+            "task_id": task_id,
+            "status": entry.status,
+            "priority": entry.priority.name.lower(),
+            "metadata": entry.metadata,
+        })
+    from noa.api.middleware import trace_id_ctx
+    from noa.api.schemas.common import success_envelope
+
+    rid = trace_id_ctx.get("")
+    return success_envelope(data={"tasks": tasks}, trace_id=rid)
 
 
 @router.post("", response_model=EnqueueResponse)

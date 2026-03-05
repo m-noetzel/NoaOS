@@ -1,105 +1,67 @@
-import { useState } from "react";
-import { ChatView } from "./components/Chat/ChatView";
-import { RunTimeline } from "./components/Run/RunTimeline";
-import { RunHistory } from "./components/Run/RunHistory";
-import { ApprovalPanel } from "./components/Approval/ApprovalPanel";
-import { TaskQueue } from "./components/Queue/TaskQueue";
-import { MemoryAudit } from "./components/Memory/MemoryAudit";
-import { CostDashboard } from "./components/Cost/CostDashboard";
-import { SettingsPanel } from "./components/Settings/SettingsPanel";
-import { ArtifactViewer } from "./components/Artifacts/ArtifactViewer";
-import { useRunStore } from "./store/runs";
+import { Toaster } from "@/components/ui/toaster";
+import { Toaster as Sonner } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { ThemeProvider } from "next-themes";
+import { AuthProvider } from "@/auth/AuthContext";
+import { AuthGuard } from "@/auth/AuthGuard";
+import { AppLayout } from "@/components/layout/AppLayout";
+import Login from "@/pages/Login";
+import Chat from "@/pages/Chat";
+import Runs from "@/pages/Runs";
+import RunDetail from "@/pages/RunDetail";
+import Approvals from "@/pages/Approvals";
+import Queue from "@/pages/Queue";
+import Memory from "@/pages/Memory";
+import Artifacts from "@/pages/Artifacts";
+import Cost from "@/pages/Cost";
+import Settings from "@/pages/Settings";
+import NotFound from "@/pages/NotFound";
 
-type View =
-  | "chat"
-  | "runs"
-  | "approvals"
-  | "queue"
-  | "memory"
-  | "costs"
-  | "settings"
-  | "artifacts";
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 30_000,
+      retry: 1,
+    },
+  },
+});
 
-const NAV_ITEMS: { key: View; label: string }[] = [
-  { key: "chat", label: "Chat" },
-  { key: "runs", label: "Runs" },
-  { key: "approvals", label: "Approvals" },
-  { key: "queue", label: "Queue" },
-  { key: "memory", label: "Memory" },
-  { key: "costs", label: "Costs" },
-  { key: "settings", label: "Settings" },
-  { key: "artifacts", label: "Artifacts" },
-];
-
-export function App() {
-  const [view, setView] = useState<View>("chat");
-  const activeRun = useRunStore((s) => s.getActiveRun());
-  const runs = useRunStore((s) => s.runs);
-  const setActiveRun = useRunStore((s) => s.setActiveRun);
-
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ display: "flex", height: "100vh", fontFamily: "system-ui, sans-serif" }}>
-      {/* Sidebar */}
-      <nav
-        style={{
-          width: 200,
-          background: "#1a1a2e",
-          color: "#fff",
-          padding: "1rem 0",
-          display: "flex",
-          flexDirection: "column",
-        }}
-      >
-        <h1 style={{ fontSize: "1.5rem", fontWeight: 700, padding: "0 1rem", margin: "0 0 1rem" }}>
-          Noa
-        </h1>
-        {NAV_ITEMS.map(({ key, label }) => (
-          <button
-            key={key}
-            onClick={() => setView(key)}
-            style={{
-              background: view === key ? "rgba(255,255,255,0.15)" : "transparent",
-              color: "#fff",
-              border: "none",
-              padding: "0.6rem 1rem",
-              textAlign: "left",
-              cursor: "pointer",
-              fontSize: "0.9rem",
-            }}
-          >
-            {label}
-          </button>
-        ))}
-      </nav>
-
-      {/* Main content */}
-      <main style={{ flex: 1, overflow: "auto", padding: "1rem" }}>
-        {view === "chat" && <ChatView />}
-        {view === "runs" && (
-          <div style={{ display: "flex", gap: "1rem" }}>
-            <div style={{ width: 300 }}>
-              <RunHistory
-                runs={runs}
-                activeRunId={activeRun?.id ?? null}
-                onSelectRun={setActiveRun}
-              />
-            </div>
-            <div style={{ flex: 1 }}>
-              {activeRun ? (
-                <RunTimeline run={activeRun} />
-              ) : (
-                <p style={{ color: "#888" }}>Select a run to view its timeline.</p>
-              )}
-            </div>
-          </div>
-        )}
-        {view === "approvals" && <ApprovalPanel />}
-        {view === "queue" && <TaskQueue />}
-        {view === "memory" && <MemoryAudit />}
-        {view === "costs" && <CostDashboard />}
-        {view === "settings" && <SettingsPanel />}
-        {view === "artifacts" && <ArtifactViewer />}
-      </main>
-    </div>
+    <AuthGuard>
+      <AppLayout>{children}</AppLayout>
+    </AuthGuard>
   );
 }
+
+const App = () => (
+  <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <Toaster />
+        <Sonner />
+        <BrowserRouter>
+          <AuthProvider>
+            <Routes>
+              <Route path="/login" element={<Login />} />
+              <Route path="/" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
+              <Route path="/runs" element={<ProtectedRoute><Runs /></ProtectedRoute>} />
+              <Route path="/runs/:runId" element={<ProtectedRoute><RunDetail /></ProtectedRoute>} />
+              <Route path="/approvals" element={<ProtectedRoute><Approvals /></ProtectedRoute>} />
+              <Route path="/queue" element={<ProtectedRoute><Queue /></ProtectedRoute>} />
+              <Route path="/memory" element={<ProtectedRoute><Memory /></ProtectedRoute>} />
+              <Route path="/artifacts" element={<ProtectedRoute><Artifacts /></ProtectedRoute>} />
+              <Route path="/cost" element={<ProtectedRoute><Cost /></ProtectedRoute>} />
+              <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </AuthProvider>
+        </BrowserRouter>
+      </TooltipProvider>
+    </QueryClientProvider>
+  </ThemeProvider>
+);
+
+export default App;
