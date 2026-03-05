@@ -23,10 +23,10 @@ The plan is organized into **waves** — groups of related phases that deliver a
 | **OC3** | Audit Logging with Hash Chain | **Complete** | 18 | agent/oc3-audit | ~30 min | ~20 min | QA PASS_WITH_NOTES 2026-03-04 |
 | **OC4** | Policy Engine & Approval Framework | **Complete** | 28 | agent/oc4-policy-engine | ~45 min | ~20 min | QA PASS 2026-03-04 |
 | — | — **WAVE 3: DOMAIN WORKERS & ISOLATION** — | — | — | — | — | — | — |
-| **DW1** | Private Worker with Ollama & RPC Contract | Pending | ~20 | — | ~45 min | — | — |
-| **DW2** | External Worker Skeleton | Pending | ~12 | — | ~30 min | — | — |
-| **DW3** | Docker Network Isolation & Verification | Pending | ~10 | — | ~30 min | — | — |
-| **DW4** | Privacy Router & Classification | Pending | ~18 | — | ~45 min | — | — |
+| **DW1** | Private Worker with Ollama & RPC Contract | **Complete** | 38 | agent/dw1-private-worker | ~45 min | ~20 min | QA PASS_WITH_NOTES 2026-03-05 |
+| **DW2** | External Worker Skeleton | **Complete** | 16 | agent/dw2-external-worker | ~30 min | ~15 min | QA PASS 2026-03-05 |
+| **DW3** | Docker Network Isolation & Verification | **Complete** | 16 | agent/dw3-network-isolation | ~30 min | ~10 min | QA PASS 2026-03-05 |
+| **DW4** | Privacy Router & Classification | **Complete** | 21 | agent/dw4-privacy-router | ~45 min | ~15 min | QA PASS_WITH_NOTES 2026-03-05 |
 | — | — **WAVE 4: TOOL INTEGRATIONS** — | — | — | — | — | — | — |
 | **TI1** | Memory Tool (Remember/Recall) | Pending | ~15 | — | ~30 min | — | — |
 | **TI2** | Google Calendar Tool | Pending | ~15 | — | ~30 min | — | — |
