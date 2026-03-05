@@ -35,11 +35,11 @@ The plan is organized into **waves** — groups of related phases that deliver a
 | **TI5** | Web Search Tool (Provider-Agnostic, Tavily first) | **Complete** | 13 | agent/ti5-web-search-tool | ~20 min | ~10 min | Merged 505e494 2026-03-05 |
 | **TI6** | Tool Interface, Registry & Governance (MCP-ready) | **Complete** | 36 | agent/ti6-tool-governance | ~60 min | ~20 min | Merged d735763 2026-03-05 |
 | — | — **WAVE 5: ADVANCED BACKEND** — | — | — | — | — | — | — |
-| **AB1** | Cost Control & Token Tracking | Pending | ~15 | — | ~20 min | — | — |
-| **AB2** | Output Validation Pipeline | Pending | ~15 | — | ~20 min | — | — |
-| **AB3** | Task Scheduling & Prioritization | Pending | ~15 | — | ~20 min | — | — |
-| **AB4** | Durable Queue & Private Domain Availability | Pending | ~12 | — | ~20 min | — | — |
-| **AB5** | Coding Task Contract & Worker | Pending | ~15 | — | ~20 min | — | — |
+| **AB1** | Cost Control & Token Tracking | **Complete** | 16 | agent/ab1-cost-control | ~20 min | ~5 min | Merged 2026-03-05 |
+| **AB2** | Output Validation Pipeline | **Complete** | 24 | agent/ab2-output-validation | ~20 min | ~4 min | Merged 2026-03-05 |
+| **AB3** | Task Scheduling & Prioritization | **Complete** | 18 | agent/ab3-task-scheduler | ~20 min | ~5 min | Merged 2026-03-05 |
+| **AB4** | Durable Queue & Private Domain Availability | **Complete** | 15 | agent/ab4-durable-queue | ~20 min | ~3 min | Merged 2026-03-05 |
+| **AB5** | Coding Task Contract & Worker | **Complete** | 17 | agent/ab5-coding-task | ~20 min | ~7 min | Merged 2026-03-05 |
 | — | — **WAVE 6: WEB CLIENT** — | — | — | — | — | — | — |
 | **WC1** | React Project Setup & Chat UI with SSE | Pending | ~15 | — | ~45 min | — | — |
 | **WC2** | Run Timeline & Event Details | Pending | ~12 | — | ~30 min | — | — |
