@@ -159,7 +159,7 @@ class TestRemember:
         """
         from noa.tools.memory import MemoryTool
 
-        assert MemoryTool.risk_tier == "low"
+        assert all(v == "low" for v in MemoryTool.risk_tiers.values())
 
 
 # ---------------------------------------------------------------------------
