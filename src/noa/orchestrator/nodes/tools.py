@@ -3,16 +3,22 @@
 Spec refs: SPEC.md S2.1 (tool allowlists are static per workflow),
            SPEC.md S2.2 (LLM may NOT execute tools not in allowlist).
 
-execute_tool is a module-level function so tests can patch it easily.
+Dispatches through ToolRegistry when available, falling back to
+execute_tool for backward-compat (tests patch this).
 """
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from noa.orchestrator.state import AgentState
+from noa.tools.interface import ToolRegistry
 
-# Static tool allowlist (S2.1).
+# Module-level registry reference, set at startup via set_registry().
+_registry: ToolRegistry | None = None
+
+# Static tool allowlist (S2.1) — used as fallback when no registry is set.
 TOOL_ALLOWLIST: frozenset[str] = frozenset(
     [
         "calendar_list",
@@ -27,14 +33,33 @@ TOOL_ALLOWLIST: frozenset[str] = frozenset(
 )
 
 
+def set_registry(registry: ToolRegistry) -> None:
+    """Set the module-level ToolRegistry. Called at app startup."""
+    global _registry  # noqa: PLW0603
+    _registry = registry
+
+
+def get_registry() -> ToolRegistry | None:
+    """Get the current ToolRegistry (or None if not configured)."""
+    return _registry
+
+
 def execute_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:  # noqa: ARG001
-    """Execute a tool by name. Patched in tests; real dispatch in later phase."""
+    """Fallback tool executor. Patched in tests; real dispatch uses registry."""
     msg = "execute_tool requires real tool backends (not yet wired)"
     raise NotImplementedError(msg)
 
 
 def tool_node(state: AgentState) -> dict[str, Any]:
-    """Dispatch tool calls through the allowlist filter. Pure function."""
+    """Dispatch tool calls through the allowlist filter. Pure function.
+
+    Tool calls may use either format:
+    - Registry format: {"tool": "calendar", "function": "list_events", "args": {...}}
+    - Legacy format: {"name": "calendar_list", "arguments": {...}}
+
+    When a ToolRegistry is configured (via set_registry), dispatch goes through
+    the registry. Otherwise falls back to execute_tool + TOOL_ALLOWLIST.
+    """
     tool_calls: list[dict[str, Any]] = state.get("tool_calls", [])
 
     if not tool_calls:
@@ -42,18 +67,86 @@ def tool_node(state: AgentState) -> dict[str, Any]:
 
     results: list[dict[str, Any]] = []
     for call in tool_calls:
-        name = call.get("name", "")
-        arguments = call.get("arguments", {})
-
-        if name not in TOOL_ALLOWLIST:
-            results.append(
-                {
-                    "name": name,
-                    "error": f"Tool not allowed: {name}. Denied by static allowlist.",
-                }
-            )
+        # Support both registry-format and legacy-format tool calls.
+        if "tool" in call and "function" in call:
+            # Registry format: tool + function + args
+            tool_name = call["tool"]
+            function = call["function"]
+            args = call.get("args", {})
+            result = _dispatch_registry(tool_name, function, args)
+            results.append({"name": f"{tool_name}.{function}", **result})
         else:
-            result = execute_tool(name, arguments)
-            results.append({"name": name, **result})
+            # Legacy format: {"name": "calendar_list", "arguments": {...}}
+            name = call.get("name", "")
+            arguments = call.get("arguments", {})
+
+            if _registry is not None:
+                # Try to dispatch through registry with legacy name
+                result = _dispatch_registry_legacy(name, arguments)
+                results.append({"name": name, **result})
+            elif name not in TOOL_ALLOWLIST:
+                results.append(
+                    {
+                        "name": name,
+                        "error": f"Tool not allowed: {name}. "
+                        "Denied by static allowlist.",
+                    }
+                )
+            else:
+                result = execute_tool(name, arguments)
+                results.append({"name": name, **result})
 
     return {"tool_results": results}
+
+
+def _dispatch_registry(
+    tool_name: str, function: str, args: dict[str, Any]
+) -> dict[str, Any]:
+    """Dispatch through the ToolRegistry."""
+    assert _registry is not None  # noqa: S101
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    try:
+        if loop is not None and loop.is_running():
+            # We're inside an async context — create a task
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                result: dict[str, Any] = loop.run_in_executor(  # type: ignore[assignment]
+                    pool,
+                    lambda: asyncio.run(
+                        _registry.dispatch(name=tool_name, function=function, args=args)
+                    ),
+                )
+                return result
+        else:
+            return asyncio.run(
+                _registry.dispatch(name=tool_name, function=function, args=args)
+            )
+    except KeyError:
+        return {"error": f"Tool not allowed: {tool_name}. Not in registry."}
+
+
+def _dispatch_registry_legacy(
+    name: str, arguments: dict[str, Any]
+) -> dict[str, Any]:
+    """Dispatch a legacy flat tool name through the registry.
+
+    Maps flat names like "calendar_list" → tool="calendar", function="list_events"
+    by checking each registered tool's risk_tiers for a matching function.
+    """
+    assert _registry is not None  # noqa: S101
+
+    # Try direct dispatch: the name might be a tool name with function in arguments
+    for tool_name in _registry.list_tools():
+        try:
+            tool = _registry.get(tool_name)
+        except KeyError:
+            continue
+        # Check if the flat name matches any function in this tool's risk_tiers
+        if name in tool.risk_tiers:
+            return _dispatch_registry(tool_name, name, arguments)
+
+    return {"error": f"Tool not allowed: {name}. Not found in registry."}

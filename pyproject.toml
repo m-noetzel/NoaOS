@@ -57,6 +57,12 @@ markers = [
     "dw2: Phase DW2 — External Worker Skeleton",
     "dw3: Phase DW3 — Docker Network Isolation & Verification",
     "dw4: Phase DW4 — Privacy Router & Classification",
+    "ti1: Phase TI1 — Memory Tool (Remember/Recall)",
+    "ti2: Phase TI2 — Google Calendar Tool",
+    "ti3: Phase TI3 — Gmail Tool",
+    "ti4: Phase TI4 — Notion Tool",
+    "ti5: Phase TI5 — Web Search Tool (Provider-Agnostic)",
+    "ti6: Phase TI6 — Tool Interface, Registry & Governance",
 ]
 asyncio_mode = "auto"
 
