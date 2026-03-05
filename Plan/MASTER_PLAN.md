@@ -41,13 +41,13 @@ The plan is organized into **waves** — groups of related phases that deliver a
 | **AB4** | Durable Queue & Private Domain Availability | **Complete** | 15 | agent/ab4-durable-queue | ~20 min | ~3 min | Merged 2026-03-05 |
 | **AB5** | Coding Task Contract & Worker | **Complete** | 17 | agent/ab5-coding-task | ~20 min | ~7 min | Merged 2026-03-05 |
 | — | — **WAVE 6: WEB CLIENT** — | — | — | — | — | — | — |
-| **WC1** | React Project Setup & Chat UI with SSE | Pending | ~15 | — | ~45 min | — | — |
-| **WC2** | Run Timeline & Event Details | Pending | ~12 | — | ~30 min | — | — |
-| **WC3** | Approval Interface with Dry-Run Previews | Pending | ~12 | — | ~30 min | — | — |
-| **WC4** | Task Queue Visualization | Pending | ~10 | — | ~20 min | — | — |
-| **WC5** | Memory Audit UI | Pending | ~12 | — | ~30 min | — | — |
-| **WC6** | Cost Dashboard & Settings | Pending | ~10 | — | ~25 min | — | — |
-| **WC7** | Artifact Viewer & PWA Manifest | Pending | ~10 | — | ~25 min | — | — |
+| **WC1** | React Project Setup & Chat UI with SSE | **Complete** | 25 | main | ~10 min | ~8 min | QA PASS 2026-03-05 |
+| **WC2** | Run Timeline & Event Details | **Complete** | 9 | main | ~7 min | ~3 min | QA PASS 2026-03-05 |
+| **WC3** | Approval Interface with Dry-Run Previews | **Complete** | 8 | main | ~7 min | ~3 min | QA PASS 2026-03-05 |
+| **WC4** | Task Queue Visualization | **Complete** | 7 | main | ~5 min | ~2 min | QA PASS 2026-03-05 |
+| **WC5** | Memory Audit UI | **Complete** | 8 | main | ~7 min | ~4 min | QA PASS 2026-03-05 |
+| **WC6** | Cost Dashboard & Settings | **Complete** | 8 | main | ~5 min | ~3 min | QA PASS 2026-03-05 |
+| **WC7** | Artifact Viewer & PWA Manifest | **Complete** | 10 | main | ~7 min | ~3 min | QA PASS 2026-03-05 |
 
 ---
 
