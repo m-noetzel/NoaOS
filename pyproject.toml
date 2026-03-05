@@ -56,6 +56,7 @@ markers = [
     "dw1: Phase DW1 — Private Worker with Ollama & RPC Contract",
     "dw2: Phase DW2 — External Worker Skeleton",
     "dw3: Phase DW3 — Docker Network Isolation & Verification",
+    "dw4: Phase DW4 — Privacy Router & Classification",
 ]
 asyncio_mode = "auto"
 
