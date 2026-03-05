@@ -32,7 +32,7 @@ The plan is organized into **waves** — groups of related phases that deliver a
 | **TI2** | Google Calendar Tool | Pending | ~15 | — | ~30 min | — | — |
 | **TI3** | Gmail Tool | Pending | ~18 | — | ~30 min | — | — |
 | **TI4** | Notion Tool | Pending | ~15 | — | ~30 min | — | — |
-| **TI5** | Web Search Tool (Tavily) | Pending | ~8 | — | ~20 min | — | — |
+| **TI5** | Web Search Tool (Provider-Agnostic, Tavily first) | Pending | ~10 | — | ~20 min | — | — |
 | **TI6** | Tool Governance (Idempotency, Rate Limits, Previews) | Pending | ~20 | — | ~45 min | — | — |
 | — | — **WAVE 5: ADVANCED BACKEND** — | — | — | — | — | — | — |
 | **AB1** | Cost Control & Token Tracking | Pending | ~15 | — | ~30 min | — | — |
@@ -766,9 +766,9 @@ pytest tests/unit/test_notion_tool.py -v
 
 ---
 
-### Phase TI5: Web Search Tool (Tavily) (~20 min)
+### Phase TI5: Web Search Tool — Provider-Agnostic (~20 min)
 
-**Goal:** No web search capability exists. This phase implements the Web Search tool using the Tavily API.
+**Goal:** No web search capability exists. This phase implements the Web Search tool with a provider-agnostic `SearchProvider` interface and Tavily as the first implementation. Additional providers (Serper, Exa, etc.) can be added later as drop-in implementations.
 
 **Spec refs:** SPEC.md §12.4
 
@@ -777,19 +777,26 @@ pytest tests/unit/test_notion_tool.py -v
 
 **Deliverables:**
 1. `web_search(query, max_results?)` — search results with title, URL, content snippet (Low risk)
-2. Tavily API client
+2. `SearchProvider` abstract interface (provider-agnostic)
+3. `TavilySearchProvider` — first concrete implementation
+4. Provider selection via configuration
 
 **Files:**
 
 | File | Action | Description |
 |------|--------|-------------|
-| `src/noa/tools/web_search.py` | **CREATE** | Web Search tool (Tavily) |
+| `src/noa/tools/web_search.py` | **CREATE** | Web Search tool with SearchProvider interface |
+| `src/noa/tools/search_providers/__init__.py` | **CREATE** | Search providers package |
+| `src/noa/tools/search_providers/base.py` | **CREATE** | SearchProvider ABC |
+| `src/noa/tools/search_providers/tavily.py` | **CREATE** | Tavily implementation |
 | `tests/unit/test_web_search_tool.py` | **CREATE** | Web search tool tests |
 
-**Tests (~8):**
+**Tests (~10):**
 - Search: returns results with title, URL, snippet
 - Max results: respects max_results parameter
 - Risk tier: always Low
+- Provider interface: ABC enforces required methods
+- Provider selection: correct provider instantiated from config
 - Error handling: API failures handled gracefully
 
 **Test gate:**

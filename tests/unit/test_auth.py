@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -204,6 +204,7 @@ class TestAuthService:
 
         # Build a mock async session
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         service = AuthService(session=mock_session, settings=settings)
 
         # Mock internal user lookup to return a fake user row
@@ -236,6 +237,7 @@ class TestAuthService:
         from noa.auth.service import AuthService
 
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         service = AuthService(session=mock_session, settings=settings)
 
         from noa.auth.password import hash_password
@@ -267,6 +269,7 @@ class TestAuthService:
         from noa.auth.service import AuthService
 
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         service = AuthService(session=mock_session, settings=settings)
 
         user_id = _make_user_id()
@@ -319,6 +322,7 @@ class TestSessionManagement:
         from noa.auth.service import AuthService
 
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         service = AuthService(session=mock_session, settings=settings)
 
         user_id = _make_user_id()
@@ -357,6 +361,7 @@ class TestSessionManagement:
         from noa.auth.service import AuthService
 
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         service = AuthService(session=mock_session, settings=settings)
 
         device_id = _make_device_id()
@@ -390,6 +395,7 @@ class TestSessionManagement:
         from noa.auth.service import AuthService
 
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         service = AuthService(session=mock_session, settings=settings)
 
         from noa.auth.password import hash_password
@@ -432,6 +438,7 @@ class TestRevocation:
         from noa.auth.service import AuthService
 
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         service = AuthService(session=mock_session, settings=settings)
 
         session_id = uuid.uuid4()
@@ -464,6 +471,7 @@ class TestRateLimiting:
         from noa.auth.service import AuthService
 
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         service = AuthService(session=mock_session, settings=settings)
 
         from noa.auth.password import hash_password
