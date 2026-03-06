@@ -68,6 +68,7 @@ markers = [
     "ab3: Phase AB3 — Task Scheduling & Prioritization",
     "ab4: Phase AB4 — Durable Queue & Private Domain Availability",
     "ab5: Phase AB5 — Coding Task Contract & Worker",
+    "mr9: Phase MR9 — Conditional Graph Edges",
 ]
 asyncio_mode = "auto"
 

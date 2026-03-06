@@ -38,6 +38,7 @@ def _make_agent_state(
     tool_results: list[dict[str, Any]] | None = None,
     response: str | None = None,
     total_cost: float = 0.0,
+    tool_rounds: int = 0,
 ) -> dict[str, Any]:
     """Create a minimal AgentState dict for testing."""
     return {
@@ -48,6 +49,7 @@ def _make_agent_state(
         "tool_results": tool_results or [],
         "response": response,
         "total_cost": total_cost,
+        "tool_rounds": tool_rounds,
     }
 
 

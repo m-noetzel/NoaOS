@@ -76,6 +76,7 @@ def tool_node(state: AgentState) -> dict[str, Any]:
     the registry. Otherwise falls back to execute_tool + TOOL_ALLOWLIST.
     """
     tool_calls: list[dict[str, Any]] = state.get("tool_calls", [])
+    current_rounds: int = state.get("tool_rounds", 0)
 
     if not tool_calls:
         return {"tool_results": []}
@@ -115,7 +116,7 @@ def tool_node(state: AgentState) -> dict[str, Any]:
                 result = execute_tool(name, arguments)
                 results.append({"name": name, **result})
 
-    return {"tool_results": results}
+    return {"tool_results": results, "tool_rounds": current_rounds + 1}
 
 
 def _dispatch_registry(
