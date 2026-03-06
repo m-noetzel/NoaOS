@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from noa.queue.health import HealthChecker
@@ -9,6 +11,8 @@ from noa.queue.health import HealthChecker
 _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
 _health_checker: HealthChecker | None = None
+_provider_router: Any | None = None
+_runner: Any | None = None
 
 
 def set_engine(engine: AsyncEngine) -> None:
@@ -42,3 +46,25 @@ def set_health_checker(checker: HealthChecker) -> None:
 def get_health_checker() -> HealthChecker | None:
     """Return the current HealthChecker (may be None)."""
     return _health_checker
+
+
+def set_provider_router(router: Any) -> None:
+    """Store the ProviderRouter globally."""
+    global _provider_router  # noqa: PLW0603
+    _provider_router = router
+
+
+def get_provider_router() -> Any | None:
+    """Return the current ProviderRouter (may be None)."""
+    return _provider_router
+
+
+def set_runner(runner: Any) -> None:
+    """Store the OrchestratorRunner globally."""
+    global _runner  # noqa: PLW0603
+    _runner = runner
+
+
+def get_runner() -> Any | None:
+    """Return the current OrchestratorRunner (may be None)."""
+    return _runner
