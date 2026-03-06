@@ -98,6 +98,7 @@ class ToolGateway:
         self.telemetry: list[dict[str, Any]] = []
         self._audit_callback = audit_callback
         self._session_factory = session_factory
+        self.capability_checker: Any | None = None
 
     # -- registration -------------------------------------------------------
 
@@ -133,6 +134,21 @@ class ToolGateway:
             await self._record_telemetry(request, resp, "error")
             await self._fire_audit(request, resp, "error")
             return resp
+
+        # 1b. Capability check (MR5)
+        if (
+            self.capability_checker is not None
+            and request.user_id is not None
+        ):
+            has_cap = await self.capability_checker.has_capability(
+                request.user_id, tool,
+            )
+            if not has_cap:
+                resp = ToolResponse(
+                    error=f"Capability denied for tool: {tool}",
+                )
+                await self._record_telemetry(request, resp, "capability_denied")
+                return resp
 
         # 2. Dry-run preview (§19.2)
         if dry_run:
