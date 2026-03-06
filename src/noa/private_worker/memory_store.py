@@ -2,17 +2,23 @@
 
 Spec refs: SPEC.md §13.2, §19.1
 
-In-memory implementation for Phase 1. Facts are stored with vector
-embeddings for cosine similarity search. Persistence will be added
-when the private domain gets a real database.
+Facts are stored with vector embeddings for cosine similarity search.
+When ``data_dir`` is provided, each fact is persisted as a JSON file
+so that data survives container restarts (backed by the ``/data``
+Docker volume).
 """
 
 from __future__ import annotations
 
+import json
+import logging
 import math
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # Valid fact categories per §13.2
 VALID_CATEGORIES = frozenset({
@@ -48,8 +54,11 @@ class MemoryStore:
     a proper vector DB (pgvector or similar) in later phases.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, data_dir: Path | None = None) -> None:
         self._facts: dict[str, dict[str, Any]] = {}
+        self._data_dir = data_dir
+        if self._data_dir is not None:
+            self._load_from_disk()
 
     def store(
         self,
@@ -80,7 +89,7 @@ class MemoryStore:
         fact_id = str(uuid.uuid4())
         status = "pending" if auto_extracted else "approved"
 
-        self._facts[fact_id] = {
+        fact_data = {
             "id": fact_id,
             "fact": fact,
             "category": category,
@@ -90,6 +99,8 @@ class MemoryStore:
             "status": status,
             "auto_extracted": auto_extracted,
         }
+        self._facts[fact_id] = fact_data
+        self._persist(fact_id)
 
         return fact_id
 
@@ -138,6 +149,7 @@ class MemoryStore:
         """
         if fact_id in self._facts:
             del self._facts[fact_id]
+            self._remove_file(fact_id)
             return True
         return False
 
@@ -153,9 +165,48 @@ class MemoryStore:
         """
         if fact_id in self._facts:
             self._facts[fact_id]["status"] = status
+            self._persist(fact_id)
             return True
         return False
 
     def list_all(self) -> list[dict[str, Any]]:
         """Return all facts (for Memory Audit UI)."""
         return list(self._facts.values())
+
+    # ------------------------------------------------------------------
+    # Disk persistence helpers
+    # ------------------------------------------------------------------
+
+    def _persist(self, fact_id: str) -> None:
+        """Write a single fact to ``{data_dir}/{fact_id}.json``."""
+        if self._data_dir is None:
+            return
+        try:
+            self._data_dir.mkdir(parents=True, exist_ok=True)
+            path = self._data_dir / f"{fact_id}.json"
+            path.write_text(json.dumps(self._facts[fact_id]))
+        except OSError:
+            logger.warning("Cannot persist fact %s to %s", fact_id, self._data_dir)
+
+    def _remove_file(self, fact_id: str) -> None:
+        """Remove the JSON file for *fact_id* if it exists."""
+        if self._data_dir is None:
+            return
+        try:
+            path = self._data_dir / f"{fact_id}.json"
+            path.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("Cannot remove fact file %s", fact_id)
+
+    def _load_from_disk(self) -> None:
+        """Load all ``*.json`` files from *data_dir* into memory."""
+        if self._data_dir is None or not self._data_dir.exists():
+            return
+        for path in self._data_dir.glob("*.json"):
+            try:
+                data = json.loads(path.read_text())
+                fact_id = data["id"]
+                self._facts[fact_id] = data
+            except (json.JSONDecodeError, KeyError, TypeError):
+                logger.warning("Skipping invalid fact file: %s", path)
+                continue
