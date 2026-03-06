@@ -89,11 +89,11 @@ The plan is organized into **waves** — groups of related phases that deliver a
 | **MR9** | Conditional Graph Edges | **Complete** | 19 | main | ~25 min | ~7 min | Conditional edges, tool-loop cap |
 | **MR7** | Integration Smoke Test | **Complete** | 10 | main | ~25 min | ~7 min | End-to-end auth flow against ASGI app |
 | — | — **WAVE 14: OPERATIONS & GO-LIVE** — | — | — | — | — | — | — |
-| **OP1** | Backup Infrastructure | Planned | — | — | ~45 min | — | pg_dump scripts, encrypted backups, restore verification |
-| **OP2** | Log Persistence + Rotation | Planned | — | — | ~30 min | — | Docker log driver config, audit retention purge (90d), volumes |
-| **OP3** | Health Checks + Docker Compose Hardening | Planned | — | — | ~30 min | — | Health checks for all containers, restart conditions, resource limits |
-| **OP4** | Postgres Maintenance | Planned | — | — | ~20 min | — | VACUUM/ANALYZE schedule, index maintenance, connection pool tuning |
-| **OP5** | Operational Runbook | Planned | — | — | ~30 min | — | Pre-flight checklist, failure recovery, capacity planning |
+| **OP1** | Backup Infrastructure | **Complete** | 29 | main | ~30 min | ~5 min | pg_dump + GPG encryption, restore verification, Docker sidecar |
+| **OP2** | Log Persistence + Rotation | **Complete** | 25 | main | ~25 min | ~5 min | JSON logging, Docker log drivers, retention scheduler (90d) |
+| **OP3** | Health Checks + Compose Fixes | **Complete** | 15 | main | ~20 min | ~3 min | External-worker healthcheck, private-worker 4CPU/32G limits |
+| **OP4** | Postgres Maintenance | **Complete** | 13 | main | ~20 min | ~3 min | Pool tuning (10+20), VACUUM scheduler, pool stats endpoint |
+| **OP5** | Operational Runbook | **Complete** | 11 | main | ~20 min | ~4 min | Pre-flight checks, runbook with 8 sections, troubleshooting |
 
 ---
 
