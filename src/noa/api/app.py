@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
@@ -23,11 +25,72 @@ from noa.api.v1.tasks import router as tasks_router
 from noa.api.v1.threads import router as threads_router
 from noa.api.v1.usage import router as usage_router
 
+logger = logging.getLogger(__name__)
+
+
+def wire_llm_pipeline(settings: Any) -> None:
+    """Build and wire ProviderRouter, ToolRegistry, and OrchestratorRunner.
+
+    Called during app lifespan startup. Gracefully degrades if no
+    LLM API keys are configured (logs warning, doesn't crash).
+    """
+    from noa.api.app_state import set_provider_router, set_runner
+    from noa.orchestrator.nodes.agent import set_router as set_agent_router
+
+    # 1. Build ProviderRouter from settings
+    try:
+        from noa.external_worker.llm.router import ProviderRouter
+
+        router = ProviderRouter.from_settings(settings)
+        set_provider_router(router)
+        set_agent_router(router)
+        logger.info(
+            "LLM pipeline wired: providers=%s",
+            router.available_providers,
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "Failed to build ProviderRouter — LLM calls will fail",
+        )
+        return
+
+    # 2. Set up ToolRegistry on tools module (if tools available)
+    try:
+        from noa.orchestrator.nodes.tools import set_registry
+        from noa.tools.interface import ToolRegistry
+
+        # Build registry from available tool implementations
+        tools: dict[str, Any] = {}
+        # Future phases will register real tools here
+        if tools:
+            registry = ToolRegistry(tools)
+            set_registry(registry)
+            logger.info("ToolRegistry wired: %s", registry.list_tools())
+        else:
+            logger.info("No tools registered yet — tool calls will use fallback")
+    except Exception:  # noqa: BLE001
+        logger.warning("Failed to set up ToolRegistry")
+
+    # 3. Build OrchestratorRunner with compiled graph
+    try:
+        from noa.orchestrator.graph import build_graph
+        from noa.orchestrator.runner import OrchestratorRunner
+
+        graph = build_graph().compile()
+        runner = OrchestratorRunner(graph=graph)
+        set_runner(runner)
+        logger.info("OrchestratorRunner wired and ready")
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "Failed to build OrchestratorRunner — chat will not work",
+        )
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Manage startup and shutdown resources."""
     # Startup: initialise DB engine (optional — skip in tests if no DB)
+    settings = None
     try:
         from noa.config import Settings
 
@@ -57,6 +120,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     checker = HealthChecker(poll_url=private_url)
     set_health_checker(checker)
     await checker.start()
+
+    # Wire LLM pipeline (ProviderRouter, ToolRegistry, Runner)
+    if settings is not None:
+        wire_llm_pipeline(settings)
 
     yield
 
