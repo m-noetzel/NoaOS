@@ -1,8 +1,9 @@
 """Auth API endpoints — SPEC.md SS5.3, SS5.4.
 
-POST /api/v1/auth/login   — authenticate, return tokens
+POST /api/v1/auth/login    — authenticate, return tokens
 POST /api/v1/auth/refresh  — rotate refresh token
 POST /api/v1/auth/logout   — invalidate session
+POST /api/v1/auth/register — create new user account (public)
 """
 
 from __future__ import annotations
@@ -12,7 +13,9 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from noa.api.deps import get_db_session
 from noa.api.middleware import trace_id_ctx
 from noa.api.schemas.common import success_envelope
 from noa.auth.jwt import TokenError
@@ -38,21 +41,17 @@ class RefreshRequest(BaseModel):
     device_id: str
 
 
+class RegisterRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 def _get_settings() -> Settings:
     return Settings()
-
-
-async def _mock_session() -> Any:  # noqa: ANN401
-    """Return a no-op session for endpoints that need a DB session.
-
-    In production this would come from get_db_session dependency.
-    """
-    from unittest.mock import AsyncMock
-    return AsyncMock()
 
 
 # ---------------------------------------------------------------------------
@@ -62,12 +61,12 @@ async def _mock_session() -> Any:  # noqa: ANN401
 @router.post("/login")
 async def login(
     body: LoginRequest,
+    session: AsyncSession = Depends(get_db_session),  # noqa: B008
     settings: Settings = Depends(_get_settings),  # noqa: B008
 ) -> dict[str, Any]:
     """Authenticate user and return access + refresh tokens."""
     rid = trace_id_ctx.get("")
     try:
-        session = await _mock_session()
         service = AuthService(session=session, settings=settings)
         result = await service.login(
             email=body.email,
@@ -91,12 +90,12 @@ async def login(
 @router.post("/refresh")
 async def refresh(
     body: RefreshRequest,
+    session: AsyncSession = Depends(get_db_session),  # noqa: B008
     settings: Settings = Depends(_get_settings),  # noqa: B008
 ) -> dict[str, Any]:
     """Rotate refresh token and return new token pair."""
     rid = trace_id_ctx.get("")
     try:
-        session = await _mock_session()
         service = AuthService(session=session, settings=settings)
         result = await service.refresh(
             refresh_token=body.refresh_token,
@@ -114,16 +113,36 @@ async def refresh(
 @router.post("/logout")
 async def logout(
     payload: dict[str, Any] = Depends(require_auth),  # noqa: B008
+    session: AsyncSession = Depends(get_db_session),  # noqa: B008
     settings: Settings = Depends(_get_settings),  # noqa: B008
 ) -> dict[str, Any]:
     """Invalidate the current session."""
     rid = trace_id_ctx.get("")
-    session_id_str = payload.get("jti", "")
+    session_id_str = payload.get("sid", "")
     try:
-        session = await _mock_session()
         service = AuthService(session=session, settings=settings)
         await service.logout(session_id=uuid.UUID(session_id_str))
     except Exception:  # noqa: BLE001, S110
         pass  # Best-effort logout — token may be invalid/expired
 
     return success_envelope(data={"status": "logged_out"}, trace_id=rid)
+
+
+@router.post("/register", status_code=status.HTTP_201_CREATED)
+async def register(
+    body: RegisterRequest,
+    session: AsyncSession = Depends(get_db_session),  # noqa: B008
+    settings: Settings = Depends(_get_settings),  # noqa: B008
+) -> dict[str, Any]:
+    """Register a new user account. Public — no auth required."""
+    rid = trace_id_ctx.get("")
+    try:
+        service = AuthService(session=session, settings=settings)
+        result = await service.register(email=body.email, password=body.password)
+    except AuthError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+
+    return success_envelope(data=result, trace_id=rid)
