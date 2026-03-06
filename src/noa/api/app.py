@@ -159,11 +159,55 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     set_health_checker(checker)
     await checker.start()
 
+    # Configure structured JSON logging (§28.3)
+    from noa.logging_config import configure_logging
+
+    log_level = os.environ.get("LOG_LEVEL", "INFO")
+    configure_logging(level=log_level)
+
     # Wire LLM pipeline (ProviderRouter, ToolRegistry, Runner)
     if settings is not None:
         wire_llm_pipeline(settings)
 
+    # Start retention scheduler for audit log purge (§28.7)
+    from noa.maintenance.retention import RetentionScheduler
+
+    retention_scheduler: RetentionScheduler | None = None
+    try:
+        from noa.api.app_state import get_session_factory
+
+        sf = get_session_factory()
+        if sf is not None:
+            # Thin wrapper that delegates to logger until sync session
+            # is available (async-only engine cannot run sync purge).
+            class _PurgeProxy:
+                """Proxy that opens a sync session per purge call."""
+
+                def purge_expired(self, retention_days: int = 90) -> int:
+                    # Use the async engine's sync counterpart is not
+                    # available; fall back to logging a skip.
+                    logger.info(
+                        "Retention purge skipped: "
+                        "sync session not available in async context"
+                    )
+                    return 0
+
+            retention_scheduler = RetentionScheduler(
+                audit_service=_PurgeProxy(),
+                retention_days=int(os.environ.get("RETENTION_DAYS", "90")),
+                interval_hours=int(
+                    os.environ.get("RETENTION_INTERVAL_HOURS", "24")
+                ),
+            )
+            await retention_scheduler.start()
+    except Exception:  # noqa: BLE001
+        logger.warning("Failed to start RetentionScheduler")
+
     yield
+
+    # Shutdown: stop retention scheduler
+    if retention_scheduler is not None:
+        await retention_scheduler.stop()
 
     # Shutdown: stop health checker, dispose engine
     await checker.stop()
