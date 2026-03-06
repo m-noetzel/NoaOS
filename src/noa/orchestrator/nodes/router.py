@@ -15,10 +15,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from noa.orchestrator.model_config import ModelConfig
 from noa.orchestrator.state import AgentState
 from noa.privacy.classifier import PrivacyClassifier
 
-# Model selections per domain.
+# Legacy model selections per domain (kept for selected_model backward compat).
 _LOCAL_MODEL = "ollama/llama3"
 _EXTERNAL_MODEL = "anthropic/claude-haiku"
 
@@ -41,7 +42,9 @@ def router_node(state: AgentState) -> dict[str, Any]:
     result = _classifier.classify(classify_state)
     privacy_mode = result.domain
     selected_model = _LOCAL_MODEL if privacy_mode == "private" else _EXTERNAL_MODEL
+    model_config = ModelConfig.for_privacy_mode(privacy_mode)
     return {
         "privacy_mode": privacy_mode,
         "selected_model": selected_model,
+        "model_config": model_config.to_dict(),
     }
