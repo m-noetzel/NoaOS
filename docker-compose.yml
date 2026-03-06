@@ -122,6 +122,38 @@ services:
           memory: 4g
     restart: unless-stopped
 
+  backup:
+    build:
+      context: .
+      dockerfile: docker/backup/Dockerfile
+    networks:
+      - noa-internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - BACKUP_PASSPHRASE=${BACKUP_PASSPHRASE:?BACKUP_PASSPHRASE must be set}
+      - PGHOST=postgres
+      - PGUSER=noa
+      - PGDATABASE=noa
+    volumes:
+      - backups:/backups
+      - private-data:/data:ro
+    # Container hardening (§8.1, §10.5)
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=256M
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512m
+    restart: unless-stopped
+
 networks:
   noa-internal:
     driver: bridge
@@ -134,3 +166,4 @@ volumes:
   postgres-data:
   private-data:
   coding-workspace:
+  backups:
