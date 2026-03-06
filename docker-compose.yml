@@ -49,6 +49,11 @@ services:
         limits:
           cpus: "2.0"
           memory: 2g
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
     restart: unless-stopped
 
   postgres:
@@ -71,6 +76,11 @@ services:
         limits:
           cpus: "1.0"
           memory: 2g
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
     restart: unless-stopped
 
   private-worker:
@@ -94,6 +104,11 @@ services:
       - private-data:/data  # Dedicated encrypted volume for private data
     tmpfs:
       - /tmp:size=256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
     restart: unless-stopped
 
   external-worker:
@@ -120,6 +135,11 @@ services:
         limits:
           cpus: "2.0"
           memory: 4g
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
     restart: unless-stopped
 
   backup:
