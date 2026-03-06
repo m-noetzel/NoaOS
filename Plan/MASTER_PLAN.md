@@ -55,6 +55,40 @@ The plan is organized into **waves** — groups of related phases that deliver a
 | **WM4** | Frontend Wiring (No-Ops → Real) | **Complete** | — | main | ~20 min | ~10 min | Memory, Settings, Queue, Chat, Threads all wired |
 | **WM5** | Security Hardening | **Complete** | — | main | ~10 min | ~3 min | DOMPurify XSS fix, CORS restricted, 429 handling |
 | **WM6** | Tests & Verification | **Complete** | 73 | main | ~20 min | ~5 min | 56 backend + 17 frontend tests, build clean |
+| — | — **WAVE 8: CREDENTIAL MANAGEMENT** — | — | — | — | — | — | — |
+| **CM1** | Extend Settings with Tool Credentials | Planned | — | — | ~30 min | — | Config fields for all API keys + LLM provider/model |
+| **CM2** | macOS Keychain Bootstrap | Planned | — | — | ~45 min | — | keychain_store.sh, keychain_bootstrap.sh, docker-compose env wiring |
+| — | — **WAVE 9: LLM PROVIDER WIRING** — | — | — | — | — | — | — |
+| **LP1** | Anthropic Client HTTP | Planned | — | — | ~30 min | — | Real httpx calls to /v1/messages, tool_use blocks, retry on 429 |
+| **LP2** | OpenAI Client HTTP | Planned | — | — | ~30 min | — | Real httpx calls to /v1/chat/completions, tool_calls parsing |
+| **LP3** | Google AI Client (New) | Planned | — | — | ~30 min | — | GoogleAIClient for Gemini via generateContent API |
+| **LP4** | Ollama Client HTTP | Planned | — | — | ~20 min | — | Real httpx calls to /api/chat, model manifest check |
+| **LP5** | ProviderRouter as Dispatch Hub | Planned | — | — | ~30 min | — | Router creates clients, dispatches complete(), privacy enforcement |
+| — | — **WAVE 10: END-TO-END CHAT PIPELINE** — | — | — | — | — | — | — |
+| **CP1** | Wire invoke_llm to ProviderRouter | Planned | — | — | ~30 min | — | Replace NotImplementedError stub, async, model routing |
+| **CP2** | OrchestratorRunner + Event Types | Planned | — | — | ~45 min | — | Compiles graph, runs state, yields SSE events, updates Run in DB |
+| **CP3** | Chat Endpoint → Real Pipeline | Planned | — | — | ~45 min | — | Create Run + Conversation, invoke graph, SSE streaming |
+| **CP4** | App Startup Wiring | Planned | — | — | ~30 min | — | startup.py: build ProviderRouter, ToolRegistry, Runner in lifespan |
+| — | — **WAVE 11: TOOL GATEWAY + TAVILY** — | — | — | — | — | — | — |
+| **TG1** | ToolRequest/ToolResponse + ToolGateway | Planned | — | — | ~30 min | — | Transport-agnostic gateway with governance + telemetry |
+| **TG2** | DirectApiAdapter | Planned | — | — | ~20 min | — | Adapter for direct HTTP tool calls (Tavily, Google) |
+| **TG3** | Tavily HTTP Client + Registration | Planned | — | — | ~30 min | — | Real Tavily API calls, register in ToolGateway at startup |
+| — | — **WAVE 12: GOOGLE + NOTION TOOLS** — | — | — | — | — | — | — |
+| **GT1** | Google OAuth Token Exchange + Storage | Planned | — | — | ~45 min | — | OAuth callback endpoint, encrypted token storage in DB |
+| **GT2** | Google Calendar + Gmail HTTP Clients | Planned | — | — | ~45 min | — | Real Calendar API v3 + Gmail API v1 calls |
+| **GT3** | Notion MCP Stdio Adapter | Planned | — | — | ~45 min | — | McpStdioAdapter spawns @notionhq/notion-mcp-server subprocess |
+| **GT4** | McpRemoteAdapter (Phase 2 Stub) | Planned | — | — | ~10 min | — | Interface-only stub for future container-isolated MCP |
+| — | — **WAVE 13: SETUP FLOW + PERMISSIONS + TELEMETRY** — | — | — | — | — | — | — |
+| **SP1** | First-Run Registration | Planned | — | — | ~30 min | — | POST /auth/register when 0 users, real DB queries in AuthService |
+| **SP2** | Capability-Based Tool Permissions | Planned | — | — | ~30 min | — | Per-tool capabilities (search.read, calendar.write, etc.) |
+| **SP3** | Tool Call Telemetry | Planned | — | — | ~30 min | — | Per-call latency/status/errors in DB, /health/tools endpoint |
+| **SP4** | Tool Call Audit Trail | Planned | — | — | ~20 min | — | AuditService entry for every tool call |
+| — | — **WAVE 14: OPERATIONS & GO-LIVE** — | — | — | — | — | — | — |
+| **OP1** | Backup Infrastructure | Planned | — | — | ~45 min | — | pg_dump scripts, encrypted backups, restore verification |
+| **OP2** | Log Persistence + Rotation | Planned | — | — | ~30 min | — | Docker log driver config, audit retention purge (90d), volumes |
+| **OP3** | Health Checks + Docker Compose Hardening | Planned | — | — | ~30 min | — | Health checks for all containers, restart conditions, resource limits |
+| **OP4** | Postgres Maintenance | Planned | — | — | ~20 min | — | VACUUM/ANALYZE schedule, index maintenance, connection pool tuning |
+| **OP5** | Operational Runbook | Planned | — | — | ~30 min | — | Pre-flight checklist, failure recovery, capacity planning |
 
 ---
 
