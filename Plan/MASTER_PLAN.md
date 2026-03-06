@@ -78,11 +78,16 @@ The plan is organized into **waves** — groups of related phases that deliver a
 | **GT2** | Google Calendar + Gmail HTTP Clients | **Complete** | 14 | main | ~30 min | ~5 min | Calendar API v3 + Gmail API v1 httpx, auto-refresh on 401 |
 | **GT3** | Notion HTTP Client + Registration | **Complete** | 11 | main | ~30 min | ~3 min | Notion API v1 httpx, tool registration |
 | **GT4** | McpRemoteAdapter (Phase 2 Stub) | **Complete** | 4 | main | ~10 min | ~2 min | Stub with NotImplementedError |
-| — | — **WAVE 13: SETUP FLOW + PERMISSIONS + TELEMETRY** — | — | — | — | — | — | — |
-| **SP1** | First-Run Registration | Planned | — | — | ~30 min | — | POST /auth/register when 0 users, real DB queries in AuthService |
-| **SP2** | Capability-Based Tool Permissions | Planned | — | — | ~30 min | — | Per-tool capabilities (search.read, calendar.write, etc.) |
-| **SP3** | Tool Call Telemetry | Planned | — | — | ~30 min | — | Per-call latency/status/errors in DB, /health/tools endpoint |
-| **SP4** | Tool Call Audit Trail | Planned | — | — | ~20 min | — | AuditService entry for every tool call |
+| — | — **WAVE 13: MVP COMPLETION** — | — | — | — | — | — | — |
+| **MR1** | Real Auth + First-Run Registration | **Complete** | 14 | main | ~30 min | ~8 min | Real DB queries, register endpoint, sid claim fix |
+| **MR2** | Memory Persistence | **Complete** | 13 | main | ~25 min | ~4 min | JSON-file-per-fact persistence for MemoryStore |
+| **MR3** | Tool Call Audit Trail | **Complete** | 16 | main | ~25 min | ~4 min | Async audit callback in ToolGateway |
+| **MR4** | Tool Call Telemetry to DB | **Complete** | 13 | main | ~30 min | ~6 min | ToolCallLog model, DB persistence, /health/tools |
+| **MR5** | Capability-Based Tool Permissions | **Complete** | 14 | main | ~30 min | ~5 min | Per-tool capabilities, DB grants, enable/disable endpoints |
+| **MR6** | Docker Compose Hardening | **Complete** | 15 | main | ~20 min | ~2 min | Healthchecks, resource limits, security flags |
+| **MR8** | Per-Node Model Routing | **Complete** | 13 | main | ~25 min | ~3 min | ModelConfig per-node model defaults |
+| **MR9** | Conditional Graph Edges | **Complete** | 19 | main | ~25 min | ~7 min | Conditional edges, tool-loop cap |
+| **MR7** | Integration Smoke Test | **Complete** | 10 | main | ~25 min | ~7 min | End-to-end auth flow against ASGI app |
 | — | — **WAVE 14: OPERATIONS & GO-LIVE** — | — | — | — | — | — | — |
 | **OP1** | Backup Infrastructure | Planned | — | — | ~45 min | — | pg_dump scripts, encrypted backups, restore verification |
 | **OP2** | Log Persistence + Rotation | Planned | — | — | ~30 min | — | Docker log driver config, audit retention purge (90d), volumes |
