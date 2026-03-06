@@ -2317,6 +2317,428 @@ pytest tests/unit/test_gt4_mcp_remote.py -v
 
 ---
 
+## Wave 13: MVP Completion
+
+Closes all remaining blockers to a working, testable end-to-end system. AuthService becomes real (DB-backed), memory persists across restarts, every tool call is audited and telemetry-persisted, per-tool permissions are enforced, Docker Compose is hardened, and the LangGraph orchestrator gets per-node model routing and conditional edges for cost/latency optimization. The web frontend is already complete (App.tsx + React Router + Tailwind + shadcn/ui) — no frontend work needed.
+
+---
+
+### Phase MR1: Real Auth + First-Run Registration (~30 min)
+
+**Goal:** Three auth endpoints use `_mock_session()` (an `AsyncMock`) instead of a real DB session, so login/refresh/logout do nothing to the database. `AuthService` has three stub methods that return `None` unconditionally. This phase replaces the mock with a real `get_db_session` dependency, implements the three DB query methods, adds a `register()` method, and exposes `POST /api/v1/auth/register`. Also fixes the logout JTI/session-ID mismatch by adding a `sid` claim to the access token.
+
+**Spec refs:** SPEC.md §5.1, §5.2, §5.3, §5.4
+
+**Depends on:** None (within this wave)
+**Blocks:** MR3, MR4, MR5, MR7
+
+**Deliverables:**
+1. `_mock_session()` removed from `api/v1/auth.py`; all endpoints use `Depends(get_db_session)` via `app_state.get_session_factory()`
+2. `AuthService._get_user_by_email()` — real `select(User).where(User.email == email)`
+3. `AuthService._get_session_by_refresh_token()` — `select(AuthSession).where(AuthSession.refresh_token_hash == self._hash_token(token))`
+4. `AuthService._get_session_by_id()` — `select(AuthSession).where(AuthSession.id == session_id)`
+5. `AuthService.register()` — validates no duplicate email, calls `hash_password()`, inserts `User` row
+6. `POST /api/v1/auth/register` — public endpoint (no auth required)
+7. Logout fix: `create_access_token()` gets `session_id` param → emits `sid` claim; logout reads `payload["sid"]`
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/noa/auth/jwt.py` | **EDIT** | Add `session_id` param to `create_access_token()`, emit as `sid` claim |
+| `src/noa/auth/service.py` | **EDIT** | Implement 3 stub methods with `select()` queries; add `register()` |
+| `src/noa/api/v1/auth.py` | **EDIT** | Remove `_mock_session()`; use `Depends(get_db_session)`; add `POST /register`; logout reads `sid` |
+| `tests/unit/test_mr1_auth.py` | **CREATE** | Auth + registration tests |
+
+**Tests (~14):**
+- register() calls session.add() with User whose password_hash != plain password
+- register() rejects duplicate email with AuthError
+- POST /register returns 201 with user_id
+- POST /register rejects duplicate returns 409
+- _get_user_by_email returns None for missing user
+- _get_user_by_email returns user for known email
+- _get_session_by_refresh_token returns None when not found
+- _get_session_by_refresh_token looks up by hashed token
+- _get_session_by_id returns None for unknown id
+- _get_session_by_id returns session for known id
+- create_access_token with session_id includes "sid" claim
+- logout reads payload["sid"] not payload["jti"]
+- login endpoint uses real db session (not _mock_session)
+- register endpoint does not require auth
+
+**Test gate:**
+```bash
+pytest tests/unit/test_mr1_auth.py -v
+```
+
+---
+
+### Phase MR2: Memory Persistence (~25 min)
+
+**Goal:** `MemoryStore` keeps all facts in a Python dict that vanishes on container restart. The `private-data` Docker volume at `/data` is already mounted but nothing writes to it. This phase adds JSON-file-per-fact persistence: write on `store()`, remove on `delete()`, rewrite on `update_status()`, load all `.json` files on `__init__`.
+
+**Spec refs:** SPEC.md §13.2, §9.1
+
+**Depends on:** None (within this wave)
+**Blocks:** MR7
+
+**Deliverables:**
+1. `MemoryStore.__init__(data_dir: Path | None = None)` — loads all `*.json` files at startup
+2. `store()` writes `{data_dir}/{fact_id}.json`
+3. `delete()` removes the file
+4. `update_status()` rewrites the file
+5. `handlers.py` singleton uses `data_dir=Path("/data/memory")`
+6. No `data_dir` → pure in-memory (backward compat for existing tests)
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/noa/private_worker/memory_store.py` | **EDIT** | Add `data_dir` param; `_load_from_disk()`, `_persist()`, `_remove_file()` helpers |
+| `src/noa/private_worker/handlers.py` | **EDIT** | `_memory_store = MemoryStore(data_dir=Path("/data/memory"))` |
+| `tests/unit/test_mr2_memory_persistence.py` | **CREATE** | Persistence tests using `tmp_path` fixture |
+
+**Tests (~12):**
+- init without data_dir works (in-memory only)
+- store writes JSON file to data_dir
+- stored file contains correct fact data
+- delete removes JSON file
+- update_status rewrites file with new status
+- load from disk on init restores facts
+- load ignores invalid JSON files
+- creates data_dir if missing
+- deduplication works after reload
+- list_all includes loaded facts
+- recall works after reload
+- handlers singleton uses /data/memory path
+
+**Test gate:**
+```bash
+pytest tests/unit/test_mr2_memory_persistence.py -v
+```
+
+---
+
+### Phase MR3: Tool Call Audit Trail (~25 min)
+
+**Goal:** Every tool call through `ToolGateway.dispatch()` should produce an `AuditLog` entry. Currently `ToolGateway` has zero imports from `noa.audit`. This phase adds audit logging via an async callback pattern — keeps the gateway DB-free and highly testable.
+
+**Spec refs:** SPEC.md §28.1, §28.2, §2.1
+
+**Depends on:** MR1 (needs real user context)
+**Blocks:** MR7
+
+**Deliverables:**
+1. `ToolRequest` — add `user_id`, `session_id`, `trace_id` optional UUID fields
+2. `ToolGateway.__init__` — add optional `audit_callback` parameter
+3. `dispatch()` calls callback after execution on every path (ok, error, cached, rate_limited, dry_run)
+4. Callback skipped if `request.user_id` is None; errors logged but don't fail dispatch
+5. `AuditService.create_entry_async()` — async variant accepting `AsyncSession`
+6. `app.py` wires audit callback closure in `wire_llm_pipeline()`
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/noa/tools/gateway.py` | **EDIT** | Add user context to `ToolRequest`; add `audit_callback` to gateway; call after dispatch |
+| `src/noa/audit/service.py` | **EDIT** | Add `async create_entry_async()` |
+| `src/noa/api/app.py` | **EDIT** | Wire audit callback closure in `wire_llm_pipeline()` |
+| `tests/unit/test_mr3_tool_audit.py` | **CREATE** | Audit trail tests |
+
+**Tests (~12):**
+- ToolRequest has optional user_id, session_id, trace_id fields
+- ToolRequest defaults are None
+- dispatch calls audit callback on success
+- dispatch calls audit callback on error
+- dispatch calls audit callback on rate limit
+- dispatch skips audit when no callback
+- dispatch skips audit when no user_id
+- create_entry_async writes to session
+- create_entry_async chains hash
+- create_entry_async flushes not commits
+- dry_run calls audit with dry_run status
+- cached response calls audit with cached status
+
+**Test gate:**
+```bash
+pytest tests/unit/test_mr3_tool_audit.py -v
+```
+
+---
+
+### Phase MR4: Tool Call Telemetry to DB (~30 min)
+
+**Goal:** `ToolGateway` records telemetry in `self.telemetry: list[dict]` — an in-process list lost on restart. This phase introduces a `ToolCallLog` DB model, replaces the in-memory list with DB persistence (with fallback), and adds a `/health/tools` endpoint for per-tool statistics.
+
+**Spec refs:** SPEC.md §28.4, §28.5, §19.3
+
+**Depends on:** MR1 (session factory pattern)
+**Blocks:** MR7
+
+**Deliverables:**
+1. `ToolCallLog` model: id (UUID), tool, function, latency_ms, status, cached, timestamp, user_id
+2. Alembic migration `003_tool_call_log.py`
+3. `ToolGateway` gets `session_factory` kwarg; persists to DB when set, fallback to list
+4. `GET /health/tools` — per-tool p50/p95 latency, error_rate, call_count (last 24h)
+5. Existing `test_tg1_gateway.py` still passes (no factory = list mode)
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/noa/db/models/tool_call_log.py` | **CREATE** | `ToolCallLog` SQLAlchemy model |
+| `alembic/versions/003_tool_call_log.py` | **CREATE** | Migration |
+| `src/noa/tools/gateway.py` | **EDIT** | Add `session_factory` to init; DB-backed telemetry with list fallback |
+| `src/noa/api/v1/health.py` | **EDIT** | Add `GET /health/tools` endpoint |
+| `src/noa/api/app.py` | **EDIT** | Pass `session_factory` to `ToolGateway()` |
+| `tests/unit/test_mr4_tool_telemetry.py` | **CREATE** | Telemetry tests |
+
+**Tests (~13):**
+- ToolCallLog instantiation with required fields
+- ToolCallLog timestamp auto-set
+- Migration creates tool_call_logs table
+- Telemetry fallback to list without factory
+- session_factory stored in init
+- DB write called on dispatch
+- DB error does not fail dispatch
+- /health/tools returns 200
+- /health/tools returns per-tool stats
+- /health/tools shows error_rate
+- /health/tools shows latency percentiles
+- /health/tools empty when no calls
+- Existing gateway tests still pass
+
+**Test gate:**
+```bash
+pytest tests/unit/test_mr4_tool_telemetry.py -v
+```
+
+---
+
+### Phase MR5: Capability-Based Tool Permissions (~30 min)
+
+**Goal:** Currently any authenticated user can invoke any registered tool. This phase adds a per-tool capability system (`search.read`, `calendar.write`, `gmail.send`, etc.) with DB-backed grants, hooks it into `dispatch()`, and exposes enable/disable endpoints per SPEC §34.
+
+**Spec refs:** SPEC.md §19, §34, §2.1
+
+**Depends on:** MR1 (permissions are per-user)
+**Blocks:** MR7
+
+**Deliverables:**
+1. `ToolCapability` model: id, user_id, tool_name, capability, granted_at, granted_by
+2. Alembic migration `004_tool_capabilities.py`
+3. `TOOL_CAPABILITIES` static dict mapping tool names to required capabilities
+4. `CapabilityChecker` protocol + `DbCapabilityChecker` implementation
+5. Capability check in `dispatch()` between allowlist and dry-run
+6. `POST /api/v1/tools/{name}/enable` and `DELETE /api/v1/tools/{name}` endpoints
+7. No checker or no user_id → dispatch proceeds (backward compat)
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/noa/db/models/tool_capability.py` | **CREATE** | `ToolCapability` model |
+| `alembic/versions/004_tool_capabilities.py` | **CREATE** | Migration with index on (user_id, tool_name) |
+| `src/noa/tools/capabilities.py` | **CREATE** | `TOOL_CAPABILITIES` dict, `CapabilityChecker` protocol, `DbCapabilityChecker` |
+| `src/noa/tools/gateway.py` | **EDIT** | Add capability check in `dispatch()` |
+| `src/noa/api/v1/tools.py` | **CREATE** | Enable/disable endpoints |
+| `src/noa/api/app.py` | **EDIT** | Register tools router, wire checker |
+| `tests/unit/test_mr5_tool_permissions.py` | **CREATE** | Permission tests |
+
+**Tests (~14):**
+- ToolCapability model instantiation
+- ToolCapability required fields
+- All registered tools have capabilities in TOOL_CAPABILITIES
+- Capability strings use dot notation (r"^\w+\.\w+$")
+- dispatch allowed when checker not set
+- dispatch allowed when user_id None
+- dispatch blocked when capability denied
+- dispatch allowed when capability granted
+- capability check before dry_run (denied even in dry_run)
+- POST /tools/{name}/enable exists (non-404)
+- POST /tools/{name}/enable requires auth
+- POST /tools/{name}/enable grants capability
+- DELETE /tools/{name} exists
+- DELETE /tools/{name} revokes capability
+
+**Test gate:**
+```bash
+pytest tests/unit/test_mr5_tool_permissions.py -v
+```
+
+---
+
+### Phase MR6: Docker Compose Hardening (~20 min)
+
+**Goal:** `docker-compose.yml` lacks healthchecks for `noa-api` and `private-worker`, has no resource limits, and `noa-api` is missing container hardening flags. This phase brings the compose file up to SPEC §30 requirements.
+
+**Spec refs:** SPEC.md §30, §8.1, §20.1
+
+**Depends on:** None (within this wave)
+**Blocks:** MR7
+
+**Deliverables:**
+1. `noa-api` healthcheck: `curl -f http://localhost:8000/health` (interval 10s, timeout 5s, retries 5, start_period 30s)
+2. `private-worker` healthcheck: `curl -f http://localhost:8001/health` (interval 10s, timeout 5s, retries 5)
+3. Resource limits: noa-api 2CPU/2GB, external-worker 2CPU/4GB, postgres 1CPU/2GB
+4. `noa-api` hardening: `read_only: true`, `cap_drop: [ALL]`, `security_opt: [no-new-privileges:true]`, `tmpfs: [/tmp:size=256M]`
+5. `noa-api` `depends_on`: add `private-worker: condition: service_healthy`
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `docker-compose.yml` | **EDIT** | Healthchecks, resource limits, hardening, depends_on |
+| `tests/unit/test_mr6_compose_hardening.py` | **CREATE** | YAML-parsing tests |
+
+**Tests (~10):**
+- noa-api has healthcheck defined
+- noa-api healthcheck uses curl and /health
+- private-worker has healthcheck defined
+- noa-api has CPU limit (2.0)
+- noa-api has memory limit (2g)
+- external-worker has memory limit (4g)
+- postgres has resource limits
+- noa-api is read_only
+- noa-api drops all caps
+- noa-api waits for private-worker healthy
+
+**Test gate:**
+```bash
+pytest tests/unit/test_mr6_compose_hardening.py -v
+```
+
+---
+
+### Phase MR7: Integration Smoke Test (~25 min)
+
+**Goal:** End-to-end test validating the full auth flow (register → login → authenticated access → refresh → logout) against a fully wired ASGI app with SQLite in-memory — no Docker required.
+
+**Spec refs:** SPEC.md §25.1, §28.1, §5.3
+
+**Depends on:** MR1, MR2, MR3, MR4, MR5, MR6, MR8, MR9
+**Blocks:** None
+
+**Deliverables:**
+1. `tests/integration/test_mr7_smoke.py` — pytest tests using `httpx.AsyncClient` with ASGI transport
+2. `tools/smoke_test.sh` — optional Docker-based end-to-end script
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `tests/integration/test_mr7_smoke.py` | **CREATE** | Full integration smoke test |
+| `tools/smoke_test.sh` | **CREATE** | Optional Docker smoke script |
+
+**Tests (~10):**
+- POST /register creates new user → 201
+- POST /login returns access_token and refresh_token
+- POST /login with wrong password → 401
+- GET /health returns 200 (no auth)
+- GET /settings without token → 401
+- GET /settings with valid token → 200
+- POST /refresh rotates token pair
+- POST /logout invalidates session
+- GET /health/tools returns 200
+- POST /tools/{name}/enable with valid token → 200
+
+**Test gate:**
+```bash
+pytest tests/integration/test_mr7_smoke.py -v
+```
+
+---
+
+### Phase MR8: Per-Node Model Routing (~25 min)
+
+**Goal:** The LangGraph nodes currently use a single model selected by `router_node` (hardcoded `_EXTERNAL_MODEL = "anthropic/claude-haiku"`). Different nodes have different intelligence requirements: the router just classifies (cheap model fine), the agent does reasoning (needs frontier model), the responder just formats (no LLM needed). This phase adds a `ModelConfig` so each node can specify its preferred model, cutting token costs ~40-60%.
+
+**Spec refs:** SPEC.md §14.4, §2.1
+
+**Depends on:** None (within this wave)
+**Blocks:** MR7
+
+**Deliverables:**
+1. `ModelConfig` dataclass mapping node names to model identifiers with defaults
+2. `AgentState` gets `model_config: dict[str, str]` field
+3. `router_node` returns `model_config` in state update based on privacy mode
+4. `agent_node` reads `model_config["agent"]` (fallback to `selected_model` for backward compat)
+5. Default: `{"router": "none", "agent": "anthropic/claude-sonnet-4-20250514", "responder": "none"}`
+6. Private mode: `{"agent": "ollama/llama3.1"}` — privacy enforcement still in `ProviderRouter.select()`
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/noa/orchestrator/model_config.py` | **CREATE** | `ModelConfig` dataclass with per-node model defaults |
+| `src/noa/orchestrator/state.py` | **EDIT** | Add `model_config: dict[str, str]` to `AgentState` |
+| `src/noa/orchestrator/nodes/router.py` | **EDIT** | Return `model_config` in state update |
+| `src/noa/orchestrator/nodes/agent.py` | **EDIT** | Read `model_config["agent"]` with fallback to `selected_model` |
+| `tests/unit/test_mr8_model_routing.py` | **CREATE** | Model routing tests |
+
+**Tests (~10):**
+- ModelConfig has correct default values
+- ModelConfig private mode returns ollama for agent
+- router_node returns model_config in state update
+- agent_node uses model_config["agent"] when present
+- agent_node falls back to selected_model when model_config absent
+- model_config respects privacy_mode=private override
+- ModelConfig.from_settings reads user preferences
+- Per-node model can be overridden via ChatRequest
+- router and responder have model="none" (no LLM cost)
+- Full graph run with model_config passes agent the correct model
+
+**Test gate:**
+```bash
+pytest tests/unit/test_mr8_model_routing.py -v
+```
+
+---
+
+### Phase MR9: Conditional Graph Edges (~25 min)
+
+**Goal:** The graph topology is fixed linear: `router → agent → tools → responder`. Every request executes the tool node even when the agent returns no tool calls. This phase adds conditional edges so the graph skips tools when unnecessary and supports multi-turn tool use with a loop cap, reducing latency and cost.
+
+**Spec refs:** SPEC.md §2.1 (topology is fixed, but edges can be conditional)
+
+**Depends on:** None (within this wave)
+**Blocks:** MR7
+
+**Deliverables:**
+1. Conditional edge: `agent → tools` (if tool_calls) or `agent → responder` (if no tool_calls)
+2. Conditional edge: `tools → agent` (for follow-up) or `tools → responder` (if done)
+3. `MAX_TOOL_ROUNDS = 3` — caps `tools → agent` loop (§2.1 cost limits)
+4. `AgentState` gets `tool_rounds: int` counter
+5. All existing tests pass — same 4 nodes, smarter routing
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/noa/orchestrator/graph.py` | **EDIT** | Replace fixed edges with `add_conditional_edges()` + routing functions |
+| `src/noa/orchestrator/state.py` | **EDIT** | Add `tool_rounds: int` field |
+| `src/noa/orchestrator/nodes/tools.py` | **EDIT** | Increment `tool_rounds` in return dict |
+| `tests/unit/test_mr9_conditional_edges.py` | **CREATE** | Conditional edge tests |
+
+**Tests (~10):**
+- Graph compiles without error
+- Graph has 4 nodes
+- No tool_calls → skips tools, goes agent → responder
+- With tool_calls → goes agent → tools → agent (loop)
+- tool_rounds incremented after each tools pass
+- MAX_TOOL_ROUNDS=3 enforced — tools → responder after 3 rounds
+- Pure text response produces correct final response
+- Tool-using response produces correct tool_results
+- Backward compat: existing graph tests still pass
+- tool_rounds defaults to 0
+
+**Test gate:**
+```bash
+pytest tests/unit/test_mr9_conditional_edges.py -v
+```
+
+---
+
 ## Dependency Graph
 
 ```
@@ -2375,6 +2797,15 @@ Wave 12: Google + Notion Tools
   GT1 ──► GT2 (Calendar + Gmail HTTP Clients)
   TG3 ──► GT3 (Notion HTTP Client)
   TG2 ──► GT4 (McpRemoteAdapter Stub)
+
+Wave 13: MVP Completion
+  MR1 (Real Auth)        ──┬── MR3 (Audit Trail)  ──┐
+                            ├── MR4 (Telemetry DB)  ──┤
+                            └── MR5 (Permissions)   ──┤
+  MR2 (Memory Persist)   ─────────────────────────────┼── MR7 (Smoke Test)
+  MR6 (Docker Hardening) ─────────────────────────────┤
+  MR8 (Model Routing)    ─────────────────────────────┤
+  MR9 (Conditional Edges) ────────────────────────────┘
 ```
 
 ---

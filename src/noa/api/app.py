@@ -95,7 +95,10 @@ def wire_llm_pipeline(settings: Any) -> None:
                 )
                 await asession.commit()
 
-        gateway = ToolGateway(audit_callback=_audit_callback)
+        gateway = ToolGateway(
+            audit_callback=_audit_callback,
+            session_factory=get_session_factory(),
+        )
         register_tools(gateway)
         set_gateway(gateway)
         set_tools_gateway(gateway)

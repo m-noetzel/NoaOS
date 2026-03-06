@@ -19,7 +19,6 @@ logger = logging.getLogger(__name__)
 #   async def callback(request, response, *, status: str) -> None
 AuditCallback = Callable[["ToolRequest", "ToolResponse", str], Awaitable[None]]
 
-
 @dataclass
 class ToolRequest:
     """Transport-agnostic tool invocation request."""
@@ -80,20 +79,25 @@ class _RateLimit:
 class ToolGateway:
     """Central tool dispatch hub.
 
-    Resolves tool name → adapter, enforces governance (idempotency,
+    Resolves tool name -> adapter, enforces governance (idempotency,
     rate limits, dry-run), records telemetry.
+
+    When *session_factory* is provided, telemetry is persisted to the
+    ``tool_call_logs`` table.  Falls back to an in-memory list otherwise.
     """
 
     def __init__(
         self,
         *,
         audit_callback: AuditCallback | None = None,
+        session_factory: Any | None = None,
     ) -> None:
         self._adapters: dict[str, ToolAdapter] = {}
         self._idempotency_cache: dict[str, ToolResponse] = {}
         self._rate_limits: dict[str, _RateLimit] = {}
         self.telemetry: list[dict[str, Any]] = []
         self._audit_callback = audit_callback
+        self._session_factory = session_factory
 
     # -- registration -------------------------------------------------------
 
@@ -126,7 +130,7 @@ class ToolGateway:
         # 1. Allowlist check
         if tool not in self._adapters:
             resp = ToolResponse(error=f"Tool not registered: {tool}")
-            self._record_telemetry(request, resp, "error")
+            await self._record_telemetry(request, resp, "error")
             await self._fire_audit(request, resp, "error")
             return resp
 
@@ -139,7 +143,7 @@ class ToolGateway:
                 "preview": True,
             }
             resp = ToolResponse(result=preview, provider="dry_run")
-            self._record_telemetry(request, resp, "dry_run")
+            await self._record_telemetry(request, resp, "dry_run")
             await self._fire_audit(request, resp, "dry_run")
             return resp
 
@@ -154,7 +158,7 @@ class ToolGateway:
                     provider=cached.provider,
                     cached=True,
                 )
-                self._record_telemetry(request, resp, "cached")
+                await self._record_telemetry(request, resp, "cached")
                 await self._fire_audit(request, resp, "cached")
                 return resp
 
@@ -162,7 +166,7 @@ class ToolGateway:
         rl = self._rate_limits.get(tool)
         if rl and not rl.check():
             resp = ToolResponse(error=f"Rate limit exceeded for {tool}")
-            self._record_telemetry(request, resp, "rate_limited")
+            await self._record_telemetry(request, resp, "rate_limited")
             await self._fire_audit(request, resp, "rate_limited")
             return resp
 
@@ -179,7 +183,7 @@ class ToolGateway:
             self._idempotency_cache[request.idempotency_key] = resp
 
         status = "error" if resp.error else "ok"
-        self._record_telemetry(request, resp, status)
+        await self._record_telemetry(request, resp, status)
         await self._fire_audit(request, resp, status)
         return resp
 
@@ -203,13 +207,42 @@ class ToolGateway:
 
     # -- telemetry ----------------------------------------------------------
 
-    def _record_telemetry(
+    async def _record_telemetry(
         self, request: ToolRequest, response: ToolResponse, status: str
     ) -> None:
-        self.telemetry.append({
+        entry = {
             "tool": request.tool,
             "function": request.function,
             "latency_ms": response.latency_ms,
             "status": status,
             "cached": response.cached,
-        })
+        }
+        self.telemetry.append(entry)
+
+        # Persist to DB if session_factory is available
+        if self._session_factory is not None:
+            await self._persist_telemetry(entry)
+
+    async def _persist_telemetry(self, entry: dict[str, Any]) -> None:
+        """Write a telemetry entry to the database."""
+        try:
+            from noa.db.models.tool_call_log import ToolCallLog
+
+            factory = self._session_factory
+            if factory is None:
+                return
+
+            log = ToolCallLog(
+                tool=entry["tool"],
+                function=entry["function"],
+                latency_ms=entry["latency_ms"],
+                status=entry["status"],
+                cached=entry["cached"],
+            )
+            async with factory() as session:
+                session.add(log)
+                await session.commit()
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "Failed to persist tool telemetry to DB", exc_info=True,
+            )
