@@ -10,6 +10,7 @@ build/
 .mypy_cache/
 .ruff_cache/
 .env
+.env.secrets
 *.db
 *.sqlite3
 .agent_worktrees/

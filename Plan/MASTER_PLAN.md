@@ -57,7 +57,7 @@ The plan is organized into **waves** — groups of related phases that deliver a
 | **WM6** | Tests & Verification | **Complete** | 73 | main | ~20 min | ~5 min | 56 backend + 17 frontend tests, build clean |
 | — | — **WAVE 8: CREDENTIAL MANAGEMENT** — | — | — | — | — | — | — |
 | **CM1** | Extend Settings with Tool Credentials | **Complete** | 18 | main | ~30 min | ~10 min | QA PASS 2026-03-06 |
-| **CM2** | macOS Keychain Bootstrap | Planned | — | — | ~45 min | — | keychain_store.sh, keychain_bootstrap.sh, docker-compose env wiring |
+| **CM2** | macOS Keychain Bootstrap | **Complete** | 16 | main | ~45 min | ~8 min | QA PASS 2026-03-06 |
 | — | — **WAVE 9: LLM PROVIDER WIRING** — | — | — | — | — | — | — |
 | **LP1** | Anthropic Client HTTP | Planned | — | — | ~30 min | — | Real httpx calls to /v1/messages, tool_use blocks, retry on 429 |
 | **LP2** | OpenAI Client HTTP | Planned | — | — | ~30 min | — | Real httpx calls to /v1/chat/completions, tool_calls parsing |

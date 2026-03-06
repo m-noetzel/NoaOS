@@ -18,6 +18,8 @@ services:
     networks:
       - noa-internal
       - noa-external
+    env_file:
+      - .env.secrets  # API keys from macOS Keychain (§11.1)
     environment:
       - DATABASE_URL=postgresql+asyncpg://noa:noa@postgres:5432/noa
       - NOA_ENV=production

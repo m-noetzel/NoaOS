@@ -58,6 +58,15 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7
 
+    # API keys — injected from keychain via env vars (SPEC.md §11.1)
+    anthropic_api_key: str | None = None
+    openai_api_key: str | None = None
+    google_client_id: str | None = None
+    google_client_secret: str | None = None
+    notion_token: str | None = None
+    tavily_api_key: str | None = None
+    ollama_base_url: str | None = None
+
     model_config = {
         "env_prefix": "",
         "case_sensitive": False,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import uuid
 from typing import Any
 
@@ -48,11 +49,38 @@ _DEFAULTS: dict[str, Any] = {
 }
 
 
+# Map from settings field name → env var name (for keychain override)
+_FIELD_TO_ENV: dict[str, str] = {
+    "anthropic_api_key": "ANTHROPIC_API_KEY",
+    "openai_api_key": "OPENAI_API_KEY",
+    "google_client_id": "GOOGLE_CLIENT_ID",
+    "google_client_secret": "GOOGLE_CLIENT_SECRET",
+    "notion_token": "NOTION_TOKEN",
+    "tavily_api_key": "TAVILY_API_KEY",
+    "ollama_base_url": "OLLAMA_BASE_URL",
+}
+
+
 class SettingsService:
     """Settings business logic with masking for secret fields."""
 
     def __init__(self, repo: SettingsRepository) -> None:
         self._repo = repo
+
+    @staticmethod
+    def get_effective_key(
+        field_name: str, *, db_value: str | None = None,
+    ) -> str | None:
+        """Return env var value if set, else fall back to DB value.
+
+        Env vars from keychain bootstrap take priority over DB-stored
+        keys per SPEC.md §11.2.
+        """
+        env_name = _FIELD_TO_ENV.get(field_name, field_name.upper())
+        env_value = os.environ.get(env_name, "")
+        if env_value:
+            return env_value
+        return db_value
 
     @staticmethod
     def mask_key(key: str | None) -> str | None:
