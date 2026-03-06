@@ -56,12 +56,46 @@ def wire_llm_pipeline(settings: Any) -> None:
 
     # 2. Set up ToolGateway with registered tools
     try:
-        from noa.api.app_state import set_gateway
+        from noa.api.app_state import get_session_factory, set_gateway
+        from noa.audit.service import AuditService
         from noa.orchestrator.nodes.tools import set_gateway as set_tools_gateway
-        from noa.tools.gateway import ToolGateway
+        from noa.tools.gateway import ToolGateway, ToolRequest, ToolResponse
         from noa.tools.registration import register_tools
 
-        gateway = ToolGateway()
+        # Build audit callback closure over session factory
+        sf = get_session_factory()
+
+        async def _audit_callback(
+            request: ToolRequest, response: ToolResponse, status: str
+        ) -> None:
+            if sf is None:
+                return
+            import uuid
+            from decimal import Decimal
+
+            async with sf() as asession:
+                svc = AuditService.__new__(AuditService)
+                await svc.create_entry_async(
+                    session=asession,
+                    user_id=request.user_id,  # type: ignore[arg-type]
+                    session_id=request.session_id or uuid.uuid4(),
+                    device_id=uuid.uuid4(),
+                    trace_id=request.trace_id or uuid.uuid4(),
+                    domain=request.privacy_mode,
+                    model_provider="tool_gateway",
+                    model_name="n/a",
+                    input_tokens=0,
+                    output_tokens=0,
+                    cost_usd=Decimal("0"),
+                    tool_name=request.tool,
+                    tool_args=request.args,
+                    tool_result_summary=status,
+                    privacy_classification=request.privacy_mode,
+                    classification_confidence=1.0,
+                )
+                await asession.commit()
+
+        gateway = ToolGateway(audit_callback=_audit_callback)
         register_tools(gateway)
         set_gateway(gateway)
         set_tools_gateway(gateway)

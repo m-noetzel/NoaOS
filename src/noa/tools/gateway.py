@@ -6,9 +6,18 @@ Spec refs: SPEC.md §19.1 (idempotency), §19.2 (dry-run previews),
 
 from __future__ import annotations
 
+import logging
 import time
+import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
+
+logger = logging.getLogger(__name__)
+
+# Type alias for the audit callback:
+#   async def callback(request, response, *, status: str) -> None
+AuditCallback = Callable[["ToolRequest", "ToolResponse", str], Awaitable[None]]
 
 
 @dataclass
@@ -20,6 +29,9 @@ class ToolRequest:
     args: dict[str, Any]
     idempotency_key: str | None = None
     privacy_mode: str = "external"
+    user_id: uuid.UUID | None = None
+    session_id: uuid.UUID | None = None
+    trace_id: uuid.UUID | None = None
 
 
 @dataclass
@@ -72,11 +84,16 @@ class ToolGateway:
     rate limits, dry-run), records telemetry.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        audit_callback: AuditCallback | None = None,
+    ) -> None:
         self._adapters: dict[str, ToolAdapter] = {}
         self._idempotency_cache: dict[str, ToolResponse] = {}
         self._rate_limits: dict[str, _RateLimit] = {}
         self.telemetry: list[dict[str, Any]] = []
+        self._audit_callback = audit_callback
 
     # -- registration -------------------------------------------------------
 
@@ -110,6 +127,7 @@ class ToolGateway:
         if tool not in self._adapters:
             resp = ToolResponse(error=f"Tool not registered: {tool}")
             self._record_telemetry(request, resp, "error")
+            await self._fire_audit(request, resp, "error")
             return resp
 
         # 2. Dry-run preview (§19.2)
@@ -122,6 +140,7 @@ class ToolGateway:
             }
             resp = ToolResponse(result=preview, provider="dry_run")
             self._record_telemetry(request, resp, "dry_run")
+            await self._fire_audit(request, resp, "dry_run")
             return resp
 
         # 3. Idempotency check (§19.1)
@@ -136,6 +155,7 @@ class ToolGateway:
                     cached=True,
                 )
                 self._record_telemetry(request, resp, "cached")
+                await self._fire_audit(request, resp, "cached")
                 return resp
 
         # 4. Rate limit check (§19.3)
@@ -143,6 +163,7 @@ class ToolGateway:
         if rl and not rl.check():
             resp = ToolResponse(error=f"Rate limit exceeded for {tool}")
             self._record_telemetry(request, resp, "rate_limited")
+            await self._fire_audit(request, resp, "rate_limited")
             return resp
 
         # 5. Execute via adapter
@@ -159,7 +180,26 @@ class ToolGateway:
 
         status = "error" if resp.error else "ok"
         self._record_telemetry(request, resp, status)
+        await self._fire_audit(request, resp, status)
         return resp
+
+    # -- audit callback -----------------------------------------------------
+
+    async def _fire_audit(
+        self, request: ToolRequest, response: ToolResponse, status: str
+    ) -> None:
+        """Invoke audit callback if configured and user context present."""
+        if self._audit_callback is None or request.user_id is None:
+            return
+        try:
+            await self._audit_callback(request, response, status)
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "Audit callback failed for tool=%s status=%s",
+                request.tool,
+                status,
+                exc_info=True,
+            )
 
     # -- telemetry ----------------------------------------------------------
 
