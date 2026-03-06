@@ -13,7 +13,7 @@ All LLM calls are mocked. No DB or network access.
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -288,13 +288,16 @@ class TestAgentNode:
         """Agent must call the LLM and may produce tool_calls.
         (SPEC.md §2.2 — bounded inner autonomy)
         """
-        from noa.orchestrator.nodes.agent import agent_node
+        import asyncio
 
-        mock_response = MagicMock()
-        mock_response.content = "I'll check your calendar."
-        mock_response.tool_calls = [
-            {"name": "calendar_list", "args": {"date": "2026-03-04"}},
-        ]
+        from noa.orchestrator.nodes.agent import LLMResponse, agent_node
+
+        mock_response = LLMResponse(
+            content="I'll check your calendar.",
+            tool_calls=[
+                {"name": "calendar_list", "args": {"date": "2026-03-04"}},
+            ],
+        )
 
         state = _make_agent_state(
             messages=[_make_user_message("What's on my calendar today?")],
@@ -305,7 +308,7 @@ class TestAgentNode:
             "noa.orchestrator.nodes.agent.invoke_llm",
             return_value=mock_response,
         ):
-            result = agent_node(state)
+            result = asyncio.get_event_loop().run_until_complete(agent_node(state))
 
         assert "tool_calls" in result
         assert len(result["tool_calls"]) > 0
@@ -314,15 +317,18 @@ class TestAgentNode:
         """Agent must enforce a maximum number of tool calls per invocation.
         (SPEC.md §2.1 — cost and iteration limits are fixed)
         """
-        from noa.orchestrator.nodes.agent import agent_node
+        import asyncio
+
+        from noa.orchestrator.nodes.agent import LLMResponse, agent_node
 
         # Simulate LLM returning many tool calls
         many_calls = [
             {"name": f"tool_{i}", "args": {}} for i in range(50)
         ]
-        mock_response = MagicMock()
-        mock_response.content = ""
-        mock_response.tool_calls = many_calls
+        mock_response = LLMResponse(
+            content="",
+            tool_calls=many_calls,
+        )
 
         state = _make_agent_state(
             messages=[_make_user_message("Do everything")],
@@ -332,7 +338,7 @@ class TestAgentNode:
             "noa.orchestrator.nodes.agent.invoke_llm",
             return_value=mock_response,
         ):
-            result = agent_node(state)
+            result = asyncio.get_event_loop().run_until_complete(agent_node(state))
 
         # The agent must cap tool_calls at some reasonable bound
         assert len(result.get("tool_calls", [])) <= 10, (
@@ -343,11 +349,14 @@ class TestAgentNode:
         """When LLM produces no tool calls, agent must return a direct response.
         (SPEC.md §2.2 — synthesize structured outputs)
         """
-        from noa.orchestrator.nodes.agent import agent_node
+        import asyncio
 
-        mock_response = MagicMock()
-        mock_response.content = "Hello! How can I help you?"
-        mock_response.tool_calls = []
+        from noa.orchestrator.nodes.agent import LLMResponse, agent_node
+
+        mock_response = LLMResponse(
+            content="Hello! How can I help you?",
+            tool_calls=[],
+        )
 
         state = _make_agent_state(
             messages=[_make_user_message("Hi")],
@@ -357,7 +366,7 @@ class TestAgentNode:
             "noa.orchestrator.nodes.agent.invoke_llm",
             return_value=mock_response,
         ):
-            result = agent_node(state)
+            result = asyncio.get_event_loop().run_until_complete(agent_node(state))
 
         # Should have empty tool_calls or a direct response
         assert result.get("tool_calls", []) == [] or result.get("response") is not None
@@ -405,7 +414,10 @@ class TestToolNode:
         # The disallowed tool must be rejected
         assert "tool_results" in result
         for tool_result in result["tool_results"]:
-            assert tool_result.get("error") or "denied" in str(tool_result).lower() or "not allowed" in str(tool_result).lower(), (
+            err = tool_result.get("error")
+            denied = "denied" in str(tool_result).lower()
+            blocked = "not allowed" in str(tool_result).lower()
+            assert err or denied or blocked, (
                 "Disallowed tool must produce an error/denied result"
             )
 
@@ -565,8 +577,8 @@ class TestNodeIsolation:
         """Every node function must return a dict (state update).
         (SPEC.md §2.1 — deterministic outer shell)
         """
-        from noa.orchestrator.nodes.router import router_node
         from noa.orchestrator.nodes.responder import responder_node
+        from noa.orchestrator.nodes.router import router_node
         from noa.orchestrator.nodes.tools import tool_node
 
         # Router
