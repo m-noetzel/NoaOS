@@ -12,6 +12,7 @@ from starlette.middleware.cors import CORSMiddleware
 from noa.api.middleware import RequestIDMiddleware, register_error_handlers
 from noa.api.v1.approvals import router as approvals_router
 from noa.api.v1.artifacts import router as artifacts_router
+from noa.api.v1.audit import router as audit_router
 from noa.api.v1.auth import router as auth_router
 from noa.api.v1.chat import router as chat_router
 from noa.api.v1.health import router as health_router
@@ -46,9 +47,22 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception:  # noqa: BLE001, S110
         pass  # Allow running without DB for health-only testing
 
+    # Start private-container health checker (§17.1)
+    from noa.api.app_state import set_health_checker
+    from noa.queue.health import HealthChecker
+
+    private_url = os.environ.get(
+        "PRIVATE_WORKER_HEALTH_URL", "http://private-worker:8001/health"
+    )
+    checker = HealthChecker(poll_url=private_url)
+    set_health_checker(checker)
+    await checker.start()
+
     yield
 
-    # Shutdown: dispose engine if present
+    # Shutdown: stop health checker, dispose engine
+    await checker.stop()
+
     from noa.api.app_state import get_engine
 
     shutdown_engine = get_engine()
@@ -98,5 +112,6 @@ def create_app() -> FastAPI:
     app.include_router(usage_router)
     app.include_router(tasks_router)
     app.include_router(artifacts_router)
+    app.include_router(audit_router)
 
     return app

@@ -163,8 +163,10 @@ class TestRateLimiting:
 
         assert limiter.check("send_email") is False
 
-        # Simulate window expiry
-        limiter._windows["send_email"]["start"] = time.monotonic() - 3601
+        # Simulate window expiry by shifting all timestamps back
+        from collections import deque as _deque
+        old_ts = time.monotonic() - 3601
+        limiter._timestamps["send_email"] = _deque([old_ts] * 10)
         assert limiter.check("send_email") is True
 
 
@@ -371,3 +373,20 @@ class TestIdempotencyKeyHeader:
 
         key = extract_idempotency_key({})
         assert key is None
+
+    def test_idempotency_middleware_extracts_lowercase_key(self):
+        """Starlette normalises headers to lowercase — must still find the key.
+
+        RFC 7230: HTTP headers are case-insensitive.
+        """
+        from noa.api.middleware import extract_idempotency_key
+
+        key = extract_idempotency_key({"idempotency-key": "low-123"})
+        assert key == "low-123"
+
+    def test_idempotency_middleware_extracts_mixed_case_key(self):
+        """Arbitrary casing must still work per RFC 7230."""
+        from noa.api.middleware import extract_idempotency_key
+
+        key = extract_idempotency_key({"IDEMPOTENCY-KEY": "upper-456"})
+        assert key == "upper-456"

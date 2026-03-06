@@ -21,13 +21,24 @@ trace_id_ctx: ContextVar[str] = ContextVar("trace_id", default="")
 def extract_idempotency_key(headers: dict[str, str]) -> str | None:
     """Extract Idempotency-Key from request headers per §25.4.
 
+    Case-insensitive lookup per RFC 7230 (HTTP headers are case-insensitive).
+    Starlette/FastAPI normalises headers to lowercase, so we check both forms.
+
     Args:
         headers: Request headers dict.
 
     Returns:
         The idempotency key string, or None if not present.
     """
-    return headers.get("Idempotency-Key")
+    # Fast path: try canonical and lowercase forms first
+    value = headers.get("Idempotency-Key") or headers.get("idempotency-key")
+    if value is not None:
+        return value
+    # Fallback: full case-insensitive scan
+    for k, v in headers.items():
+        if k.lower() == "idempotency-key":
+            return v
+    return None
 
 
 class RequestIDMiddleware(BaseHTTPMiddleware):

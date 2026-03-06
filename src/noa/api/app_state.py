@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from noa.queue.health import HealthChecker
+
 _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
+_health_checker: HealthChecker | None = None
 
 
 def set_engine(engine: AsyncEngine) -> None:
@@ -25,9 +28,17 @@ def set_session_factory(factory: async_sessionmaker[AsyncSession]) -> None:
     _session_factory = factory
 
 
-def get_session_factory() -> async_sessionmaker[AsyncSession]:
-    """Return the session factory; raises if not initialised."""
-    if _session_factory is None:
-        msg = "Session factory not initialised — app not started?"
-        raise RuntimeError(msg)
+def get_session_factory() -> async_sessionmaker[AsyncSession] | None:
+    """Return the session factory (None before startup)."""
     return _session_factory
+
+
+def set_health_checker(checker: HealthChecker) -> None:
+    """Store the HealthChecker globally."""
+    global _health_checker  # noqa: PLW0603
+    _health_checker = checker
+
+
+def get_health_checker() -> HealthChecker | None:
+    """Return the current HealthChecker (may be None)."""
+    return _health_checker

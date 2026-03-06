@@ -50,14 +50,21 @@ async def readiness() -> dict[str, Any]:
 
 @router.get("/health/metrics")
 async def metrics() -> dict[str, Any]:
-    """Basic application metrics."""
+    """Application metrics including 24h private-worker availability."""
     from noa import __version__
+    from noa.api.app_state import get_health_checker
 
     uptime = time.monotonic() - _start_time
-    return success_envelope(
-        data={"uptime_seconds": round(uptime, 2), "version": __version__},
-        trace_id=trace_id_ctx.get(""),
-    )
+    data: dict[str, Any] = {
+        "uptime_seconds": round(uptime, 2),
+        "version": __version__,
+    }
+
+    checker = get_health_checker()
+    if checker is not None:
+        data["private_worker"] = checker.stats_24h()
+
+    return success_envelope(data=data, trace_id=trace_id_ctx.get(""))
 
 
 @router.get("/health/echo")

@@ -9,12 +9,15 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import time
+from collections import deque
 from collections.abc import Callable
 from typing import Any
 
 import httpx
 
 DEFAULT_POLL_INTERVAL = 30  # seconds
+_24H_SECONDS = 86400
 
 
 class HealthChecker:
@@ -24,6 +27,7 @@ class HealthChecker:
     - is_available() -> bool
     - poll_interval configurable (default 30s)
     - Background polling via start() / stop() (async lifecycle)
+    - stats_24h() -> 24-hour windowed availability metrics
     """
 
     def __init__(
@@ -40,6 +44,8 @@ class HealthChecker:
         self._task: asyncio.Task[None] | None = None
         self._http_client = http_client
         self._on_change = on_change
+        # 24h sliding-window history: deque of (monotonic_time, was_healthy)
+        self._history: deque[tuple[float, bool]] = deque()
 
     def is_available(self) -> bool:
         """Return whether the private container is currently reachable."""
@@ -51,6 +57,23 @@ class HealthChecker:
         self._available = available
         if self._on_change and old != available:
             self._on_change(available)
+
+    def stats_24h(self) -> dict[str, Any]:
+        """Return 24-hour windowed availability stats."""
+        now = time.monotonic()
+        cutoff = now - _24H_SECONDS
+        # Evict old entries
+        while self._history and self._history[0][0] < cutoff:
+            self._history.popleft()
+
+        total = len(self._history)
+        healthy = sum(1 for _, h in self._history if h)
+        return {
+            "checks_total": total,
+            "checks_healthy": healthy,
+            "availability_pct": round(healthy / total * 100, 2) if total else 0.0,
+            "current_available": self._available,
+        }
 
     async def _poll_once(self) -> bool:
         """Perform a single health check. Returns True if healthy."""
@@ -70,6 +93,7 @@ class HealthChecker:
         while self._running:
             healthy = await self._poll_once()
             self.set_available(healthy)
+            self._history.append((time.monotonic(), healthy))
             await asyncio.sleep(self.poll_interval)
 
     async def start(self) -> None:

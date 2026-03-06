@@ -106,7 +106,8 @@ class TestJWTTokens:
             secret_key=settings.secret_key,
             expires_minutes=-1,  # already expired
         )
-        with pytest.raises(Exception):  # noqa: B017 — exact type TBD
+        from noa.auth.jwt import TokenError
+        with pytest.raises(TokenError):
             decode_token(token, secret_key=settings.secret_key)
 
     def test_create_refresh_token_has_refresh_type(self, monkeypatch):
@@ -139,7 +140,8 @@ class TestJWTTokens:
             secret_key=settings.secret_key,
             expires_minutes=30,
         )
-        with pytest.raises(Exception):  # noqa: B017
+        from noa.auth.jwt import TokenError
+        with pytest.raises(TokenError):
             decode_token(token, secret_key="wrong-secret-key-entirely")
 
 
@@ -250,7 +252,8 @@ class TestAuthService:
         })()
 
         with patch.object(service, "_get_user_by_email", return_value=fake_user):
-            with pytest.raises(Exception):  # noqa: B017 — AuthError or HTTPException
+            from noa.auth.service import AuthError
+            with pytest.raises(AuthError):
                 await service.login(
                     email="ada@example.com",
                     password="wrong-password",
@@ -485,8 +488,9 @@ class TestRateLimiting:
 
         with patch.object(service, "_get_user_by_email", return_value=fake_user):
             # Fail 5 times
+            from noa.auth.service import AccountLockedError, AuthError
             for _ in range(5):
-                with pytest.raises(Exception):  # noqa: B017
+                with pytest.raises(AuthError):
                     await service.login(
                         email="ada@example.com",
                         password="wrong",
@@ -495,7 +499,7 @@ class TestRateLimiting:
 
             # 6th attempt should raise a lockout/rate-limit error even with
             # the correct password
-            with pytest.raises(Exception) as exc_info:  # noqa: B017
+            with pytest.raises(AccountLockedError) as exc_info:
                 await service.login(
                     email="ada@example.com",
                     password="real-password",

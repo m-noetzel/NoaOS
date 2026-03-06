@@ -10,6 +10,7 @@ Rate limits (per hour):
 from __future__ import annotations
 
 import time
+from collections import deque
 
 # Default rate limits per §19.3 (calls per hour)
 _DEFAULT_LIMITS: dict[str, int] = {
@@ -25,6 +26,9 @@ _WINDOW_SECONDS = 3600  # 1 hour
 class RateLimiter:
     """Sliding-window rate limiter per tool action.
 
+    Tracks individual call timestamps and evicts those outside the window,
+    giving smooth rate limiting without fixed-window boundary bursts.
+
     Actions not in the limits dict are unlimited.
     """
 
@@ -35,12 +39,12 @@ class RateLimiter:
     ) -> None:
         self._limits = limits if limits is not None else _DEFAULT_LIMITS
         self._window = window_seconds
-        self._windows: dict[str, dict[str, float | int]] = {}
+        self._timestamps: dict[str, deque[float]] = {}
 
     def check(self, action: str) -> bool:
         """Check if an action is allowed under its rate limit.
 
-        Returns True if allowed (and increments counter), False if blocked.
+        Returns True if allowed (and records the call), False if blocked.
         Unlimited actions always return True.
         """
         limit = self._limits.get(action)
@@ -48,15 +52,19 @@ class RateLimiter:
             return True
 
         now = time.monotonic()
-        window = self._windows.get(action)
+        ts = self._timestamps.get(action)
 
-        if window is None or now - window["start"] > self._window:
-            # Start a new window
-            self._windows[action] = {"start": now, "count": 1}
-            return True
+        if ts is None:
+            ts = deque()
+            self._timestamps[action] = ts
 
-        if window["count"] >= limit:
+        # Evict timestamps outside the sliding window
+        cutoff = now - self._window
+        while ts and ts[0] <= cutoff:
+            ts.popleft()
+
+        if len(ts) >= limit:
             return False
 
-        window["count"] = int(window["count"]) + 1
+        ts.append(now)
         return True
