@@ -21,4 +21,5 @@ from noa.db.models.run import Run, RunEvent  # noqa: E402, F401
 from noa.db.models.session import AuthSession  # noqa: E402, F401
 from noa.db.models.task_queue import TaskQueue  # noqa: E402, F401
 from noa.db.models.usage import UsageStats  # noqa: E402, F401
+from noa.db.models.tool_call_log import ToolCallLog  # noqa: E402, F401
 from noa.db.models.user import User  # noqa: E402, F401

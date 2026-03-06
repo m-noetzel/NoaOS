@@ -56,12 +56,12 @@ def wire_llm_pipeline(settings: Any) -> None:
 
     # 2. Set up ToolGateway with registered tools
     try:
-        from noa.api.app_state import set_gateway
+        from noa.api.app_state import get_session_factory, set_gateway
         from noa.orchestrator.nodes.tools import set_gateway as set_tools_gateway
         from noa.tools.gateway import ToolGateway
         from noa.tools.registration import register_tools
 
-        gateway = ToolGateway()
+        gateway = ToolGateway(session_factory=get_session_factory())
         register_tools(gateway)
         set_gateway(gateway)
         set_tools_gateway(gateway)
