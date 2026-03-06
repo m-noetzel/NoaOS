@@ -520,6 +520,16 @@ class TestAuthEndpoints:
     Uses httpx AsyncClient with ASGITransport against the real FastAPI app.
     """
 
+    @staticmethod
+    def _override_db_session(app):
+        """Override get_db_session dependency with an AsyncMock session."""
+        from noa.api.deps import get_db_session
+
+        async def _mock_db():
+            yield AsyncMock()
+
+        app.dependency_overrides[get_db_session] = _mock_db
+
     @pytest.mark.asyncio
     async def test_login_endpoint_returns_tokens(self, monkeypatch):
         """POST /api/v1/auth/login with valid creds returns 200 + tokens.
@@ -530,6 +540,7 @@ class TestAuthEndpoints:
         from noa.api.app import create_app
 
         app = create_app()
+        self._override_db_session(app)
 
         import httpx
 
@@ -586,6 +597,7 @@ class TestAuthEndpoints:
         from noa.api.app import create_app
 
         app = create_app()
+        self._override_db_session(app)
 
         import httpx
 
@@ -611,6 +623,7 @@ class TestAuthEndpoints:
         from noa.api.app import create_app
 
         app = create_app()
+        self._override_db_session(app)
 
         import httpx
 

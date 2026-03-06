@@ -10,10 +10,13 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from sqlalchemy import select
+
 from noa.auth.jwt import create_access_token, create_refresh_token, decode_token
-from noa.auth.password import verify_password
+from noa.auth.password import hash_password, verify_password
 from noa.config import Settings
 from noa.db.models.session import AuthSession
+from noa.db.models.user import User
 
 
 class AuthError(Exception):
@@ -72,12 +75,16 @@ class AuthService:
         # Clear failed attempts on successful login
         self._failed_attempts.pop(email, None)
 
+        # Create session ID upfront so we can embed it in the access token
+        session_id = uuid.uuid4()
+
         # Create tokens
         secret = self._settings.secret_key or ""
         access_token = create_access_token(
             user_id=str(user.id),
             secret_key=secret,
             expires_minutes=self._settings.access_token_expire_minutes,
+            session_id=str(session_id),
         )
         refresh_token = create_refresh_token(
             user_id=str(user.id),
@@ -87,7 +94,7 @@ class AuthService:
 
         # Persist session
         auth_session = AuthSession(
-            id=uuid.uuid4(),
+            id=session_id,
             user_id=user.id,
             device_id=device_id,
             refresh_token_hash=self._hash_token(refresh_token),
@@ -154,21 +161,56 @@ class AuthService:
             auth_session.is_active = False
             await self._session.commit()
 
+    async def register(
+        self,
+        *,
+        email: str,
+        password: str,
+    ) -> dict[str, str]:
+        """Register a new user.
+
+        Validates no duplicate email, hashes the password, and inserts
+        a User row. Returns {"user_id": "<uuid>"}.
+        Raises AuthError if the email is already registered.
+        """
+        existing = await self._get_user_by_email(email)
+        if existing is not None:
+            msg = "Email already registered"
+            raise AuthError(msg)
+
+        user = User(
+            id=uuid.uuid4(),
+            email=email,
+            password_hash=hash_password(password),
+            is_active=True,
+        )
+        self._session.add(user)
+        await self._session.commit()
+        return {"user_id": str(user.id)}
+
     # ------------------------------------------------------------------
-    # Internal helpers (patched in tests)
+    # Internal helpers — real DB queries
     # ------------------------------------------------------------------
 
     async def _get_user_by_email(self, email: str) -> Any:
         """Look up a user by email. Returns None if not found."""
-        return None  # pragma: no cover — overridden in tests / real impl
+        stmt = select(User).where(User.email == email)
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
 
     async def _get_session_by_refresh_token(self, token: str) -> Any:
         """Look up an auth session by refresh token hash."""
-        return None  # pragma: no cover
+        stmt = select(AuthSession).where(
+            AuthSession.refresh_token_hash == self._hash_token(token)
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
 
     async def _get_session_by_id(self, session_id: uuid.UUID) -> Any:
         """Look up an auth session by its primary key."""
-        return None  # pragma: no cover
+        stmt = select(AuthSession).where(AuthSession.id == session_id)
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
 
     # ------------------------------------------------------------------
     # Private utilities
