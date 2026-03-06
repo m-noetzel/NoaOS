@@ -28,3 +28,4 @@ class AgentState(TypedDict):
     tool_results: list[dict[str, Any]]
     response: str | None
     total_cost: float
+    model_config: dict[str, str]

@@ -98,7 +98,12 @@ async def invoke_llm(
 async def agent_node(state: AgentState) -> dict[str, Any]:
     """Call the LLM and return tool_calls / response. Async pure function."""
     messages = state.get("messages", [])
-    model = state.get("selected_model", "anthropic/claude-haiku")
+    # Prefer per-node model_config over legacy selected_model (MR8).
+    mc = state.get("model_config")
+    if mc and "agent" in mc:
+        model = mc["agent"]
+    else:
+        model = state.get("selected_model", "anthropic/claude-haiku")
     privacy_mode = state.get("privacy_mode", "external")
 
     response = await invoke_llm(model, messages, privacy_mode=privacy_mode)
