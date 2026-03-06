@@ -19,6 +19,7 @@ class AgentState(TypedDict):
         tool_results: Results returned by the tools node.
         response: Final formatted response string.
         total_cost: Cumulative cost tracker (USD estimate).
+        tool_rounds: Number of tool-execution rounds completed (MR9 loop cap).
     """
 
     messages: list[dict[str, Any]]
@@ -29,3 +30,4 @@ class AgentState(TypedDict):
     response: str | None
     total_cost: float
     model_config: dict[str, str]
+    tool_rounds: int
