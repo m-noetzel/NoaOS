@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import Any
 
 from noa.private_worker.memory_store import MemoryStore
@@ -16,8 +17,8 @@ logger = logging.getLogger(__name__)
 HandlerFunc = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 
 # Shared in-process memory store instance.
-# In production this would be backed by a persistent DB.
-_memory_store = MemoryStore()
+# Persists facts as JSON files under the private-data Docker volume.
+_memory_store = MemoryStore(data_dir=Path("/data/memory"))
 
 
 async def _handle_remember(payload: dict[str, Any]) -> dict[str, Any]:
