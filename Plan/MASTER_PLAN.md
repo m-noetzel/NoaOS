@@ -70,9 +70,9 @@ The plan is organized into **waves** — groups of related phases that deliver a
 | **CP3** | Chat Endpoint → Real Pipeline | **Complete** | 8 | main | ~45 min | ~8 min | SSE StreamingResponse, meta event, thread creation, error handling |
 | **CP4** | App Startup Wiring | **Complete** | 9 | main | ~30 min | ~5 min | wire_llm_pipeline(), ProviderRouter + Runner in lifespan |
 | — | — **WAVE 11: TOOL GATEWAY + TAVILY** — | — | — | — | — | — | — |
-| **TG1** | ToolRequest/ToolResponse + ToolGateway | Planned | — | — | ~30 min | — | Transport-agnostic gateway with governance + telemetry |
-| **TG2** | DirectApiAdapter | Planned | — | — | ~20 min | — | Adapter for direct HTTP tool calls (Tavily, Google) |
-| **TG3** | Tavily HTTP Client + Registration | Planned | — | — | ~30 min | — | Real Tavily API calls, register in ToolGateway at startup |
+| **TG1** | ToolRequest/ToolResponse + ToolGateway | **Complete** | 16 | main | ~30 min | ~5 min | Gateway with idempotency, rate limits, dry-run, telemetry |
+| **TG2** | DirectApiAdapter | **Complete** | 8 | main | ~20 min | ~3 min | Wraps ToolInterface for gateway dispatch |
+| **TG3** | Tavily HTTP Client + Registration | **Complete** | 10 | main | ~30 min | ~5 min | Real httpx Tavily calls, registered at startup |
 | — | — **WAVE 12: GOOGLE + NOTION TOOLS** — | — | — | — | — | — | — |
 | **GT1** | Google OAuth Token Exchange + Storage | Planned | — | — | ~45 min | — | OAuth callback endpoint, encrypted token storage in DB |
 | **GT2** | Google Calendar + Gmail HTTP Clients | Planned | — | — | ~45 min | — | Real Calendar API v3 + Gmail API v1 calls |
@@ -1992,6 +1992,147 @@ pytest tests/unit/test_cp4_startup.py -v
 
 ---
 
+## Wave 11: Tool Gateway + Tavily
+
+Builds the transport-agnostic tool execution layer between the orchestrator and external APIs. After this wave, the LLM can request a web search and get real Tavily results back through the gateway — with governance (idempotency, rate limiting, dry-run previews) and telemetry baked in.
+
+---
+
+### Phase TG1: ToolRequest/ToolResponse + ToolGateway (~30 min)
+
+**Goal:** Tool execution currently goes through the `ToolRegistry.dispatch()` method which calls tools directly. This phase introduces a transport-agnostic gateway layer with standardized request/response types, governance enforcement, and telemetry hooks — making it ready for both direct API calls (Wave 11) and MCP adapters (Wave 12).
+
+**Spec refs:** SPEC.md §19.1 (idempotency), §19.2 (dry-run previews), §19.3 (rate limits), §2.1 (deterministic outer shell)
+
+**Depends on:** CP4 (app startup wiring), TI6 (tool governance)
+**Blocks:** TG2, TG3
+
+**Deliverables:**
+1. `ToolRequest` dataclass — tool name, function, args, idempotency_key, privacy_mode, caller metadata
+2. `ToolResponse` dataclass — result data, error, latency_ms, provider, cached flag
+3. `ToolGateway` class — central dispatch hub that:
+   - Resolves tool name → adapter (DirectApiAdapter, McpAdapter, etc.)
+   - Enforces governance via existing `GovernanceWrapper` (idempotency, rate limits, dry-run)
+   - Records telemetry per call (latency, status, tool name, function)
+   - Validates tool is in allowlist before execution
+4. `ToolAdapter` protocol — interface that adapters implement (`execute(request) → response`)
+5. Integration: `tool_node` in orchestrator dispatches through `ToolGateway` instead of `ToolRegistry`
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/noa/tools/gateway.py` | **CREATE** | ToolRequest, ToolResponse, ToolAdapter protocol, ToolGateway class |
+| `src/noa/orchestrator/nodes/tools.py` | **MODIFY** | Dispatch through ToolGateway when available |
+| `tests/unit/test_tg1_gateway.py` | **CREATE** | ToolGateway unit tests |
+
+**Tests (~12):**
+- ToolRequest can be created with all required fields
+- ToolResponse can be created with result data
+- ToolResponse can be created with error
+- ToolGateway registers adapter by tool name
+- ToolGateway dispatches to correct adapter by tool name
+- ToolGateway rejects tool not in allowlist
+- ToolGateway records telemetry (latency_ms, status)
+- ToolGateway passes idempotency_key through to governance
+- ToolGateway respects rate limits via governance wrapper
+- ToolGateway supports dry-run mode (returns preview, no execution)
+- tool_node dispatches through ToolGateway when set
+- tool_node falls back to legacy ToolRegistry when no gateway
+
+**Test gate:**
+```bash
+pytest tests/unit/test_tg1_gateway.py -v
+```
+
+---
+
+### Phase TG2: DirectApiAdapter (~20 min)
+
+**Goal:** The ToolGateway needs adapters to actually execute tools. This phase creates `DirectApiAdapter` — an adapter that calls tool functions directly via HTTP (for tools like Tavily, Google APIs that are plain REST calls from the external container).
+
+**Spec refs:** SPEC.md §8.2 (external container egress), §12.4 (web search)
+
+**Depends on:** TG1
+**Blocks:** TG3
+
+**Deliverables:**
+1. `DirectApiAdapter` class implementing `ToolAdapter` protocol
+2. Wraps an existing `ToolInterface` implementation (e.g., `WebSearchTool`)
+3. Converts `ToolRequest` → tool's `execute()` call → `ToolResponse`
+4. Captures latency and error details in response
+5. Handles async execution correctly
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/noa/tools/adapters/__init__.py` | **CREATE** | Adapters package |
+| `src/noa/tools/adapters/direct.py` | **CREATE** | DirectApiAdapter wrapping ToolInterface |
+| `tests/unit/test_tg2_direct_adapter.py` | **CREATE** | DirectApiAdapter unit tests |
+
+**Tests (~8):**
+- DirectApiAdapter implements ToolAdapter protocol
+- DirectApiAdapter wraps a ToolInterface and forwards execute calls
+- DirectApiAdapter converts ToolRequest args to tool execute() kwargs
+- DirectApiAdapter wraps tool result in ToolResponse
+- DirectApiAdapter captures latency_ms in response
+- DirectApiAdapter captures errors in ToolResponse (no exception leak)
+- DirectApiAdapter sets provider field to "direct"
+- DirectApiAdapter passes function name correctly to underlying tool
+
+**Test gate:**
+```bash
+pytest tests/unit/test_tg2_direct_adapter.py -v
+```
+
+---
+
+### Phase TG3: Tavily HTTP Client + Registration (~30 min)
+
+**Goal:** The Tavily search provider has a stub `_send_request()` that raises `NotImplementedError`. This phase implements real HTTP calls to the Tavily API and registers the web_search tool in the ToolGateway at app startup, completing the end-to-end tool execution path.
+
+**Spec refs:** SPEC.md §12.4 (web search tool), §19.3 (rate limits: 30/hour for web_search)
+
+**Depends on:** TG2
+**Blocks:** Wave 12
+
+**Deliverables:**
+1. Real `_TavilyClient._send_request()` using `httpx.AsyncClient`
+2. Proper error handling: API errors, timeouts, invalid API key
+3. Response parsing: extract `results[]` with title, url, content fields
+4. Registration in `wire_llm_pipeline()`: create WebSearchTool → DirectApiAdapter → register in ToolGateway
+5. ToolGateway stored in app_state, accessible from tool_node
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/noa/tools/search_providers/tavily.py` | **MODIFY** | Real httpx calls to Tavily API |
+| `src/noa/api/app.py` | **MODIFY** | Register WebSearchTool in ToolGateway at startup |
+| `src/noa/api/app_state.py` | **MODIFY** | Add gateway getter/setter |
+| `src/noa/orchestrator/nodes/tools.py` | **MODIFY** | Import gateway from app_state |
+| `tests/unit/test_tg3_tavily.py` | **CREATE** | Tavily client + registration tests |
+
+**Tests (~10):**
+- TavilyClient sends POST to /search endpoint
+- TavilyClient includes API key in request body
+- TavilyClient parses results with title, url, content
+- TavilyClient handles 401 (invalid key) gracefully
+- TavilyClient handles 429 (rate limited) gracefully
+- TavilyClient handles network timeout gracefully
+- TavilyClient respects max_results parameter
+- wire_llm_pipeline registers web_search tool when TAVILY_API_KEY is set
+- wire_llm_pipeline skips web_search when no TAVILY_API_KEY
+- End-to-end: ToolGateway dispatches web_search through DirectApiAdapter to Tavily
+
+**Test gate:**
+```bash
+pytest tests/unit/test_tg3_tavily.py -v
+```
+
+---
+
 ## Dependency Graph
 
 ```
@@ -2039,6 +2180,11 @@ Wave 10: End-to-End Chat Pipeline
   CP1 ──► CP2 (OrchestratorRunner)
   CP2 ──► CP3 (Chat Endpoint)
   CP3 ──► CP4 (App Startup)
+
+Wave 11: Tool Gateway + Tavily
+  CP4,TI6 ──► TG1 (ToolGateway)
+  TG1 ──► TG2 (DirectApiAdapter)
+  TG2 ──► TG3 (Tavily HTTP + Registration)
 ```
 
 ---

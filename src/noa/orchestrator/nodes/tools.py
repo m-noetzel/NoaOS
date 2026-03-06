@@ -13,10 +13,14 @@ import asyncio
 from typing import Any
 
 from noa.orchestrator.state import AgentState
+from noa.tools.gateway import ToolGateway, ToolRequest
 from noa.tools.interface import ToolRegistry
 
 # Module-level registry reference, set at startup via set_registry().
 _registry: ToolRegistry | None = None
+
+# Module-level gateway reference, set at startup via set_gateway().
+_gateway: ToolGateway | None = None
 
 # Static tool allowlist (S2.1) — used as fallback when no registry is set.
 TOOL_ALLOWLIST: frozenset[str] = frozenset(
@@ -42,6 +46,17 @@ def set_registry(registry: ToolRegistry) -> None:
 def get_registry() -> ToolRegistry | None:
     """Get the current ToolRegistry (or None if not configured)."""
     return _registry
+
+
+def set_gateway(gateway: ToolGateway) -> None:
+    """Set the module-level ToolGateway. Called at app startup."""
+    global _gateway  # noqa: PLW0603
+    _gateway = gateway
+
+
+def get_gateway() -> ToolGateway | None:
+    """Get the current ToolGateway (or None if not configured)."""
+    return _gateway
 
 
 def execute_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:  # noqa: ARG001
@@ -73,7 +88,11 @@ def tool_node(state: AgentState) -> dict[str, Any]:
             tool_name = call["tool"]
             function = call["function"]
             args = call.get("args", {})
-            result = _dispatch_registry(tool_name, function, args)
+
+            if _gateway is not None:
+                result = _dispatch_gateway(tool_name, function, args)
+            else:
+                result = _dispatch_registry(tool_name, function, args)
             results.append({"name": f"{tool_name}.{function}", **result})
         else:
             # Legacy format: {"name": "calendar_list", "arguments": {...}}
@@ -150,3 +169,43 @@ def _dispatch_registry_legacy(
             return _dispatch_registry(tool_name, name, arguments)
 
     return {"error": f"Tool not allowed: {name}. Not found in registry."}
+
+
+def _dispatch_gateway(
+    tool_name: str, function: str, args: dict[str, Any]
+) -> dict[str, Any]:
+    """Dispatch through the ToolGateway."""
+    assert _gateway is not None  # noqa: S101
+    req = ToolRequest(tool=tool_name, function=function, args=args)
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    try:
+        if loop is not None and loop.is_running():
+            import concurrent.futures
+
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                future = loop.run_in_executor(
+                    pool,
+                    lambda: asyncio.run(
+                        _gateway.dispatch(req)
+                    ),
+                )
+                # future is an awaitable; we can't await in
+                # sync context so use the same thread-pool
+                # pattern as _dispatch_registry.
+                return _gateway_response_to_dict(future)
+        else:
+            resp = asyncio.run(_gateway.dispatch(req))
+            return _gateway_response_to_dict(resp)
+    except Exception as exc:  # noqa: BLE001
+        return {"error": str(exc)}
+
+
+def _gateway_response_to_dict(resp: Any) -> dict[str, Any]:
+    """Convert a ToolResponse to a plain dict for tool_results."""
+    if resp.error:
+        return {"error": resp.error}
+    return resp.result or {}

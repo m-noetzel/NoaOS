@@ -13,6 +13,7 @@ _session_factory: async_sessionmaker[AsyncSession] | None = None
 _health_checker: HealthChecker | None = None
 _provider_router: Any | None = None
 _runner: Any | None = None
+_gateway: Any | None = None
 
 
 def set_engine(engine: AsyncEngine) -> None:
@@ -68,3 +69,14 @@ def set_runner(runner: Any) -> None:
 def get_runner() -> Any | None:
     """Return the current OrchestratorRunner (may be None)."""
     return _runner
+
+
+def set_gateway(gateway: Any) -> None:
+    """Store the ToolGateway globally."""
+    global _gateway  # noqa: PLW0603
+    _gateway = gateway
+
+
+def get_gateway() -> Any | None:
+    """Return the current ToolGateway (may be None)."""
+    return _gateway

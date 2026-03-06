@@ -54,22 +54,22 @@ def wire_llm_pipeline(settings: Any) -> None:
         )
         return
 
-    # 2. Set up ToolRegistry on tools module (if tools available)
+    # 2. Set up ToolGateway with registered tools
     try:
-        from noa.orchestrator.nodes.tools import set_registry
-        from noa.tools.interface import ToolRegistry
+        from noa.api.app_state import set_gateway
+        from noa.orchestrator.nodes.tools import set_gateway as set_tools_gateway
+        from noa.tools.gateway import ToolGateway
+        from noa.tools.registration import register_tools
 
-        # Build registry from available tool implementations
-        tools: dict[str, Any] = {}
-        # Future phases will register real tools here
-        if tools:
-            registry = ToolRegistry(tools)
-            set_registry(registry)
-            logger.info("ToolRegistry wired: %s", registry.list_tools())
-        else:
-            logger.info("No tools registered yet — tool calls will use fallback")
+        gateway = ToolGateway()
+        register_tools(gateway)
+        set_gateway(gateway)
+        set_tools_gateway(gateway)
+        logger.info(
+            "ToolGateway wired: %s", gateway.list_tools()
+        )
     except Exception:  # noqa: BLE001
-        logger.warning("Failed to set up ToolRegistry")
+        logger.warning("Failed to set up ToolGateway")
 
     # 3. Build OrchestratorRunner with compiled graph
     try:

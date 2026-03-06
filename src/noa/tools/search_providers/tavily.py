@@ -1,8 +1,9 @@
-"""Tavily search provider implementation.
+"""Tavily search provider — real HTTP implementation.
 
 Tavily provides AI-optimized search results with pre-processed
-content extraction. This is the first concrete SearchProvider
-implementation.
+content extraction. Uses httpx.AsyncClient for HTTP calls.
+
+Spec refs: SPEC.md §12.4
 """
 
 from __future__ import annotations
@@ -10,15 +11,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+import httpx
+
 from noa.tools.search_providers.base import SearchProvider
+
+_TIMEOUT_SECONDS = 15.0
 
 
 @dataclass
 class _TavilyClient:
-    """Minimal Tavily API client stub.
+    """Tavily API client using httpx.
 
-    In production, this would use httpx/aiohttp to call the Tavily API.
-    The _send_request method is the integration point.
+    Sends POST to /search with api_key, query, max_results.
     """
 
     api_key: str
@@ -37,12 +41,21 @@ class _TavilyClient:
 
     async def _send_request(
         self, **kwargs: Any
-    ) -> dict[str, Any]:  # pragma: no cover
-        """Send HTTP request to Tavily API.
-
-        Stub — will be implemented with real HTTP client.
-        """
-        raise NotImplementedError
+    ) -> dict[str, Any]:
+        """Send HTTP POST to Tavily /search endpoint."""
+        body = {
+            "api_key": self.api_key,
+            **kwargs,
+        }
+        async with httpx.AsyncClient(
+            timeout=_TIMEOUT_SECONDS,
+        ) as client:
+            resp = await client.post(
+                f"{self.base_url}/search",
+                json=body,
+            )
+            resp.raise_for_status()
+            return resp.json()  # type: ignore[no-any-return]
 
 
 class TavilySearchProvider(SearchProvider):
@@ -66,10 +79,6 @@ class TavilySearchProvider(SearchProvider):
         max_results: int = 10,
     ) -> list[dict[str, Any]]:
         """Search via Tavily API.
-
-        Args:
-            query: Search query.
-            max_results: Maximum results.
 
         Returns:
             List of result dicts with title, url, snippet.
