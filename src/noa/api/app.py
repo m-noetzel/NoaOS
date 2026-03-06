@@ -159,13 +159,26 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     set_health_checker(checker)
     await checker.start()
 
+    # Start DB maintenance scheduler (OP4)
+    db_scheduler = None
+    from noa.api.app_state import get_engine as _get_engine
+
+    _engine = _get_engine()
+    if _engine is not None:
+        from noa.maintenance.db_maintenance import DbMaintenanceScheduler
+
+        db_scheduler = DbMaintenanceScheduler(engine=_engine, interval_hours=24)
+        await db_scheduler.start()
+
     # Wire LLM pipeline (ProviderRouter, ToolRegistry, Runner)
     if settings is not None:
         wire_llm_pipeline(settings)
 
     yield
 
-    # Shutdown: stop health checker, dispose engine
+    # Shutdown: stop DB maintenance scheduler, health checker, dispose engine
+    if db_scheduler is not None:
+        await db_scheduler.stop()
     await checker.stop()
 
     from noa.api.app_state import get_engine

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any
 
@@ -10,6 +11,7 @@ from fastapi import APIRouter, Query
 from noa.api.middleware import trace_id_ctx
 from noa.api.schemas.common import success_envelope
 
+logger = logging.getLogger(__name__)
 router = APIRouter(tags=["health"])
 
 _start_time: float = time.monotonic()
@@ -63,6 +65,20 @@ async def metrics() -> dict[str, Any]:
     checker = get_health_checker()
     if checker is not None:
         data["private_worker"] = checker.stats_24h()
+
+    # Pool statistics (OP4)
+    from noa.api.app_state import get_engine
+
+    engine = get_engine()
+    if engine is not None:
+        try:
+            pool = engine.pool
+            data["pool_size"] = pool.size()
+            data["pool_checkedin"] = pool.checkedin()
+            data["pool_checkedout"] = pool.checkedout()
+            data["pool_overflow"] = pool.overflow()
+        except Exception:  # noqa: BLE001
+            logger.debug("Failed to collect pool stats")
 
     return success_envelope(data=data, trace_id=trace_id_ctx.get(""))
 
