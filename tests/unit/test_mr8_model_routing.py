@@ -185,7 +185,7 @@ class TestAgentNodeModelConfig:
             "noa.orchestrator.nodes.agent.invoke_llm",
             return_value=mock_response,
         ) as mock_llm:
-            asyncio.get_event_loop().run_until_complete(agent_node(state))
+            asyncio.run(agent_node(state))
             # The model passed to invoke_llm should be from model_config
             mock_llm.assert_called_once()
             call_args = mock_llm.call_args
@@ -205,7 +205,7 @@ class TestAgentNodeModelConfig:
             "noa.orchestrator.nodes.agent.invoke_llm",
             return_value=mock_response,
         ) as mock_llm:
-            asyncio.get_event_loop().run_until_complete(agent_node(state))
+            asyncio.run(agent_node(state))
             mock_llm.assert_called_once()
             call_args = mock_llm.call_args
             assert call_args[0][0] == "anthropic/claude-haiku"
@@ -262,6 +262,6 @@ class TestPerNodeOverride:
             "noa.orchestrator.nodes.agent.invoke_llm",
             return_value=mock_response,
         ) as mock_llm:
-            asyncio.get_event_loop().run_until_complete(agent_node(state))
+            asyncio.run(agent_node(state))
             call_args = mock_llm.call_args
             assert call_args[0][0] == "openai/gpt-4o"

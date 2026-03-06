@@ -312,7 +312,7 @@ class TestAgentNode:
             "noa.orchestrator.nodes.agent.invoke_llm",
             return_value=mock_response,
         ):
-            result = asyncio.get_event_loop().run_until_complete(agent_node(state))
+            result = asyncio.run(agent_node(state))
 
         assert "tool_calls" in result
         assert len(result["tool_calls"]) > 0
@@ -342,7 +342,7 @@ class TestAgentNode:
             "noa.orchestrator.nodes.agent.invoke_llm",
             return_value=mock_response,
         ):
-            result = asyncio.get_event_loop().run_until_complete(agent_node(state))
+            result = asyncio.run(agent_node(state))
 
         # The agent must cap tool_calls at some reasonable bound
         assert len(result.get("tool_calls", [])) <= 10, (
@@ -370,7 +370,7 @@ class TestAgentNode:
             "noa.orchestrator.nodes.agent.invoke_llm",
             return_value=mock_response,
         ):
-            result = asyncio.get_event_loop().run_until_complete(agent_node(state))
+            result = asyncio.run(agent_node(state))
 
         # Should have empty tool_calls or a direct response
         assert result.get("tool_calls", []) == [] or result.get("response") is not None
