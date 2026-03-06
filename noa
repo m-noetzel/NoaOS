@@ -1,0 +1,331 @@
+#!/usr/bin/env bash
+# noa — CLI launcher for Noa personal AI agent
+# Install: ln -sf "$(pwd)/noa" /usr/local/bin/noa
+set -euo pipefail
+
+NOA_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$NOA_DIR"
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+log()  { echo -e "${CYAN}▸${NC} $*"; }
+ok()   { echo -e "${GREEN}✓${NC} $*"; }
+warn() { echo -e "${YELLOW}⚠${NC} $*"; }
+err()  { echo -e "${RED}✗${NC} $*" >&2; }
+
+usage() {
+    echo -e "${BOLD}noa${NC} — governed personal AI agent"
+    echo
+    echo -e "${BOLD}Usage:${NC}"
+    echo "  noa                  Start all services (default)"
+    echo "  noa up               Start all services"
+    echo "  noa down             Stop all services"
+    echo "  noa restart          Restart all services"
+    echo "  noa status           Show service status and health"
+    echo "  noa logs [service]   Tail logs (all or specific service)"
+    echo "  noa health           Run health checks"
+    echo "  noa backup           Trigger manual backup"
+    echo "  noa test             Run test suite"
+    echo "  noa preflight        Run pre-flight checks only"
+    echo "  noa setup            First-time setup (build images, verify keychain)"
+    echo "  noa shell [service]  Open shell in a container"
+    echo "  noa db migrate       Run database migrations"
+    echo "  noa db console       Open psql console"
+    echo
+}
+
+# ── Keychain → shell environment ──────────────────────────────────
+# Reads secrets from macOS Keychain and exports them as env vars.
+# No file is written to disk. Docker Compose reads ${VAR} from the
+# shell environment at runtime.
+
+KEYCHAIN_MAP=(
+    "secret-key:SECRET_KEY"
+    "jwt-secret:JWT_SECRET"
+    "postgres-password:POSTGRES_PASSWORD"
+    "backup-passphrase:BACKUP_PASSPHRASE"
+    "anthropic-api-key:ANTHROPIC_API_KEY"
+    "openai-api-key:OPENAI_API_KEY"
+    "google-ai-api-key:GOOGLE_AI_API_KEY"
+    "google-client-id:GOOGLE_CLIENT_ID"
+    "google-client-secret:GOOGLE_CLIENT_SECRET"
+    "notion-token:NOTION_TOKEN"
+    "tavily-api-key:TAVILY_API_KEY"
+)
+
+load_keychain() {
+    if [[ "$(uname)" != "Darwin" ]]; then
+        warn "Not on macOS — Keychain not available"
+        return 1
+    fi
+
+    local loaded=0
+    local missing=0
+
+    for pair in "${KEYCHAIN_MAP[@]}"; do
+        local kc_name="${pair%%:*}"
+        local env_name="${pair##*:}"
+
+        local value
+        value=$(security find-generic-password -s "noa" -a "$kc_name" -w 2>/dev/null) || true
+
+        if [[ -n "$value" ]]; then
+            export "$env_name=$value"
+            loaded=$((loaded + 1))
+        else
+            missing=$((missing + 1))
+        fi
+    done
+
+    ok "Keychain: ${loaded} secrets loaded, ${missing} not set"
+}
+
+# ── Pre-flight checks ────────────────────────────────────────────
+
+preflight() {
+    local errors=0
+
+    # Docker
+    if ! command -v docker &>/dev/null; then
+        err "Docker not installed"; return 1
+    fi
+    if ! docker compose version &>/dev/null; then
+        err "Docker Compose v2 not available"; return 1
+    fi
+    ok "Docker Compose $(docker compose version --short)"
+
+    # Load secrets from Keychain
+    if ! load_keychain; then
+        err "Cannot load secrets from Keychain"
+        errors=1
+    fi
+
+    # Required secrets
+    for var in SECRET_KEY POSTGRES_PASSWORD BACKUP_PASSPHRASE; do
+        if [[ -z "${!var:-}" ]]; then
+            err "${var} not in Keychain — run: ./tools/keychain_store.sh set $(echo "$var" | tr '_' '-' | tr '[:upper:]' '[:lower:]') <value>"
+            errors=1
+        fi
+    done
+
+    return $errors
+}
+
+# ── First-time setup ─────────────────────────────────────────────
+
+cmd_setup() {
+    log "First-time setup for Noa"
+    echo
+
+    # Check Keychain
+    load_keychain
+
+    # Auto-generate required secrets if not in Keychain
+    for key_pair in "secret-key:SECRET_KEY" "jwt-secret:JWT_SECRET" "postgres-password:POSTGRES_PASSWORD" "backup-passphrase:BACKUP_PASSPHRASE"; do
+        local kc_name="${key_pair%%:*}"
+        local env_name="${key_pair##*:}"
+        if [[ -z "${!env_name:-}" ]]; then
+            local generated
+            generated=$(openssl rand -base64 32)
+            ./tools/keychain_store.sh set "$kc_name" "$generated"
+            export "$env_name=$generated"
+            ok "Generated ${kc_name} → Keychain"
+        else
+            ok "${kc_name} already in Keychain"
+        fi
+    done
+
+    # Remove stale .env.secrets if it exists
+    if [[ -f .env.secrets ]]; then
+        rm -f .env.secrets
+        ok "Removed .env.secrets (secrets now come from Keychain only)"
+    fi
+
+    # Build images
+    echo
+    log "Building Docker images (this may take a few minutes)..."
+    docker compose build
+    ok "Docker images built"
+
+    echo
+    ok "Setup complete. Start Noa with: ${BOLD}noa${NC}"
+}
+
+# ── Commands ─────────────────────────────────────────────────────
+
+cmd_up() {
+    log "Running pre-flight checks..."
+    if ! preflight; then
+        err "Pre-flight failed. Run 'noa setup' first."
+        exit 1
+    fi
+    echo
+    log "Starting Noa..."
+    docker compose up -d
+    echo
+    # Wait for API health
+    log "Waiting for services to become healthy..."
+    local retries=0
+    while [[ $retries -lt 30 ]]; do
+        if curl -sf http://localhost:8000/health &>/dev/null; then
+            echo
+            ok "Noa is running at ${BOLD}http://localhost:8000${NC}"
+            cmd_status_short
+            return 0
+        fi
+        printf "."
+        sleep 2
+        retries=$((retries + 1))
+    done
+    echo
+    warn "API not responding yet — check logs with 'noa logs noa-api'"
+}
+
+cmd_down() {
+    log "Stopping Noa..."
+    docker compose down
+    ok "All services stopped"
+}
+
+cmd_restart() {
+    local service="${1:-}"
+    load_keychain 2>/dev/null || true
+    if [[ -n "$service" ]]; then
+        log "Restarting ${service}..."
+        docker compose restart "$service"
+    else
+        log "Restarting all services..."
+        docker compose restart
+    fi
+    ok "Restart complete"
+}
+
+cmd_status_short() {
+    echo
+    docker compose ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null || docker compose ps
+}
+
+cmd_status() {
+    log "Service status:"
+    cmd_status_short
+    echo
+    log "Health checks:"
+    if curl -sf http://localhost:8000/health &>/dev/null; then
+        local ready
+        ready=$(curl -sf http://localhost:8000/health/ready 2>/dev/null || echo '{"status":"unreachable"}')
+        ok "API: ${ready}"
+
+        local metrics
+        metrics=$(curl -sf http://localhost:8000/health/metrics 2>/dev/null || echo '{}')
+        ok "Metrics: ${metrics}"
+    else
+        warn "API not reachable at localhost:8000"
+    fi
+}
+
+cmd_logs() {
+    local service="${1:-}"
+    if [[ -n "$service" ]]; then
+        docker compose logs -f --tail=100 "$service"
+    else
+        docker compose logs -f --tail=50
+    fi
+}
+
+cmd_health() {
+    log "Running health checks..."
+    echo
+    if curl -sf http://localhost:8000/health &>/dev/null; then
+        ok "API liveness: alive"
+    else
+        err "API liveness: unreachable"
+    fi
+
+    local ready
+    ready=$(curl -sf http://localhost:8000/health/ready 2>/dev/null)
+    if [[ $? -eq 0 ]]; then
+        ok "API readiness: ${ready}"
+    else
+        err "API readiness: failed"
+    fi
+
+    local tools
+    tools=$(curl -sf http://localhost:8000/health/tools 2>/dev/null)
+    if [[ $? -eq 0 ]]; then
+        ok "Tool health: ${tools}"
+    else
+        warn "Tool health: unavailable"
+    fi
+
+    echo
+    log "Container health:"
+    docker compose ps --format "table {{.Name}}\t{{.Status}}"
+}
+
+cmd_backup() {
+    load_keychain 2>/dev/null || true
+    log "Triggering manual backup..."
+    docker compose exec backup /scripts/backup.sh
+    ok "Backup complete"
+}
+
+cmd_test() {
+    log "Running test suite..."
+    python -m pytest tests/ -v "$@"
+}
+
+cmd_shell() {
+    local service="${1:-noa-api}"
+    log "Opening shell in ${service}..."
+    docker compose exec "$service" /bin/sh
+}
+
+cmd_db() {
+    local subcmd="${1:-}"
+    case "$subcmd" in
+        migrate)
+            log "Running database migrations..."
+            docker compose exec noa-api alembic upgrade head
+            ok "Migrations complete"
+            ;;
+        console)
+            log "Opening psql console..."
+            docker compose exec postgres psql -U noa -d noa
+            ;;
+        *)
+            echo "Usage: noa db [migrate|console]"
+            ;;
+    esac
+}
+
+# ── Main ─────────────────────────────────────────────────────────
+
+cmd="${1:-up}"
+shift 2>/dev/null || true
+
+case "$cmd" in
+    up|start)       cmd_up ;;
+    down|stop)      cmd_down ;;
+    restart)        cmd_restart "$@" ;;
+    status|ps)      cmd_status ;;
+    logs|log)       cmd_logs "$@" ;;
+    health|check)   cmd_health ;;
+    backup)         cmd_backup ;;
+    test)           cmd_test "$@" ;;
+    preflight)      preflight ;;
+    setup|init)     cmd_setup ;;
+    shell|exec)     cmd_shell "$@" ;;
+    db)             cmd_db "$@" ;;
+    help|-h|--help) usage ;;
+    *)
+        err "Unknown command: ${cmd}"
+        usage
+        exit 1
+        ;;
+esac

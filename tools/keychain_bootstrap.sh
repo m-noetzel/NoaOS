@@ -20,9 +20,12 @@ OUTPUT="${1:-$PROJECT_ROOT/.env.secrets}"
 # Secret key names in keychain → env var names
 declare -A SECRETS=(
     ["secret-key"]="SECRET_KEY"
+    ["jwt-secret"]="JWT_SECRET"
     ["postgres-password"]="POSTGRES_PASSWORD"
+    ["backup-passphrase"]="BACKUP_PASSPHRASE"
     ["anthropic-api-key"]="ANTHROPIC_API_KEY"
     ["openai-api-key"]="OPENAI_API_KEY"
+    ["google-ai-api-key"]="GOOGLE_AI_API_KEY"
     ["google-client-id"]="GOOGLE_CLIENT_ID"
     ["google-client-secret"]="GOOGLE_CLIENT_SECRET"
     ["notion-token"]="NOTION_TOKEN"
