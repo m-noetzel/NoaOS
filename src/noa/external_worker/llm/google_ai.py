@@ -1,4 +1,4 @@
-"""Anthropic LLM client for the external worker.
+"""Google AI (Gemini) LLM client for the external worker.
 
 Spec refs: SPEC.md Section 14.1, Section 14.4
 """
@@ -15,15 +15,16 @@ from noa.external_worker.exceptions import ProviderError
 
 logger = logging.getLogger(__name__)
 
-_API_BASE = "https://api.anthropic.com"
-_ANTHROPIC_VERSION = "2023-06-01"
+_API_BASE = "https://generativelanguage.googleapis.com"
 _MAX_RETRIES = 3
-_RETRY_STATUSES = {429, 529}
+_RETRY_STATUSES = {429}
 _TIMEOUT_SECONDS = 60.0
 
+_ROLE_MAP = {"assistant": "model", "user": "user"}
 
-class AnthropicClient:
-    """Client for the Anthropic Messages API."""
+
+class GoogleAIClient:
+    """Client for the Google AI (Gemini) generateContent API."""
 
     def __init__(self, *, api_key: str, model: str) -> None:
         self._api_key = api_key
@@ -36,50 +37,64 @@ class AnthropicClient:
         max_tokens: int,
         temperature: float | None = None,
     ) -> dict[str, Any]:
-        """Build a request payload for the Anthropic Messages API."""
+        """Build a request payload for the Gemini generateContent API.
+
+        Maps OpenAI-style messages to Gemini contents format:
+        - role 'assistant' → 'model'
+        - role 'user' → 'user'
+        """
+        contents = []
+        for msg in messages:
+            role = _ROLE_MAP.get(msg["role"], msg["role"])
+            contents.append({
+                "role": role,
+                "parts": [{"text": msg["content"]}],
+            })
+
         request: dict[str, Any] = {
-            "model": self._model,
-            "messages": messages,
-            "max_tokens": max_tokens,
+            "contents": contents,
+            "generationConfig": {
+                "maxOutputTokens": max_tokens,
+            },
         }
         if temperature is not None:
-            request["temperature"] = temperature
+            request["generationConfig"]["temperature"] = temperature
         return request
 
     async def _send_request(self, request: dict[str, Any]) -> httpx.Response:
-        """Send a request to the Anthropic Messages API with retry."""
+        """Send a request to the Gemini generateContent API with retry on 429."""
+        url = f"/v1beta/models/{self._model}:generateContent"
         async with httpx.AsyncClient(
             base_url=_API_BASE,
-            headers={
-                "x-api-key": self._api_key,
-                "anthropic-version": _ANTHROPIC_VERSION,
-                "content-type": "application/json",
-            },
+            headers={"Content-Type": "application/json"},
             timeout=_TIMEOUT_SECONDS,
         ) as client:
             last_response: httpx.Response | None = None
             for attempt in range(_MAX_RETRIES):
-                response = await client.post("/v1/messages", json=request)
+                response = await client.post(
+                    url,
+                    json=request,
+                    params={"key": self._api_key},
+                )
                 if response.status_code not in _RETRY_STATUSES:
                     return response
                 last_response = response
                 delay = 2 ** attempt
                 logger.warning(
-                    "Anthropic %d (attempt %d/%d), retrying in %ds",
+                    "Google AI %d (attempt %d/%d), retrying in %ds",
                     response.status_code,
                     attempt + 1,
                     _MAX_RETRIES,
                     delay,
                 )
                 await asyncio.sleep(delay)
-            # All retries exhausted — return last response for error handling
             assert last_response is not None
             return last_response
 
     def _parse_response(self, response: httpx.Response) -> dict[str, Any]:
-        """Parse an Anthropic API response into normalized format."""
-        if response.status_code == 401:
-            msg = "Anthropic: invalid API key (401)"
+        """Parse a Gemini API response into normalized format."""
+        if response.status_code == 403:
+            msg = "Google AI: invalid API key (403)"
             raise ProviderError(msg)
 
         if response.status_code != 200:
@@ -89,38 +104,38 @@ class AnthropicClient:
                 detail = body.get("error", {}).get("message", "")
             except Exception:
                 detail = response.text
-            msg = f"Anthropic API error {response.status_code}: {detail}"
+            msg = f"Google AI API error {response.status_code}: {detail}"
             raise ProviderError(msg)
 
         body = response.json()
-        content_blocks = body.get("content", [])
+        candidate = body["candidates"][0]
+        parts = candidate.get("content", {}).get("parts", [])
 
         # Extract text content
-        text_parts = [b["text"] for b in content_blocks if b.get("type") == "text"]
+        text_parts = [p["text"] for p in parts if "text" in p]
         content = "".join(text_parts)
 
-        # Extract tool use blocks
-        tool_calls = [
-            {
-                "id": b["id"],
-                "name": b["name"],
-                "input": b["input"],
-            }
-            for b in content_blocks
-            if b.get("type") == "tool_use"
-        ]
+        # Extract function calls
+        tool_calls = []
+        for p in parts:
+            if "functionCall" in p:
+                fc = p["functionCall"]
+                tool_calls.append({
+                    "name": fc["name"],
+                    "input": fc.get("args", {}),
+                })
 
-        usage = body.get("usage", {})
+        usage_meta = body.get("usageMetadata", {})
 
         return {
             "content": content,
             "tool_calls": tool_calls,
             "usage": {
-                "input_tokens": usage.get("input_tokens", 0),
-                "output_tokens": usage.get("output_tokens", 0),
+                "input_tokens": usage_meta.get("promptTokenCount", 0),
+                "output_tokens": usage_meta.get("candidatesTokenCount", 0),
             },
-            "provider": "anthropic",
-            "model": body.get("model", self._model),
+            "provider": "google_ai",
+            "model": self._model,
         }
 
     async def complete(
@@ -130,7 +145,7 @@ class AnthropicClient:
         max_tokens: int,
         temperature: float | None = None,
     ) -> dict[str, Any]:
-        """Send a completion request to Anthropic.
+        """Send a completion request to Google AI (Gemini).
 
         Returns normalized response dict with content, tool_calls, usage.
 
@@ -145,6 +160,6 @@ class AnthropicClient:
         try:
             response = await self._send_request(request)
         except httpx.TimeoutException as exc:
-            msg = "Timeout calling Anthropic API"
+            msg = "Timeout calling Google AI API"
             raise ProviderError(msg) from exc
         return self._parse_response(response)

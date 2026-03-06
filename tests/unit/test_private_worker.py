@@ -445,18 +445,18 @@ class TestOllamaIntegration:
     """Ollama client formats inference calls correctly per §8.1."""
 
     def test_inference_call_formatted(self):
-        """Inference calls include model, prompt, and options."""
+        """Inference calls include model, messages, and options."""
         from noa.private_worker.ollama_client import OllamaClient
 
         client = OllamaClient(base_url="http://ollama:11434")
-        request_body = client.build_inference_request(
+        request_body = client.build_request(
             model="llama3:8b",
-            prompt="Summarize this text.",
+            messages=[{"role": "user", "content": "Summarize this text."}],
             max_tokens=1024,
             temperature=0.7,
         )
         assert request_body["model"] == "llama3:8b"
-        assert "prompt" in request_body or "messages" in request_body
+        assert "messages" in request_body
         assert request_body["options"]["num_predict"] == 1024
 
     def test_model_validated_against_manifest(self):

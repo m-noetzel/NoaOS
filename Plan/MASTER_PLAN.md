@@ -59,11 +59,11 @@ The plan is organized into **waves** — groups of related phases that deliver a
 | **CM1** | Extend Settings with Tool Credentials | **Complete** | 18 | main | ~30 min | ~10 min | QA PASS 2026-03-06 |
 | **CM2** | macOS Keychain Bootstrap | **Complete** | 16 | main | ~45 min | ~8 min | QA PASS 2026-03-06 |
 | — | — **WAVE 9: LLM PROVIDER WIRING** — | — | — | — | — | — | — |
-| **LP1** | Anthropic Client HTTP | Planned | — | — | ~30 min | — | Real httpx calls to /v1/messages, tool_use blocks, retry on 429 |
-| **LP2** | OpenAI Client HTTP | Planned | — | — | ~30 min | — | Real httpx calls to /v1/chat/completions, tool_calls parsing |
-| **LP3** | Google AI Client (New) | Planned | — | — | ~30 min | — | GoogleAIClient for Gemini via generateContent API |
-| **LP4** | Ollama Client HTTP | Planned | — | — | ~20 min | — | Real httpx calls to /api/chat, model manifest check |
-| **LP5** | ProviderRouter as Dispatch Hub | Planned | — | — | ~30 min | — | Router creates clients, dispatches complete(), privacy enforcement |
+| **LP1** | Anthropic Client HTTP | **Complete** | 10 | main | ~30 min | ~8 min | Real httpx calls to /v1/messages, tool_use blocks, retry on 429/529 |
+| **LP2** | OpenAI Client HTTP | **Complete** | 10 | main | ~30 min | ~5 min | Real httpx calls to /v1/chat/completions, tool_calls parsing |
+| **LP3** | Google AI Client (New) | **Complete** | 9 | main | ~30 min | ~5 min | GoogleAIClient for Gemini via generateContent API |
+| **LP4** | Ollama Client HTTP | **Complete** | 8 | main | ~20 min | ~5 min | Real httpx calls to /api/chat, model manifest check |
+| **LP5** | ProviderRouter as Dispatch Hub | **Complete** | 9 | main | ~30 min | ~8 min | Router creates clients, dispatches complete(), privacy enforcement |
 | — | — **WAVE 10: END-TO-END CHAT PIPELINE** — | — | — | — | — | — | — |
 | **CP1** | Wire invoke_llm to ProviderRouter | Planned | — | — | ~30 min | — | Replace NotImplementedError stub, async, model routing |
 | **CP2** | OrchestratorRunner + Event Types | Planned | — | — | ~45 min | — | Compiles graph, runs state, yields SSE events, updates Run in DB |
@@ -1605,6 +1605,214 @@ pytest tests/unit/test_keychain_config.py -v
 
 ---
 
+## Wave 9: LLM Provider Wiring
+
+Replaces stub `_send_request` / `build_request` implementations with real httpx-based HTTP clients for all four LLM providers, then upgrades ProviderRouter into a dispatch hub that instantiates clients and routes `complete()` calls with privacy enforcement. After this wave, every provider can be called over HTTP (mocked in tests, real in production).
+
+---
+
+### Phase LP1: Anthropic Client HTTP (~30 min)
+
+**Goal:** The existing AnthropicClient is a stub — `_send_request` raises `NotImplementedError`. This phase implements real httpx calls to the Anthropic Messages API (`/v1/messages`), including tool_use block support and retry on 429/529 rate limits.
+
+**Spec refs:** SPEC.md §14.1, §14.4
+
+**Depends on:** CM1, CM2
+**Blocks:** LP5
+
+**Deliverables:**
+1. Real async `_send_request()` using `httpx.AsyncClient` with Bearer auth header
+2. Response parsing: extract `content[0].text`, `usage.input_tokens`, `usage.output_tokens`
+3. Tool use support: detect `tool_use` content blocks and return them as `tool_calls`
+4. Retry logic: exponential backoff on 429 (rate limit) and 529 (overloaded), max 3 retries
+5. Proper error mapping: 401→ProviderError("invalid API key"), 400→ProviderError with detail, 5xx→ProviderError
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/noa/external_worker/llm/anthropic.py` | **MODIFY** | Replace stub with real httpx calls |
+| `tests/unit/test_llm_anthropic.py` | **CREATE** | Dedicated Anthropic client tests |
+
+**Tests (~8):**
+- `_send_request` makes POST to `/v1/messages` with correct headers (x-api-key, anthropic-version)
+- Successful response parsed: text content extracted, usage tokens captured
+- Tool use blocks in response returned as `tool_calls` list
+- 429 response triggers retry with backoff (up to 3 retries)
+- 529 response triggers retry
+- 401 response raises ProviderError with "invalid API key"
+- 400 response raises ProviderError with error detail
+- Timeout raises ProviderError
+
+**Test gate:**
+```bash
+pytest tests/unit/test_llm_anthropic.py -v
+```
+
+---
+
+### Phase LP2: OpenAI Client HTTP (~30 min)
+
+**Goal:** The existing OpenAIClient is a stub. This phase implements real httpx calls to the OpenAI Chat Completions API (`/v1/chat/completions`), with tool_calls JSON parsing and retry on 429.
+
+**Spec refs:** SPEC.md §14.1, §14.4
+
+**Depends on:** CM1, CM2
+**Blocks:** LP5
+
+**Deliverables:**
+1. Real async `_send_request()` using `httpx.AsyncClient` with Bearer Authorization header
+2. Response parsing: extract `choices[0].message.content`, `usage.prompt_tokens`, `usage.completion_tokens`
+3. Tool calls support: parse `choices[0].message.tool_calls` into normalized `tool_calls` list
+4. Retry logic: exponential backoff on 429, max 3 retries
+5. Error mapping: 401→ProviderError("invalid API key"), 4xx/5xx→ProviderError
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/noa/external_worker/llm/openai.py` | **MODIFY** | Replace stub with real httpx calls |
+| `tests/unit/test_llm_openai.py` | **CREATE** | Dedicated OpenAI client tests |
+
+**Tests (~8):**
+- `_send_request` makes POST to `/v1/chat/completions` with Authorization Bearer header
+- Successful response parsed: content and usage extracted
+- Tool calls in response parsed into normalized format
+- 429 triggers retry with backoff
+- 401 raises ProviderError with "invalid API key"
+- 5xx raises ProviderError
+- Timeout raises ProviderError
+- `top_p` parameter included in request when set
+
+**Test gate:**
+```bash
+pytest tests/unit/test_llm_openai.py -v
+```
+
+---
+
+### Phase LP3: Google AI Client (New) (~30 min)
+
+**Goal:** No Google AI client exists. This phase creates a new `GoogleAIClient` for the Gemini API via the `generateContent` endpoint, following the same interface pattern as Anthropic/OpenAI clients.
+
+**Spec refs:** SPEC.md §14.1, §14.4
+
+**Depends on:** CM1, CM2
+**Blocks:** LP5
+
+**Deliverables:**
+1. New `GoogleAIClient` class with `__init__(api_key, model)` constructor
+2. `build_request()` formats messages into Gemini `contents` format (role mapping: user→user, assistant→model)
+3. Real async `_send_request()` via httpx POST to `https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}`
+4. Response parsing: extract `candidates[0].content.parts[0].text`, usage from `usageMetadata`
+5. Function call support: detect `functionCall` parts and return as `tool_calls`
+6. Error mapping: 403→ProviderError("invalid API key"), 429→retry, 5xx→ProviderError
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/noa/external_worker/llm/google_ai.py` | **CREATE** | Google AI (Gemini) client |
+| `src/noa/external_worker/llm/__init__.py` | **MODIFY** | Export GoogleAIClient |
+| `tests/unit/test_llm_google_ai.py` | **CREATE** | Google AI client tests |
+
+**Tests (~8):**
+- `build_request` maps messages to Gemini `contents` format (role mapping)
+- `_send_request` POSTs to correct generateContent URL with API key param
+- Successful response parsed: text and usage extracted
+- Function call parts returned as `tool_calls`
+- 403 raises ProviderError with "invalid API key"
+- 429 triggers retry with backoff
+- 5xx raises ProviderError
+- Timeout raises ProviderError
+
+**Test gate:**
+```bash
+pytest tests/unit/test_llm_google_ai.py -v
+```
+
+---
+
+### Phase LP4: Ollama Client HTTP (~20 min)
+
+**Goal:** The existing OllamaClient uses `/api/generate` (completion-style). This phase upgrades it to use `/api/chat` (chat-style), adds real async httpx calls, and enforces model manifest approval per §8.1.
+
+**Spec refs:** SPEC.md §8.1, §14.1
+
+**Depends on:** CM1, CM2
+**Blocks:** LP5
+
+**Deliverables:**
+1. Switch from `/api/generate` to `/api/chat` endpoint (chat messages format)
+2. Real async `_send_request()` using `httpx.AsyncClient` (no auth needed — local service)
+3. `complete()` method matching the same interface as external clients (messages, max_tokens, temperature)
+4. Model manifest enforcement: reject unapproved models before sending request
+5. Response parsing: extract `message.content`, eval_count/prompt_eval_count for usage
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/noa/private_worker/ollama_client.py` | **MODIFY** | Real httpx calls to /api/chat |
+| `tests/unit/test_llm_ollama.py` | **CREATE** | Ollama client tests |
+
+**Tests (~7):**
+- `build_request` formats messages for `/api/chat` endpoint
+- `complete()` sends POST to `{base_url}/api/chat`
+- Successful response parsed: content and usage extracted
+- Unapproved model rejected before request sent (raises ProviderError)
+- Approved model passes manifest check
+- Connection error (Ollama not running) raises ProviderError
+- Timeout raises ProviderError
+
+**Test gate:**
+```bash
+pytest tests/unit/test_llm_ollama.py -v
+```
+
+---
+
+### Phase LP5: ProviderRouter as Dispatch Hub (~30 min)
+
+**Goal:** The existing ProviderRouter only does `select()` — it returns a provider name string. This phase upgrades it to instantiate real clients from settings, dispatch `complete()` calls, and enforce privacy invariants (private→Ollama only).
+
+**Spec refs:** SPEC.md §14.2, §14.3, §14.4
+
+**Depends on:** LP1, LP2, LP3, LP4
+**Blocks:** CP1 (Wave 10)
+
+**Deliverables:**
+1. `from_settings(settings)` class method: creates router with client instances from UserSettings credentials
+2. Async `complete(messages, max_tokens, privacy_mode, provider, model, **kwargs)` dispatch method
+3. Privacy enforcement: `private` mode → always route to Ollama client, never external
+4. Provider/model override: user-selected provider used if compatible with privacy mode
+5. Normalized response: all clients return `{"content": str, "tool_calls": list, "usage": {"input_tokens": int, "output_tokens": int}, "provider": str, "model": str}`
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/noa/external_worker/llm/router.py` | **MODIFY** | Add from_settings, complete(), dispatch |
+| `tests/unit/test_llm_router.py` | **CREATE** | Router dispatch tests |
+
+**Tests (~9):**
+- `from_settings` creates router with Anthropic client when key present
+- `from_settings` creates router with OpenAI client when key present
+- `from_settings` creates router with Google AI client when key present
+- `from_settings` creates Ollama client from base_url setting
+- `complete()` dispatches to correct provider client
+- `complete()` with `privacy_mode="private"` routes to Ollama only
+- `complete()` with `privacy_mode="private"` + external provider raises PrivacyViolationError
+- `complete()` with user-selected provider overrides default
+- Response includes normalized fields (content, tool_calls, usage, provider, model)
+
+**Test gate:**
+```bash
+pytest tests/unit/test_llm_router.py -v
+```
+
+---
+
 ## Dependency Graph
 
 ```
@@ -1639,6 +1847,13 @@ Wave 6: Web Client
 
 Wave 8: Credential Management
   F2,F4,WM3 ──► CM1 ──► CM2
+
+Wave 9: LLM Provider Wiring
+  CM1,CM2 ──► LP1 (Anthropic)
+  CM1,CM2 ──► LP2 (OpenAI)
+  CM1,CM2 ──► LP3 (Google AI)
+  CM1,CM2 ──► LP4 (Ollama)
+  LP1,LP2,LP3,LP4 ──► LP5 (ProviderRouter)
 ```
 
 ---

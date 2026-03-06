@@ -74,18 +74,27 @@ class TestProviderRouting:
         )
         assert provider == "openai"
 
-    def test_private_mode_never_routes_to_external(self):
-        """Private mode MUST never route to external providers (Section 14.2 rule 1).
+    def test_private_mode_routes_to_ollama(self):
+        """Private mode MUST route to Ollama only (Section 14.2 rule 1).
 
         This is a hard security invariant: if privacy_mode is 'private',
-        the router must refuse to select any external provider.
+        the router must always select the local Ollama provider.
         """
         from noa.external_worker.llm.router import ProviderRouter
 
         config = _provider_config(default_provider="anthropic")
         router = ProviderRouter(config)
-        with pytest.raises(ValueError, match="private"):
-            router.select(privacy_mode="private")
+        assert router.select(privacy_mode="private") == "ollama"
+
+    def test_private_mode_rejects_external_override(self):
+        """Private mode rejects explicit selection of external provider."""
+        from noa.external_worker.exceptions import PrivacyViolationError
+        from noa.external_worker.llm.router import ProviderRouter
+
+        config = _provider_config(default_provider="anthropic")
+        router = ProviderRouter(config)
+        with pytest.raises(PrivacyViolationError, match="private"):
+            router.select(privacy_mode="private", user_selected="anthropic")
 
     def test_default_provider_configurable(self):
         """Default provider can be set to OpenAI instead of Anthropic."""
@@ -292,7 +301,7 @@ class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_timeout_handled(self):
         """Request timeout is caught and wrapped as ProviderError."""
-        import asyncio
+        import httpx
 
         from noa.external_worker.llm.anthropic import AnthropicClient
         from noa.external_worker.llm.router import ProviderError
@@ -303,7 +312,7 @@ class TestErrorHandling:
         with patch.object(
             client, "_send_request",
             new_callable=AsyncMock,
-            side_effect=asyncio.TimeoutError,
+            side_effect=httpx.TimeoutException("timed out"),
         ):
             with pytest.raises(ProviderError, match="[Tt]imeout"):
                 await client.complete(
