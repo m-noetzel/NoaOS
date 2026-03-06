@@ -74,10 +74,10 @@ The plan is organized into **waves** — groups of related phases that deliver a
 | **TG2** | DirectApiAdapter | **Complete** | 8 | main | ~20 min | ~3 min | Wraps ToolInterface for gateway dispatch |
 | **TG3** | Tavily HTTP Client + Registration | **Complete** | 10 | main | ~30 min | ~5 min | Real httpx Tavily calls, registered at startup |
 | — | — **WAVE 12: GOOGLE + NOTION TOOLS** — | — | — | — | — | — | — |
-| **GT1** | Google OAuth Token Exchange + Storage | Planned | — | — | ~45 min | — | OAuth callback endpoint, encrypted token storage in DB |
-| **GT2** | Google Calendar + Gmail HTTP Clients | Planned | — | — | ~45 min | — | Real Calendar API v3 + Gmail API v1 calls |
-| **GT3** | Notion MCP Stdio Adapter | Planned | — | — | ~45 min | — | McpStdioAdapter spawns @notionhq/notion-mcp-server subprocess |
-| **GT4** | McpRemoteAdapter (Phase 2 Stub) | Planned | — | — | ~10 min | — | Interface-only stub for future container-isolated MCP |
+| **GT1** | Google OAuth Token Exchange + Storage | **Complete** | 19 | main | ~30 min | ~5 min | OAuth exchange, refresh, DB column, no-log compliance |
+| **GT2** | Google Calendar + Gmail HTTP Clients | **Complete** | 14 | main | ~30 min | ~5 min | Calendar API v3 + Gmail API v1 httpx, auto-refresh on 401 |
+| **GT3** | Notion HTTP Client + Registration | **Complete** | 11 | main | ~30 min | ~3 min | Notion API v1 httpx, tool registration |
+| **GT4** | McpRemoteAdapter (Phase 2 Stub) | **Complete** | 4 | main | ~10 min | ~2 min | Stub with NotImplementedError |
 | — | — **WAVE 13: SETUP FLOW + PERMISSIONS + TELEMETRY** — | — | — | — | — | — | — |
 | **SP1** | First-Run Registration | Planned | — | — | ~30 min | — | POST /auth/register when 0 users, real DB queries in AuthService |
 | **SP2** | Capability-Based Tool Permissions | Planned | — | — | ~30 min | — | Per-tool capabilities (search.read, calendar.write, etc.) |
@@ -2133,6 +2133,190 @@ pytest tests/unit/test_tg3_tavily.py -v
 
 ---
 
+## Wave 12: Google + Notion Tools
+
+Wires real HTTP clients for Google Calendar, Gmail, and Notion APIs. The existing tool wrappers (`CalendarTool`, `GmailTool`, `NotionTool`) already exist with validation logic — this wave provides the `api_client` implementations they delegate to, adds OAuth token exchange for Google, and registers all three tools in the ToolGateway at startup.
+
+---
+
+### Phase GT1: Google OAuth Token Exchange + Storage (~30 min)
+
+**Goal:** The `GoogleAuthClient` class exists but has no actual token exchange — `set_tokens()` must be called manually. This phase adds real HTTP token exchange (authorization code → access/refresh tokens), token refresh, and persistent storage of refresh tokens in the DB (encrypted column per §11.1).
+
+**Spec refs:** SPEC.md §11.1 (Google OAuth2 refresh token → Postgres encrypted column), §11.2 (secrets never logged), §11.3 (refresh tokens rotate on use)
+
+**Depends on:** TG3 (gateway infrastructure), CM1 (settings/credentials storage)
+**Blocks:** GT2
+
+**Deliverables:**
+1. `GoogleAuthClient.exchange_code(code)` — POST to Google token endpoint, returns access+refresh tokens
+2. `GoogleAuthClient.refresh_access_token()` — uses refresh token to get new access token
+3. Token persistence: `google_refresh_token` column on `UserSettings` model
+4. OAuth callback endpoint: `GET /auth/google/callback?code=...&state=...` exchanges code, stores tokens
+5. OAuth initiation endpoint: `GET /auth/google/authorize` returns auth URL with combined scopes
+6. Alembic migration for `google_refresh_token` column
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/noa/tools/google_auth.py` | **MODIFY** | Add exchange_code(), refresh_access_token() with real httpx calls |
+| `src/noa/settings/models.py` | **MODIFY** | Add google_refresh_token column |
+| `src/noa/api/v1/google_oauth.py` | **CREATE** | OAuth authorize + callback endpoints |
+| `src/noa/api/app.py` | **MODIFY** | Mount google_oauth router |
+| `alembic/versions/add_google_refresh_token.py` | **CREATE** | Migration adding column |
+| `tests/unit/test_gt1_google_oauth.py` | **CREATE** | Google OAuth tests |
+
+**Tests (~12):**
+- exchange_code sends POST to token endpoint with correct params
+- exchange_code returns access_token + refresh_token from response
+- exchange_code raises on 400/401 error response
+- exchange_code never logs token values (§11.2)
+- refresh_access_token sends POST with refresh_token grant_type
+- refresh_access_token updates access_token in-place
+- refresh_access_token raises on invalid/expired refresh token
+- /auth/google/authorize returns auth URL with calendar+gmail scopes
+- /auth/google/callback exchanges code and stores refresh token
+- /auth/google/callback rejects missing code parameter
+- google_refresh_token column exists on UserSettings model
+- GoogleAuthClient.is_authenticated reflects token state correctly
+
+**Test gate:**
+```bash
+pytest tests/unit/test_gt1_google_oauth.py -v
+```
+
+---
+
+### Phase GT2: Google Calendar + Gmail HTTP Clients (~30 min)
+
+**Goal:** `CalendarTool` and `GmailTool` wrappers exist but need real `api_client` implementations that make actual HTTP calls to Google APIs. This phase creates `GoogleCalendarClient` and `GmailClient` — httpx-based async clients using OAuth2 bearer tokens from `GoogleAuthClient`.
+
+**Spec refs:** SPEC.md §12.1 (Calendar API functions), §12.2 (Gmail API functions), §8.2 (external container egress)
+
+**Depends on:** GT1 (OAuth token exchange)
+**Blocks:** GT3 (only in dependency ordering; GT3 is independent work)
+
+**Deliverables:**
+1. `GoogleCalendarClient` — real httpx calls to Google Calendar API v3
+2. `GmailClient` — real httpx calls to Gmail API v1
+3. Both clients use `GoogleAuthClient` for bearer tokens and auto-refresh on 401
+4. Registration functions in `registration.py` for calendar + gmail tools
+5. Both tools registered in ToolGateway at startup when credentials are set
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/noa/tools/google_calendar_client.py` | **CREATE** | Real Calendar API v3 httpx client |
+| `src/noa/tools/google_gmail_client.py` | **CREATE** | Real Gmail API v1 httpx client |
+| `src/noa/tools/registration.py` | **MODIFY** | Add _register_calendar(), _register_gmail() |
+| `tests/unit/test_gt2_google_clients.py` | **CREATE** | Calendar + Gmail client tests |
+
+**Tests (~14):**
+- GoogleCalendarClient.list_events sends GET to /calendars/primary/events
+- GoogleCalendarClient.list_events passes timeMin/timeMax as RFC3339
+- GoogleCalendarClient.create_event sends POST with event body
+- GoogleCalendarClient.update_event sends PATCH to /events/{id}
+- GoogleCalendarClient sets Authorization: Bearer header
+- GoogleCalendarClient retries once on 401 after token refresh
+- GoogleCalendarClient raises CalendarAPIError on 4xx/5xx
+- GmailClient.search_emails sends GET to /messages with q= parameter
+- GmailClient.read_email sends GET to /messages/{id}?format=full
+- GmailClient.send_email sends POST to /messages/send with base64-encoded message
+- GmailClient.draft_email sends POST to /drafts
+- GmailClient raises GmailAPIError on 4xx/5xx
+- _register_calendar registers tool when GOOGLE_CLIENT_ID + refresh token set
+- _register_gmail registers tool when GOOGLE_CLIENT_ID + refresh token set
+
+**Test gate:**
+```bash
+pytest tests/unit/test_gt2_google_clients.py -v
+```
+
+---
+
+### Phase GT3: Notion HTTP Client + Registration (~30 min)
+
+**Goal:** `NotionTool` exists with sanitization logic but needs a real `api_client` that makes HTTP calls to the Notion API. This phase creates `NotionClient` using the Notion integration token (simple bearer auth, no OAuth needed).
+
+**Spec refs:** SPEC.md §12.3 (Notion tool functions), §11.1 (Notion integration token → macOS Keychain)
+
+**Depends on:** TG3 (gateway infrastructure)
+**Blocks:** None (GT4 is independent)
+
+**Deliverables:**
+1. `NotionClient` — real httpx calls to Notion API v1 (api.notion.com)
+2. Search pages via POST /v1/search
+3. Read page content via GET /v1/blocks/{id}/children (recursive)
+4. Create page via POST /v1/pages
+5. Update page via PATCH /v1/blocks/{id}/children
+6. Registration function in `registration.py`
+7. Notion-version header (2022-06-28) on all requests
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/noa/tools/notion_client.py` | **CREATE** | Real Notion API v1 httpx client |
+| `src/noa/tools/registration.py` | **MODIFY** | Add _register_notion() |
+| `tests/unit/test_gt3_notion_client.py` | **CREATE** | Notion client tests |
+
+**Tests (~12):**
+- NotionClient.search_pages sends POST to /v1/search with query
+- NotionClient.search_pages returns list of {id, title, url}
+- NotionClient.read_page sends GET to /v1/blocks/{id}/children
+- NotionClient.read_page converts block results to markdown-like text
+- NotionClient.create_page sends POST to /v1/pages with parent + properties
+- NotionClient.create_page returns {id, url}
+- NotionClient.update_page sends PATCH to /v1/blocks/{id}/children
+- NotionClient sets Authorization: Bearer {token} header
+- NotionClient sets Notion-Version: 2022-06-28 header
+- NotionClient raises NotionAPIError on 401 (invalid token)
+- NotionClient raises NotionAPIError on 404 (page not found)
+- _register_notion registers tool when NOTION_TOKEN is set
+
+**Test gate:**
+```bash
+pytest tests/unit/test_gt3_notion_client.py -v
+```
+
+---
+
+### Phase GT4: McpRemoteAdapter Stub (~10 min)
+
+**Goal:** Phase 2 (multi-machine deployment) will need MCP adapters that communicate over a network transport (HTTP+SSE or WebSocket) to MCP servers running in isolated containers. This phase creates an interface stub so the adapter protocol is defined, but no implementation is needed yet.
+
+**Spec refs:** SPEC.md §8.2 (external container isolation), §20 (network architecture)
+
+**Depends on:** TG2 (DirectApiAdapter pattern)
+**Blocks:** None (Phase 2 only)
+
+**Deliverables:**
+1. `McpRemoteAdapter` class with `execute()` signature matching `DirectApiAdapter`
+2. `execute()` raises `NotImplementedError("Phase 2: MCP remote transport")`
+3. Configuration dataclass for remote MCP connection params (url, auth)
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/noa/tools/adapters/mcp_remote.py` | **CREATE** | McpRemoteAdapter stub |
+| `tests/unit/test_gt4_mcp_remote.py` | **CREATE** | Stub tests |
+
+**Tests (~4):**
+- McpRemoteAdapter has execute(request) method signature
+- McpRemoteAdapter.execute raises NotImplementedError
+- McpRemoteConfig dataclass has url, auth_token fields
+- McpRemoteAdapter accepts McpRemoteConfig in constructor
+
+**Test gate:**
+```bash
+pytest tests/unit/test_gt4_mcp_remote.py -v
+```
+
+---
+
 ## Dependency Graph
 
 ```
@@ -2185,6 +2369,12 @@ Wave 11: Tool Gateway + Tavily
   CP4,TI6 ──► TG1 (ToolGateway)
   TG1 ──► TG2 (DirectApiAdapter)
   TG2 ──► TG3 (Tavily HTTP + Registration)
+
+Wave 12: Google + Notion Tools
+  TG3,CM1 ──► GT1 (Google OAuth)
+  GT1 ──► GT2 (Calendar + Gmail HTTP Clients)
+  TG3 ──► GT3 (Notion HTTP Client)
+  TG2 ──► GT4 (McpRemoteAdapter Stub)
 ```
 
 ---
