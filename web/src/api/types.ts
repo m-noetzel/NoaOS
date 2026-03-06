@@ -191,9 +191,17 @@ export interface CostSummary {
 
 export interface UserSettings {
   default_model: string;
+  default_provider: string;
   default_privacy_mode: PrivacyMode;
   budget_daily_usd: number;
   budget_monthly_usd: number;
+  anthropic_api_key: string | null;
+  openai_api_key: string | null;
+  google_client_id: string | null;
+  google_client_secret: string | null;
+  notion_token: string | null;
+  tavily_api_key: string | null;
+  ollama_base_url: string | null;
 }
 
 // --- SSE Events ---

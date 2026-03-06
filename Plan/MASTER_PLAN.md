@@ -56,7 +56,7 @@ The plan is organized into **waves** — groups of related phases that deliver a
 | **WM5** | Security Hardening | **Complete** | — | main | ~10 min | ~3 min | DOMPurify XSS fix, CORS restricted, 429 handling |
 | **WM6** | Tests & Verification | **Complete** | 73 | main | ~20 min | ~5 min | 56 backend + 17 frontend tests, build clean |
 | — | — **WAVE 8: CREDENTIAL MANAGEMENT** — | — | — | — | — | — | — |
-| **CM1** | Extend Settings with Tool Credentials | Planned | — | — | ~30 min | — | Config fields for all API keys + LLM provider/model |
+| **CM1** | Extend Settings with Tool Credentials | **Complete** | 18 | main | ~30 min | ~10 min | QA PASS 2026-03-06 |
 | **CM2** | macOS Keychain Bootstrap | Planned | — | — | ~45 min | — | keychain_store.sh, keychain_bootstrap.sh, docker-compose env wiring |
 | — | — **WAVE 9: LLM PROVIDER WIRING** — | — | — | — | — | — | — |
 | **LP1** | Anthropic Client HTTP | Planned | — | — | ~30 min | — | Real httpx calls to /v1/messages, tool_use blocks, retry on 429 |
@@ -1473,6 +1473,138 @@ cd web && npm test -- --run
 
 ---
 
+## Wave 8: Credential Management
+
+Extends the settings system to persist user preferences in the database and adds configuration fields for all tool API keys and LLM provider/model selection. After this wave, users can configure credentials via the UI and the backend stores them securely in Postgres (with keychain injection handled by CM2).
+
+---
+
+### Phase CM1: Extend Settings with Tool Credentials (~30 min)
+
+**Goal:** Settings are currently stubbed — the GET endpoint returns hardcoded defaults and PUT doesn't persist. No `user_settings` table exists. This phase creates the settings persistence layer, extends the schema with tool credential fields and LLM provider/model selection, and wires the frontend to display credential configuration.
+
+**Spec refs:** SPEC.md §11.1 (secret categories), §24 (cost control budgets), §12 (tool definitions — which tools need keys)
+
+**Depends on:** F2 (database), F4 (auth), WM3 (settings endpoints exist)
+**Blocks:** CM2 (keychain bootstrap needs settings schema), LP1-LP5 (LLM providers need configured keys)
+
+**Deliverables:**
+1. `user_settings` table in Postgres via Alembic migration
+2. SQLAlchemy ORM model for UserSettings (one row per user)
+3. Settings repository layer (get, upsert)
+4. Settings endpoints wired to database (replace stubs)
+5. Extended settings schema: tool API keys (Anthropic, OpenAI, Google, Notion, Tavily), LLM provider/model, Ollama base URL
+6. Frontend settings page extended with credential fields (masked input for API keys)
+7. API key values never returned in full — GET returns masked versions (last 4 chars only)
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `alembic/versions/002_user_settings.py` | **CREATE** | Migration: `user_settings` table |
+| `src/noa/settings/__init__.py` | **CREATE** | Settings package |
+| `src/noa/settings/models.py` | **CREATE** | SQLAlchemy ORM model for UserSettings |
+| `src/noa/settings/repository.py` | **CREATE** | Settings CRUD (get_by_user_id, upsert) |
+| `src/noa/settings/service.py` | **CREATE** | Settings service with masking logic |
+| `src/noa/api/v1/settings.py` | **EDIT** | Wire to real DB via settings service |
+| `web/src/api/types.ts` | **EDIT** | Add credential fields to UserSettings type |
+| `web/src/pages/Settings.tsx` | **EDIT** | Add API key inputs (masked), LLM provider/model, Ollama URL |
+| `tests/unit/test_settings.py` | **CREATE** | Settings persistence + masking tests |
+
+**Database schema (`user_settings`):**
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | UUID | PK |
+| `user_id` | UUID | FK → users.id, UNIQUE |
+| `default_model` | VARCHAR(64) | e.g. "claude-sonnet-4-20250514" |
+| `default_provider` | VARCHAR(32) | e.g. "anthropic", "openai", "ollama" |
+| `default_privacy_mode` | VARCHAR(16) | "standard" or "external" |
+| `budget_daily_usd` | NUMERIC(10,2) | Daily spending limit |
+| `budget_monthly_usd` | NUMERIC(10,2) | Monthly spending limit |
+| `anthropic_api_key` | VARCHAR(256) | Encrypted at rest (Phase 2: keychain) |
+| `openai_api_key` | VARCHAR(256) | Encrypted at rest |
+| `google_client_id` | VARCHAR(256) | OAuth2 client ID |
+| `google_client_secret` | VARCHAR(256) | OAuth2 client secret |
+| `notion_token` | VARCHAR(256) | Integration token |
+| `tavily_api_key` | VARCHAR(256) | Search API key |
+| `ollama_base_url` | VARCHAR(512) | Default: http://private-worker:11434 |
+| `created_at` | TIMESTAMP | Auto-set |
+| `updated_at` | TIMESTAMP | Auto-updated |
+
+**Security constraints:**
+- API key columns stored as plaintext in DB for now (CM2 adds keychain; encryption-at-rest via Postgres TDE is a Phase 2 concern)
+- GET endpoint NEVER returns full API keys — returns masked versions: `"sk-...AbCd"` (last 4 chars)
+- PUT endpoint accepts full keys for storage, or `null` to clear
+- Secrets never logged, even at debug level (per §11.2)
+
+**Tests (~15):**
+- Repository: upsert creates new settings for user
+- Repository: upsert updates existing settings
+- Repository: get returns None for unknown user
+- Service: get_settings returns defaults when no DB row
+- Service: get_settings masks API keys (last 4 chars only)
+- Service: update_settings persists to DB
+- Service: update_settings with null key clears the key
+- Service: empty string key treated as null (cleared)
+- API: GET /settings returns masked keys
+- API: PUT /settings persists and returns masked keys
+- API: PUT /settings with partial update preserves other fields
+- API: unauthenticated request returns 401
+- Masking: short keys still masked safely
+- Masking: None/empty keys return null (not masked)
+
+**Test gate:**
+```bash
+pytest tests/unit/test_settings.py -v
+```
+
+---
+
+### Phase CM2: macOS Keychain Bootstrap (~45 min)
+
+**Goal:** API keys stored in Postgres are not production-secure. This phase creates shell scripts for macOS Keychain integration that store secrets in the system keychain and inject them into Docker containers at startup via environment variables.
+
+**Spec refs:** SPEC.md §11.1, §11.2, §11.3
+
+**Depends on:** CM1
+**Blocks:** None (downstream phases can use either DB keys or keychain-injected env vars)
+
+**Deliverables:**
+1. `tools/keychain_store.sh` — Store/retrieve secrets in macOS Keychain
+2. `tools/keychain_bootstrap.sh` — Read all secrets from keychain, write `.env.secrets` for docker-compose
+3. Docker-compose env_file wiring for `.env.secrets`
+4. Config.py extended to read API keys from env vars (override DB values)
+5. Documentation in `tools/README_KEYCHAIN.md`
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `tools/keychain_store.sh` | **CREATE** | CLI to set/get/delete keychain entries |
+| `tools/keychain_bootstrap.sh` | **CREATE** | Generate `.env.secrets` from keychain |
+| `docker-compose.yml` | **EDIT** | Add env_file: .env.secrets |
+| `src/noa/config.py` | **EDIT** | Add optional env vars for all API keys |
+| `src/noa/settings/service.py` | **EDIT** | Env var overrides DB values for API keys |
+| `tools/README_KEYCHAIN.md` | **CREATE** | Setup instructions |
+| `tests/unit/test_keychain_config.py` | **CREATE** | Env var override tests |
+| `.gitignore` | **EDIT** | Add .env.secrets |
+
+**Tests (~8):**
+- Config: env var API keys parsed correctly
+- Config: env var overrides DB-stored key
+- Config: missing env var falls back to DB value
+- Service: get_effective_key checks env first, then DB
+- Bootstrap script: generates valid env file format
+- Store script: set/get/delete operations (mocked keychain)
+
+**Test gate:**
+```bash
+pytest tests/unit/test_keychain_config.py -v
+```
+
+---
+
 ## Dependency Graph
 
 ```
@@ -1504,6 +1636,9 @@ Wave 5: Advanced
 
 Wave 6: Web Client
   OC2 ──► WC1 ──► WC2, WC3, WC4, WC5, WC6, WC7
+
+Wave 8: Credential Management
+  F2,F4,WM3 ──► CM1 ──► CM2
 ```
 
 ---
