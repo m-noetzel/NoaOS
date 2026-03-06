@@ -2811,11 +2811,213 @@ Wave 13: MVP Completion
   MR6 (Docker Hardening) ─────────────────────────────┤
   MR8 (Model Routing)    ─────────────────────────────┤
   MR9 (Conditional Edges) ────────────────────────────┘
+
+Wave 14: Operations & Go-Live
+  OP1 (Backup) ──┐
+  OP2 (Logs)     ├── OP5 (Runbook)
+  OP3 (Health)   ┤
+  OP4 (Postgres) ┘
 ```
 
 ---
 
-## Phase Reports
+## Wave 14: Operations & Go-Live
+
+Delivers operational infrastructure for running Noa reliably in production: automated backups, log management, health monitoring, database maintenance, and a runbook for the operator. After this wave, the system is ready for daily use.
+
+**Spec refs:** §10.5, §28.2, §28.7, §30, §31
+
+**Depends on:** Wave 13 (all MVP phases complete)
+
+---
+
+### Phase OP1: Backup Infrastructure (~30 min)
+
+**Goal:** Implement automated Postgres backup with encryption and restore verification, per SPEC.md §10.5.
+
+**Spec refs:** §10.5 (Backup Strategy)
+
+**Depends on:** Wave 13 complete
+**Blocks:** OP5
+
+**Deliverables:**
+1. `pg_dump` backup script with GPG encryption to local storage
+2. Restore verification script that validates backup integrity
+3. Backup scheduling via cron-compatible entrypoint (daily)
+4. Docker volume for encrypted backups
+5. Private domain data backup to separate encrypted volume
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `scripts/backup.sh` | **CREATE** | pg_dump → gzip → GPG encrypt → `/backups/` volume |
+| `scripts/restore.sh` | **CREATE** | Decrypt → decompress → pg_restore with verification SELECT |
+| `scripts/backup_private.sh` | **CREATE** | Tar + encrypt private-data volume to `/backups/` |
+| `docker-compose.yml` | **MODIFY** | Add `backups` named volume, backup sidecar service |
+| `docker/backup/Dockerfile` | **CREATE** | Alpine + pg_client + gpg + cron |
+| `docker/backup/crontab` | **CREATE** | Daily 02:00 pg_dump, weekly 03:00 restore test |
+
+**Tests (~6):**
+- Backup script creates encrypted dump file
+- Encrypted file is valid GPG (header check)
+- Restore script recovers data correctly
+- Backup fails gracefully on DB unreachable
+- Private data backup creates encrypted archive
+- Crontab syntax is valid
+
+**Test gate:**
+```bash
+pytest tests/unit/test_backup.py -v
+```
+
+---
+
+### Phase OP2: Log Persistence + Rotation (~25 min)
+
+**Goal:** Configure Docker log drivers for persistence, schedule audit log retention purge (90-day default per §28.7), and ensure structured JSON logging across all services.
+
+**Spec refs:** §28.3 (Structured Logging), §28.7 (Data Retention)
+
+**Depends on:** Wave 13 complete
+**Blocks:** OP5
+
+**Deliverables:**
+1. Docker log driver config (json-file with rotation) for all services
+2. Scheduled audit log purge task (calls existing `purge_expired()`)
+3. Tool transcript cleanup after session ends
+4. Structured JSON log formatter for all Python services
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `docker-compose.yml` | **MODIFY** | Add `logging:` config with json-file driver, max-size 50m, max-file 5 |
+| `src/noa/logging_config.py` | **CREATE** | Structured JSON formatter with trace_id, no PII |
+| `src/noa/maintenance/retention.py` | **CREATE** | Scheduled purge task: audit logs (90d), tool transcripts (session end) |
+| `src/noa/api/app.py` | **MODIFY** | Register retention task in lifespan (daily schedule) |
+
+**Tests (~5):**
+- JSON log formatter produces valid structured output
+- No PII/secrets in formatted log output
+- Retention purge deletes entries older than 90 days
+- Retention purge preserves entries within retention window
+- Tool transcript cleanup removes session-scoped data
+
+**Test gate:**
+```bash
+pytest tests/unit/test_log_rotation.py tests/unit/test_retention.py -v
+```
+
+---
+
+### Phase OP3: Health Checks + Compose Fixes (~20 min)
+
+**Goal:** Add missing health checks (external-worker), add missing resource limits (private-worker), and ensure all containers have proper restart policies per §30 and §31.
+
+**Spec refs:** §28.5 (Health Endpoints), §30 (Resource Management), §31 (Failure Handling)
+
+**Depends on:** Wave 13 complete
+**Blocks:** OP5
+
+**Deliverables:**
+1. External-worker health check in docker-compose.yml
+2. Private-worker resource limits (remaining CPU, up to 32 GB RAM per spec)
+3. Readiness probe for all services (DB dependency check where applicable)
+4. Service dependency chain verified (`depends_on: service_healthy`)
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `docker-compose.yml` | **MODIFY** | Add external-worker healthcheck, private-worker resource limits |
+| `src/noa/external_worker/app.py` | **MODIFY** | Enhance `/health` with readiness info |
+
+**Tests (~4):**
+- Docker compose config validates (docker compose config)
+- All services have healthcheck defined
+- All services have resource limits defined
+- External worker health endpoint returns proper status
+
+**Test gate:**
+```bash
+pytest tests/unit/test_compose_health.py -v
+```
+
+---
+
+### Phase OP4: Postgres Maintenance (~20 min)
+
+**Goal:** Implement database maintenance scheduling (VACUUM/ANALYZE), connection pool tuning, and index maintenance per §30.
+
+**Spec refs:** §30 (Resource Management), §10.4 (Database)
+
+**Depends on:** Wave 13 complete
+**Blocks:** OP5
+
+**Deliverables:**
+1. Connection pool tuning (pool_size, max_overflow, pool_recycle)
+2. Scheduled VACUUM ANALYZE via maintenance task
+3. Index health check query
+4. Connection pool monitoring endpoint
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/noa/db/engine.py` | **MODIFY** | Add pool_size=10, max_overflow=20, pool_recycle=1800 |
+| `src/noa/maintenance/db_maintenance.py` | **CREATE** | VACUUM ANALYZE scheduler, index bloat check |
+| `src/noa/api/v1/health.py` | **MODIFY** | Add pool stats to /health/metrics |
+| `src/noa/api/app.py` | **MODIFY** | Register DB maintenance in lifespan |
+
+**Tests (~5):**
+- Engine creates with correct pool parameters
+- VACUUM ANALYZE executes without error
+- Index bloat check returns valid stats
+- Pool stats endpoint returns connection counts
+- Pool recycle works (connections older than threshold are replaced)
+
+**Test gate:**
+```bash
+pytest tests/unit/test_db_maintenance.py -v
+```
+
+---
+
+### Phase OP5: Operational Runbook (~20 min)
+
+**Goal:** Create a comprehensive operational runbook covering pre-flight checks, failure recovery, capacity planning, and daily operations.
+
+**Spec refs:** §31 (Failure Handling), §10.5 (Backup), §28 (Logging)
+
+**Depends on:** OP1, OP2, OP3, OP4
+**Blocks:** None (final phase)
+
+**Deliverables:**
+1. Pre-flight checklist for initial deployment
+2. Daily operations guide (monitoring, backup verification)
+3. Failure recovery procedures (per §31 scenarios)
+4. Capacity planning guidelines
+5. Troubleshooting guide for common issues
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `docs/RUNBOOK.md` | **CREATE** | Full operational runbook |
+| `scripts/preflight.sh` | **CREATE** | Automated pre-flight checks (env vars, volumes, connectivity) |
+
+**Tests (~3):**
+- Preflight script exits 0 on valid config
+- Preflight script exits 1 on missing required env vars
+- Preflight script validates Docker prerequisites
+
+**Test gate:**
+```bash
+pytest tests/unit/test_preflight.py -v
+```
+
+---
 
 _Nach jeder abgeschlossenen Phase wird hier ein kurzer Bericht ergänzt: was lief gut, was nicht, welche Entscheidungen getroffen wurden, und was für spätere Phasen relevant ist._
 
