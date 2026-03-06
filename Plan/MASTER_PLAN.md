@@ -65,10 +65,10 @@ The plan is organized into **waves** — groups of related phases that deliver a
 | **LP4** | Ollama Client HTTP | **Complete** | 8 | main | ~20 min | ~5 min | Real httpx calls to /api/chat, model manifest check |
 | **LP5** | ProviderRouter as Dispatch Hub | **Complete** | 9 | main | ~30 min | ~8 min | Router creates clients, dispatches complete(), privacy enforcement |
 | — | — **WAVE 10: END-TO-END CHAT PIPELINE** — | — | — | — | — | — | — |
-| **CP1** | Wire invoke_llm to ProviderRouter | Planned | — | — | ~30 min | — | Replace NotImplementedError stub, async, model routing |
-| **CP2** | OrchestratorRunner + Event Types | Planned | — | — | ~45 min | — | Compiles graph, runs state, yields SSE events, updates Run in DB |
-| **CP3** | Chat Endpoint → Real Pipeline | Planned | — | — | ~45 min | — | Create Run + Conversation, invoke graph, SSE streaming |
-| **CP4** | App Startup Wiring | Planned | — | — | ~30 min | — | startup.py: build ProviderRouter, ToolRegistry, Runner in lifespan |
+| **CP1** | Wire invoke_llm to ProviderRouter | **Complete** | 13 | main | ~30 min | ~5 min | LLMResponse wrapper, async agent_node, set_router/get_router |
+| **CP2** | OrchestratorRunner + Event Types | **Complete** | 10 | main | ~45 min | ~5 min | Graph execution, SSE event yielding, RunService persistence |
+| **CP3** | Chat Endpoint → Real Pipeline | **Complete** | 8 | main | ~45 min | ~8 min | SSE StreamingResponse, meta event, thread creation, error handling |
+| **CP4** | App Startup Wiring | **Complete** | 9 | main | ~30 min | ~5 min | wire_llm_pipeline(), ProviderRouter + Runner in lifespan |
 | — | — **WAVE 11: TOOL GATEWAY + TAVILY** — | — | — | — | — | — | — |
 | **TG1** | ToolRequest/ToolResponse + ToolGateway | Planned | — | — | ~30 min | — | Transport-agnostic gateway with governance + telemetry |
 | **TG2** | DirectApiAdapter | Planned | — | — | ~20 min | — | Adapter for direct HTTP tool calls (Tavily, Google) |
@@ -1813,6 +1813,185 @@ pytest tests/unit/test_llm_router.py -v
 
 ---
 
+## Wave 10: End-to-End Chat Pipeline
+
+Connects all existing pieces into a working chat pipeline: LLM invocation through ProviderRouter, orchestrator graph execution with SSE event streaming, real chat endpoint with DB persistence, and app startup wiring. After this wave, a user can send a chat message and receive a real LLM response streamed back via SSE.
+
+---
+
+### Phase CP1: Wire invoke_llm to ProviderRouter (~30 min)
+
+**Goal:** The `invoke_llm()` function in `agent_node` raises `NotImplementedError`. This phase replaces it with an async function that calls `ProviderRouter.complete()`, bridging the orchestrator graph to real LLM backends.
+
+**Spec refs:** SPEC.md §2.2, §14.2, §14.3
+
+**Depends on:** LP5 (Wave 9)
+**Blocks:** CP2, CP3
+
+**Deliverables:**
+1. Module-level `_router: ProviderRouter | None` with `set_router()` / `get_router()` in agent module
+2. Async `invoke_llm(model, messages, privacy_mode, max_tokens)` that calls `ProviderRouter.complete()`
+3. `agent_node` becomes async to support the async `invoke_llm`
+4. Response adapter: ProviderRouter returns `dict` → agent_node expects object with `.content` / `.tool_calls` — create a simple `LLMResponse` dataclass wrapper
+5. Existing tests remain green (they patch `invoke_llm`)
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/noa/orchestrator/nodes/agent.py` | **MODIFY** | Replace stub, add set_router, async invoke_llm, LLMResponse |
+| `tests/unit/test_cp1_invoke_llm.py` | **CREATE** | Tests for wired invoke_llm |
+
+**Tests (~10):**
+- `set_router` / `get_router` stores and retrieves ProviderRouter
+- `invoke_llm` raises RuntimeError when no router configured
+- `invoke_llm` calls `router.complete()` with correct args
+- `invoke_llm` returns LLMResponse with `.content` and `.tool_calls`
+- `invoke_llm` passes `privacy_mode` through to router
+- `invoke_llm` passes `max_tokens` (default 4096) through to router
+- `agent_node` (async) returns tool_calls from LLM response
+- `agent_node` (async) returns response when no tool_calls
+- `agent_node` (async) enforces MAX_TOOL_CALLS cap
+- `agent_node` (async) appends assistant message to conversation
+
+**Test gate:**
+```bash
+pytest tests/unit/test_cp1_invoke_llm.py -v
+```
+
+---
+
+### Phase CP2: OrchestratorRunner + Event Types (~45 min)
+
+**Goal:** No runner exists to execute the graph and produce SSE events. This phase creates `OrchestratorRunner` that compiles the graph, runs it with an input state, emits structured SSE events during execution, and records events via `RunService`.
+
+**Spec refs:** SPEC.md §2.1, §22.1, §22.2, §22.4
+
+**Depends on:** CP1
+**Blocks:** CP3
+
+**Deliverables:**
+1. `OrchestratorRunner` class in `src/noa/orchestrator/runner.py`
+2. `run()` async generator method: takes user message + config, yields SSE event dicts
+3. Events emitted: `message_received`, `classification_done`, `step_started`, `token_stream` (for response), `tool_called`, `tool_result`, `result_ready`, `error`
+4. Each event also appended to Run via RunService
+5. Run status transitions: pending → running → completed/failed
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/noa/orchestrator/runner.py` | **CREATE** | OrchestratorRunner class |
+| `tests/unit/test_cp2_runner.py` | **CREATE** | Runner tests |
+
+**Tests (~12):**
+- Runner initializes with compiled graph
+- `run()` yields `message_received` event first
+- `run()` yields `classification_done` after router node
+- `run()` yields `step_started` before agent node
+- `run()` yields `tool_called` for each tool call
+- `run()` yields `tool_result` for each tool result
+- `run()` yields `result_ready` with final response
+- `run()` yields `error` event on exception
+- All yielded events have correct shape (event_type, payload, timestamp)
+- Run status transitions from pending → running → completed
+- Run status transitions to failed on error
+- Events are appended to RunService
+
+**Test gate:**
+```bash
+pytest tests/unit/test_cp2_runner.py -v
+```
+
+---
+
+### Phase CP3: Chat Endpoint → Real Pipeline (~45 min)
+
+**Goal:** The `/api/v1/chat` endpoint is a stub returning a run_id. This phase wires it to create a real Conversation + Run in the database, invoke `OrchestratorRunner`, and stream SSE events back to the client.
+
+**Spec refs:** SPEC.md §22.4, §25.1
+
+**Depends on:** CP2
+**Blocks:** CP4
+
+**Deliverables:**
+1. Chat endpoint creates Conversation (or reuses existing thread_id)
+2. Chat endpoint creates Run with RunService
+3. Chat endpoint persists user Message
+4. Response is SSE `StreamingResponse` that yields events from OrchestratorRunner
+5. Error handling: LLM failures produce `error` event, Run set to `failed`
+6. Existing SSE endpoint (`/runs/{run_id}/events`) now reads real events from DB
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/noa/api/v1/chat.py` | **MODIFY** | Wire to real pipeline with SSE streaming |
+| `src/noa/api/v1/runs.py` | **MODIFY** | SSE endpoint reads real events from DB |
+| `tests/unit/test_cp3_chat_endpoint.py` | **CREATE** | Chat endpoint integration tests |
+
+**Tests (~10):**
+- POST `/api/v1/chat` returns StreamingResponse (SSE)
+- Response includes `run_id` and `thread_id` in initial event
+- New thread created when `thread_id` is null
+- Existing thread reused when `thread_id` provided
+- User message persisted in DB
+- Run created with correct privacy_mode
+- SSE stream includes `message_received` event
+- SSE stream includes `result_ready` event with response
+- Error in pipeline produces `error` SSE event
+- GET `/runs/{run_id}/events` returns persisted events
+
+**Test gate:**
+```bash
+pytest tests/unit/test_cp3_chat_endpoint.py -v
+```
+
+---
+
+### Phase CP4: App Startup Wiring (~30 min)
+
+**Goal:** The app lifespan only initializes DB engine and health checker. This phase wires ProviderRouter, ToolRegistry, and OrchestratorRunner into the lifespan so they're available for the chat pipeline.
+
+**Spec refs:** SPEC.md §4.1, §14.2
+
+**Depends on:** CP3
+**Blocks:** Wave 11
+
+**Deliverables:**
+1. Build `ProviderRouter.from_settings(settings)` in lifespan
+2. Store router in `app_state` (new `set_provider_router` / `get_provider_router`)
+3. Call `set_router()` on agent module so `invoke_llm` works
+4. Build `ToolRegistry` from available tools, call `set_registry()` on tools module
+5. Store `OrchestratorRunner` in `app_state` for chat endpoint access
+6. Graceful degradation: if no LLM keys configured, log warning but don't crash
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/noa/api/app.py` | **MODIFY** | Wire ProviderRouter, ToolRegistry, Runner in lifespan |
+| `src/noa/api/app_state.py` | **MODIFY** | Add provider_router and runner getters/setters |
+| `tests/unit/test_cp4_startup.py` | **CREATE** | Startup wiring tests |
+
+**Tests (~9):**
+- `app_state` has `set_provider_router` / `get_provider_router`
+- `app_state` has `set_runner` / `get_runner`
+- Lifespan builds ProviderRouter from settings
+- Lifespan calls `set_router()` on agent module
+- Lifespan calls `set_registry()` on tools module
+- Lifespan creates OrchestratorRunner
+- Lifespan stores runner in app_state
+- Missing LLM keys don't crash startup (graceful degradation)
+- Shutdown disposes resources cleanly
+
+**Test gate:**
+```bash
+pytest tests/unit/test_cp4_startup.py -v
+```
+
+---
+
 ## Dependency Graph
 
 ```
@@ -1854,6 +2033,12 @@ Wave 9: LLM Provider Wiring
   CM1,CM2 ──► LP3 (Google AI)
   CM1,CM2 ──► LP4 (Ollama)
   LP1,LP2,LP3,LP4 ──► LP5 (ProviderRouter)
+
+Wave 10: End-to-End Chat Pipeline
+  LP5 ──► CP1 (invoke_llm wiring)
+  CP1 ──► CP2 (OrchestratorRunner)
+  CP2 ──► CP3 (Chat Endpoint)
+  CP3 ──► CP4 (App Startup)
 ```
 
 ---
