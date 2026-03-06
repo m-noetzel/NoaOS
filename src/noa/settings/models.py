@@ -68,6 +68,7 @@ class UserSettings(Base):
     google_client_secret: Mapped[str | None] = mapped_column(String(256))
     notion_token: Mapped[str | None] = mapped_column(String(256))
     tavily_api_key: Mapped[str | None] = mapped_column(String(256))
+    google_refresh_token: Mapped[str | None] = mapped_column(String(512))
     ollama_base_url: Mapped[str | None] = mapped_column(
         String(512), default="http://private-worker:11434",
     )
