@@ -30,6 +30,8 @@ services:
         condition: service_healthy
       private-worker:
         condition: service_healthy
+      external-worker:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8000/health"]
       interval: 10s
@@ -94,6 +96,11 @@ services:
       - private-data:/data  # Dedicated encrypted volume for private data
     tmpfs:
       - /tmp:size=256M
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 32G
     restart: unless-stopped
 
   external-worker:
@@ -105,6 +112,12 @@ services:
     labels:
       noa.egress.allowlist: "api.anthropic.com,api.openai.com,*.googleapis.com,api.notion.com,api.tavily.com,registry.npmjs.org,pypi.org,files.pythonhosted.org"
       noa.dns.logging: "true"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     # Container hardening (§8.2)
     read_only: true
     cap_drop:
