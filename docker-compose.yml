@@ -28,6 +28,27 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      private-worker:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    # Container hardening (§8.1)
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=256M
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2g
     restart: unless-stopped
 
   postgres:
@@ -45,6 +66,11 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 2g
     restart: unless-stopped
 
   private-worker:
@@ -53,6 +79,11 @@ services:
       dockerfile: docker/private-worker/Dockerfile
     networks:
       - noa-internal
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     # Container hardening (§8.1)
     read_only: true
     cap_drop:
@@ -84,6 +115,11 @@ services:
       - coding-workspace:/workspace  # Only writable volume
     tmpfs:
       - /tmp:size=256M
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 4g
     restart: unless-stopped
 
 networks:
