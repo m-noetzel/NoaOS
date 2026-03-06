@@ -23,6 +23,7 @@ from noa.api.v1.runs import router as runs_router
 from noa.api.v1.settings import router as settings_router
 from noa.api.v1.tasks import router as tasks_router
 from noa.api.v1.threads import router as threads_router
+from noa.api.v1.tools import router as tools_router
 from noa.api.v1.usage import router as usage_router
 
 logger = logging.getLogger(__name__)
@@ -180,5 +181,6 @@ def create_app() -> FastAPI:
     app.include_router(tasks_router)
     app.include_router(artifacts_router)
     app.include_router(audit_router)
+    app.include_router(tools_router)
 
     return app

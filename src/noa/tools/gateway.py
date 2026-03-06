@@ -7,6 +7,7 @@ Spec refs: SPEC.md §19.1 (idempotency), §19.2 (dry-run previews),
 from __future__ import annotations
 
 import time
+import uuid as _uuid
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
@@ -20,6 +21,7 @@ class ToolRequest:
     args: dict[str, Any]
     idempotency_key: str | None = None
     privacy_mode: str = "external"
+    user_id: _uuid.UUID | None = None
 
 
 @dataclass
@@ -77,6 +79,7 @@ class ToolGateway:
         self._idempotency_cache: dict[str, ToolResponse] = {}
         self._rate_limits: dict[str, _RateLimit] = {}
         self.telemetry: list[dict[str, Any]] = []
+        self.capability_checker: Any | None = None
 
     # -- registration -------------------------------------------------------
 
@@ -111,6 +114,21 @@ class ToolGateway:
             resp = ToolResponse(error=f"Tool not registered: {tool}")
             self._record_telemetry(request, resp, "error")
             return resp
+
+        # 1b. Capability check (MR5)
+        if (
+            self.capability_checker is not None
+            and request.user_id is not None
+        ):
+            has_cap = await self.capability_checker.has_capability(
+                request.user_id, tool,
+            )
+            if not has_cap:
+                resp = ToolResponse(
+                    error=f"Capability denied for tool: {tool}",
+                )
+                self._record_telemetry(request, resp, "capability_denied")
+                return resp
 
         # 2. Dry-run preview (§19.2)
         if dry_run:
