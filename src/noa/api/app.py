@@ -16,9 +16,11 @@ from noa.api.v1.approvals import router as approvals_router
 from noa.api.v1.artifacts import router as artifacts_router
 from noa.api.v1.audit import router as audit_router
 from noa.api.v1.auth import router as auth_router
+from noa.api.v1.cost import router as cost_router
 from noa.api.v1.chat import router as chat_router
 from noa.api.v1.health import router as health_router
 from noa.api.v1.memory import router as memory_router
+from noa.api.v1.queue import router as queue_router
 from noa.api.v1.runs import router as runs_router
 from noa.api.v1.settings import router as settings_router
 from noa.api.v1.tasks import router as tasks_router
@@ -75,7 +77,7 @@ def wire_llm_pipeline(settings: Any) -> None:
             from decimal import Decimal
 
             async with sf() as asession:
-                svc = AuditService.__new__(AuditService)
+                svc = AuditService()
                 await svc.create_entry_async(
                     session=asession,
                     user_id=request.user_id,  # type: ignore[arg-type]
@@ -247,7 +249,7 @@ def create_app() -> FastAPI:
     # §29.4: LAN/VPN only — restrict CORS to known origins
     allowed_origins = os.environ.get(
         "CORS_ALLOWED_ORIGINS",
-        "http://localhost:5173,http://localhost:4173,http://localhost:8000",
+        "http://localhost:5173,http://localhost:5174,http://localhost:4173,http://localhost:8000",
     ).split(",")
     app.add_middleware(
         CORSMiddleware,
@@ -278,5 +280,7 @@ def create_app() -> FastAPI:
     app.include_router(artifacts_router)
     app.include_router(audit_router)
     app.include_router(tools_router)
+    app.include_router(queue_router)
+    app.include_router(cost_router)
 
     return app

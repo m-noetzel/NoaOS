@@ -9,7 +9,6 @@ execute_tool for backward-compat (tests patch this).
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 from noa.orchestrator.state import AgentState
@@ -65,8 +64,8 @@ def execute_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:  # noq
     raise NotImplementedError(msg)
 
 
-def tool_node(state: AgentState) -> dict[str, Any]:
-    """Dispatch tool calls through the allowlist filter. Pure function.
+async def tool_node(state: AgentState) -> dict[str, Any]:
+    """Dispatch tool calls through the allowlist filter.
 
     Tool calls may use either format:
     - Registry format: {"tool": "calendar", "function": "list_events", "args": {...}}
@@ -91,9 +90,9 @@ def tool_node(state: AgentState) -> dict[str, Any]:
             args = call.get("args", {})
 
             if _gateway is not None:
-                result = _dispatch_gateway(tool_name, function, args)
+                result = await _dispatch_gateway(tool_name, function, args)
             else:
-                result = _dispatch_registry(tool_name, function, args)
+                result = await _dispatch_registry(tool_name, function, args)
             results.append({"name": f"{tool_name}.{function}", **result})
         else:
             # Legacy format: {"name": "calendar_list", "arguments": {...}}
@@ -102,7 +101,7 @@ def tool_node(state: AgentState) -> dict[str, Any]:
 
             if _registry is not None:
                 # Try to dispatch through registry with legacy name
-                result = _dispatch_registry_legacy(name, arguments)
+                result = await _dispatch_registry_legacy(name, arguments)
                 results.append({"name": name, **result})
             elif name not in TOOL_ALLOWLIST:
                 results.append(
@@ -119,37 +118,18 @@ def tool_node(state: AgentState) -> dict[str, Any]:
     return {"tool_results": results, "tool_rounds": current_rounds + 1}
 
 
-def _dispatch_registry(
+async def _dispatch_registry(
     tool_name: str, function: str, args: dict[str, Any]
 ) -> dict[str, Any]:
     """Dispatch through the ToolRegistry."""
     assert _registry is not None  # noqa: S101
     try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = None
-
-    try:
-        if loop is not None and loop.is_running():
-            # We're inside an async context — create a task
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                result: dict[str, Any] = loop.run_in_executor(  # type: ignore[assignment]
-                    pool,
-                    lambda: asyncio.run(
-                        _registry.dispatch(name=tool_name, function=function, args=args)
-                    ),
-                )
-                return result
-        else:
-            return asyncio.run(
-                _registry.dispatch(name=tool_name, function=function, args=args)
-            )
+        return await _registry.dispatch(name=tool_name, function=function, args=args)
     except KeyError:
         return {"error": f"Tool not allowed: {tool_name}. Not in registry."}
 
 
-def _dispatch_registry_legacy(
+async def _dispatch_registry_legacy(
     name: str, arguments: dict[str, Any]
 ) -> dict[str, Any]:
     """Dispatch a legacy flat tool name through the registry.
@@ -167,40 +147,20 @@ def _dispatch_registry_legacy(
             continue
         # Check if the flat name matches any function in this tool's risk_tiers
         if name in tool.risk_tiers:
-            return _dispatch_registry(tool_name, name, arguments)
+            return await _dispatch_registry(tool_name, name, arguments)
 
     return {"error": f"Tool not allowed: {name}. Not found in registry."}
 
 
-def _dispatch_gateway(
+async def _dispatch_gateway(
     tool_name: str, function: str, args: dict[str, Any]
 ) -> dict[str, Any]:
     """Dispatch through the ToolGateway."""
     assert _gateway is not None  # noqa: S101
     req = ToolRequest(tool=tool_name, function=function, args=args)
     try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = None
-
-    try:
-        if loop is not None and loop.is_running():
-            import concurrent.futures
-
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                future = loop.run_in_executor(
-                    pool,
-                    lambda: asyncio.run(
-                        _gateway.dispatch(req)
-                    ),
-                )
-                # future is an awaitable; we can't await in
-                # sync context so use the same thread-pool
-                # pattern as _dispatch_registry.
-                return _gateway_response_to_dict(future)
-        else:
-            resp = asyncio.run(_gateway.dispatch(req))
-            return _gateway_response_to_dict(resp)
+        resp = await _gateway.dispatch(req)
+        return _gateway_response_to_dict(resp)
     except Exception as exc:  # noqa: BLE001
         return {"error": str(exc)}
 

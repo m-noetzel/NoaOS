@@ -185,7 +185,8 @@ class TestToolCallsGoesToTools:
 class TestToolRoundsIncrement:
     """tool_node must increment tool_rounds in its return dict."""
 
-    def test_tool_rounds_incremented(self):
+    @pytest.mark.asyncio
+    async def test_tool_rounds_incremented(self):
         """tool_node must return tool_rounds incremented by 1."""
         from noa.orchestrator.nodes.tools import tool_node
 
@@ -198,14 +199,15 @@ class TestToolRoundsIncrement:
             "noa.orchestrator.nodes.tools.execute_tool",
             return_value={"result": "No events"},
         ):
-            result = tool_node(state)
+            result = await tool_node(state)
 
         assert "tool_rounds" in result, "tool_node must return tool_rounds"
         assert result["tool_rounds"] == 1, (
             f"Expected tool_rounds=1 after first pass, got {result['tool_rounds']}"
         )
 
-    def test_tool_rounds_incremented_from_existing(self):
+    @pytest.mark.asyncio
+    async def test_tool_rounds_incremented_from_existing(self):
         """tool_node must increment from the current tool_rounds value."""
         from noa.orchestrator.nodes.tools import tool_node
 
@@ -218,7 +220,7 @@ class TestToolRoundsIncrement:
             "noa.orchestrator.nodes.tools.execute_tool",
             return_value={"result": "Events found"},
         ):
-            result = tool_node(state)
+            result = await tool_node(state)
 
         assert result["tool_rounds"] == 3
 
@@ -315,7 +317,8 @@ class TestBackwardCompat:
 class TestToolUsingResponse:
     """When tools are used, tool_results must be populated correctly."""
 
-    def test_tool_results_populated(self):
+    @pytest.mark.asyncio
+    async def test_tool_results_populated(self):
         """tool_node must return populated tool_results for valid tool calls."""
         from noa.orchestrator.nodes.tools import tool_node
 
@@ -327,15 +330,16 @@ class TestToolUsingResponse:
             "noa.orchestrator.nodes.tools.execute_tool",
             return_value={"result": "Meeting at 3pm"},
         ):
-            result = tool_node(state)
+            result = await tool_node(state)
 
         assert len(result["tool_results"]) == 1
         assert result["tool_results"][0]["name"] == "calendar_list"
 
-    def test_empty_tool_calls_returns_empty_results_and_rounds(self):
+    @pytest.mark.asyncio
+    async def test_empty_tool_calls_returns_empty_results_and_rounds(self):
         """Empty tool_calls should return empty results and still set tool_rounds."""
         from noa.orchestrator.nodes.tools import tool_node
 
         state = _make_agent_state(tool_calls=[], tool_rounds=0)
-        result = tool_node(state)
+        result = await tool_node(state)
         assert result["tool_results"] == []

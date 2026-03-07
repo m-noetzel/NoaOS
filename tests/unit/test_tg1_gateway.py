@@ -10,6 +10,8 @@ import asyncio
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 from noa.tools.gateway import (
     ToolGateway,
     ToolRequest,
@@ -256,7 +258,8 @@ class TestToolNodeGatewayIntegration:
             "total_cost": 0.0,
         }
 
-    def test_tool_node_uses_gateway_when_set(self) -> None:
+    @pytest.mark.asyncio
+    async def test_tool_node_uses_gateway_when_set(self) -> None:
         from noa.orchestrator.nodes import tools as tm
 
         adapter = FakeAdapter(result={"search_results": []})
@@ -274,7 +277,7 @@ class TestToolNodeGatewayIntegration:
                 "function": "web_search",
                 "args": {"query": "test"},
             }]
-            result = tm.tool_node(self._make_state(calls))
+            result = await tm.tool_node(self._make_state(calls))
             assert len(result["tool_results"]) == 1
             tr = result["tool_results"][0]
             assert tr.get("error") is None
@@ -282,7 +285,8 @@ class TestToolNodeGatewayIntegration:
             tm._gateway = old_gw
             tm._registry = old_reg
 
-    def test_tool_node_falls_back_to_registry(self) -> None:
+    @pytest.mark.asyncio
+    async def test_tool_node_falls_back_to_registry(self) -> None:
         from noa.orchestrator.nodes import tools as tm
 
         mock_reg = MagicMock(spec=tm.ToolRegistry)
@@ -305,7 +309,7 @@ class TestToolNodeGatewayIntegration:
                 "function": "list_events",
                 "args": {},
             }]
-            result = tm.tool_node(self._make_state(calls))
+            result = await tm.tool_node(self._make_state(calls))
             assert len(result["tool_results"]) == 1
         finally:
             tm._gateway = old_gw

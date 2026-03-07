@@ -30,9 +30,12 @@ async def require_auth(
     Returns the decoded JWT payload on success, raises 401 otherwise.
     """
     token = credentials.credentials
-    secret = settings.secret_key or ""
+    if not settings.secret_key:
+        raise RuntimeError(
+            "SECRET_KEY is not set — refusing to validate tokens with an empty key"
+        )
     try:
-        payload: dict[str, Any] = decode_token(token, secret_key=secret)
+        payload: dict[str, Any] = decode_token(token, secret_key=settings.secret_key)
     except TokenError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

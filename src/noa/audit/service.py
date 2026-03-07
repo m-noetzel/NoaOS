@@ -20,7 +20,7 @@ from noa.db.models.audit import AuditLog
 class AuditService:
     """Business logic for audit log operations."""
 
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session | None = None) -> None:
         self._session = session
 
     def create_entry(

@@ -2,7 +2,7 @@
 
 ## Overview
 
-This plan implements Noa Phase 1 (single-machine deployment) as specified in SPEC.md v5.0. The plan follows the build order defined in SPEC.md §36 and covers Backend Foundation + Web Client (Build Phases 1-2). Native iOS and dual-machine deployment (Build Phases 3-4) are deferred to future planning.
+This plan implements Noa Phase 1–3 (single-machine deployment + native iOS client) as specified in SPEC.md v5.0. The plan follows the build order defined in SPEC.md §36 and covers Backend Foundation (Build Phase 1), Web Client (Build Phase 2), and Native iOS Client (Build Phase 3). Dual-machine deployment (Build Phase 4) is deferred to future planning.
 
 The plan is organized into **waves** — groups of related phases that deliver a cohesive capability. Each wave has a human gate before execution begins.
 
@@ -94,6 +94,33 @@ The plan is organized into **waves** — groups of related phases that deliver a
 | **OP3** | Health Checks + Compose Fixes | **Complete** | 15 | main | ~20 min | ~3 min | External-worker healthcheck, private-worker 4CPU/32G limits |
 | **OP4** | Postgres Maintenance | **Complete** | 13 | main | ~20 min | ~3 min | Pool tuning (10+20), VACUUM scheduler, pool stats endpoint |
 | **OP5** | Operational Runbook | **Complete** | 11 | main | ~20 min | ~4 min | Pre-flight checks, runbook with 8 sections, troubleshooting |
+| — | — **WAVE 14B: QUALITY & CLEANUP** — | — | — | — | — | — | — |
+| **QC1** | Critical Runtime Fixes | **Complete** | 13 | main | ~30 min | ~15 min | C1: async tool dispatch, C4: migration 005, C5: JWT no empty fallback, A3: full state init, H3: proper AuditService ctor |
+| **QC2** | Security Hardening | Planned | — | — | ~45 min | — | C3, C6, H6, H7, H10, M2, M4 |
+| **QC3** | Error Handling & Observability | Planned | — | — | ~30 min | — | H4, H5, M8, M11, M13 |
+| **QC4** | Domain Isolation & Worker Wiring | Planned | — | — | ~45 min | — | C2, H1, H9 |
+| **QC5** | Database & Data Integrity | Planned | — | — | ~30 min | — | H2, M3, M6, M9, M12 |
+| **QC6** | Frontend Critical & High Fixes | Planned | — | — | ~30 min | — | UI-C1–C3, UI-H1–H5 |
+| **QC7** | Frontend Polish & UX | Planned | — | — | ~45 min | — | UI-M1–M10 |
+| **QC8** | Architecture & Robustness | Planned | — | — | ~60 min | — | A1, A2, A4, A5, H8, M1, M5, M7, M10, M14 |
+| — | — **WAVE 15A: BACKEND EXTENSIONS (iOS)** — | — | — | — | — | — | — |
+| **iOS1** | APNs Push Notification Backend | Planned | — | — | ~45 min | — | Device token registration, HTTP/2 APNs service, approval batching |
+| **iOS2** | Voice Upload Endpoint | Planned | — | — | ~30 min | — | Multipart audio upload, Whisper transcription, chat pipe |
+| — | — **WAVE 15B: iOS FOUNDATION** — | — | — | — | — | — | — |
+| **iOS3** | Xcode Project Scaffold & Networking Layer | Planned | — | — | ~60 min | — | SwiftUI app, APIClient, SSEClient, shared models |
+| **iOS4** | Keychain Storage & Auth Flow | Planned | — | — | ~45 min | — | KeychainService, AuthService, LoginView, auto-refresh |
+| **iOS5** | Chat UI with SSE Streaming | Planned | — | — | ~60 min | — | ChatView, token streaming, threads, NavigationSplitView |
+| — | — **WAVE 15C: iOS FEATURES** — | — | — | — | — | — | — |
+| **iOS6** | Push Notifications (APNs Client) | Planned | — | — | ~45 min | — | UNUserNotificationCenter, deep linking, inline actions |
+| **iOS7** | Biometric Step-Up Auth & Approval Flow | Planned | — | — | ~45 min | — | Face ID/Touch ID, approval UI, batch approve/deny |
+| **iOS8** | Voice Recording & Playback | Planned | — | — | ~45 min | — | AVAudioRecorder, upload to /voice/transcribe, auto-send |
+| **iOS9** | Offline Request Queue with Idempotency | Planned | — | — | ~45 min | — | File-based FIFO queue, NWPathMonitor, auto-drain |
+| **iOS10** | VPN Auto-Connect & Certificate Pinning | Planned | — | — | ~30 min | — | SPKI pinning, NEVPNManager, Tailscale/WireGuard URL scheme |
+| **iOS11** | Integration Tests & Polish | Planned | — | — | ~45 min | — | E2E tests, accessibility, dark mode, error states |
+| — | — **WAVE 16: PLAYWRIGHT E2E TESTING** — | — | — | — | — | — | — |
+| **PW1** | Playwright Setup & Auth Tests | Planned | — | — | ~30 min | — | Install, config, auth fixture, 6 auth/route-guard tests |
+| **PW2** | Chat E2E with SSE Simulation | Planned | — | — | ~30 min | — | SSE mock helper, 6 chat streaming tests |
+| **PW3** | Settings & Navigation Tests | Planned | — | — | ~20 min | — | 3 settings tests, 3 navigation tests, data-testid attrs |
 
 ---
 
@@ -3045,6 +3072,880 @@ _Nach jeder abgeschlossenen Phase wird hier ein kurzer Bericht ergänzt: was lie
 **Abweichungen vom Plan:**
 - {Was anders lief als geplant, und warum}
 ```
+
+---
+
+## Wave 14B: Quality & Cleanup
+
+Comprehensive quality wave addressing all 49 findings from the full codebase audit (FINDINGS.md, 2026-03-07). Organized in priority order: fix crashes first, then security, then correctness, then polish. All finding IDs (C1, H2, M3, UI-C1, A1, etc.) reference FINDINGS.md sections.
+
+**Dependency graph:**
+```
+QC1 (Runtime Fixes) ─┬─→ QC4 (Domain Isolation)
+                      └─→ QC8 (Architecture)
+QC2 (Security) ──────── independent
+QC3 (Error Handling) ─→ QC8 (Architecture)
+QC5 (Database) ──────── independent
+QC6 (Frontend Critical) → QC7 (Frontend Polish)
+QC4, QC8 are the heaviest phases; all others can run in parallel where staffing allows.
+```
+
+---
+
+### Phase QC1: Critical Runtime Fixes (~30 min)
+
+**Goal:** Fix all crash-causing bugs so the core pipeline can execute without runtime errors.
+
+**Findings:** C1, C4, C5, A3, H3
+
+**Deliverables:**
+1. **C1** — Fix async/sync mismatch in tool dispatch: make `tool_node` async and `await` the executor result, or switch to synchronous dispatch. Ensure `_dispatch_registry()` and `_dispatch_gateway()` return `dict`, not `Future`.
+2. **C4** — Create migration `005_schema_drift_fix.py` adding `Approval.domain` column and `UsageStats.task_id` column.
+3. **C5** — Remove `or ""` fallback from JWT secret in `middleware.py:33`. Raise `RuntimeError` at startup if `secret_key` is unset.
+4. **A3** — Initialize all `AgentState` fields (`model_config`, `tool_rounds`) in `OrchestratorRunner.initial_state`.
+5. **H3** — Replace `AuditService.__new__(AuditService)` with proper `AuditService()` instantiation in `app.py:80`.
+
+**Files:**
+
+| File | Action | Findings |
+|------|--------|----------|
+| `src/noa/orchestrator/nodes/tools.py` | **MODIFY** | C1: fix async dispatch, return dict not Future |
+| `alembic/versions/005_schema_drift_fix.py` | **CREATE** | C4: add missing `domain`, `task_id` columns |
+| `src/noa/auth/middleware.py` | **MODIFY** | C5: remove empty secret fallback, fail-fast |
+| `src/noa/orchestrator/runner.py` | **MODIFY** | A3: initialize all AgentState fields |
+| `src/noa/api/app.py` | **MODIFY** | H3: proper AuditService instantiation |
+
+---
+
+### Phase QC2: Security Hardening (~45 min)
+
+**Goal:** Close all identified security vulnerabilities before any user-facing deployment.
+
+**Findings:** C3, C6, H6, H7, H10, M2, M4
+
+**Deliverables:**
+1. **C3** — Add `SELECT ... FOR UPDATE` (pessimistic lock) when reading the latest audit entry before inserting a new one, in both sync and async `create_entry()`.
+2. **C6** — Move access/refresh tokens from `localStorage` to httpOnly, Secure, SameSite=Strict cookies. API sets cookies on login response; frontend sends credentials via `fetch(..., {credentials: "include"})`.
+3. **H6** — Add email address validation in `gmail.py:send_email()`: parse format, reject multi-recipient injection, reject empty/malformed addresses.
+4. **H7** — Change `TOOL_CAPABILITIES` default from allow to deny. Tools not explicitly registered are blocked.
+5. **H10** — Replace regex-based HTML sanitization in `notion.py` with `nh3` (or `bleach`). Strip all dangerous attributes and tags.
+6. **M2** — Add CSRF token generation and validation for state-changing requests. Tighten CORS from `*` to configured origins.
+7. **M4** — Add Content-Security-Policy headers to API responses (or Nginx config for production).
+
+**Files:**
+
+| File | Action | Findings |
+|------|--------|----------|
+| `src/noa/audit/service.py` | **MODIFY** | C3: pessimistic locking on hash chain |
+| `web/src/auth/tokens.ts` | **MODIFY** | C6: remove localStorage, use cookies |
+| `web/src/api/client.ts` | **MODIFY** | C6: add `credentials: "include"` |
+| `src/noa/auth/middleware.py` | **MODIFY** | C6: set httpOnly cookies on login |
+| `src/noa/tools/gmail.py` | **MODIFY** | H6: validate email recipients |
+| `src/noa/tools/capabilities.py` | **MODIFY** | H7: default deny |
+| `src/noa/tools/notion.py` | **MODIFY** | H10: use nh3 for HTML sanitization |
+| `src/noa/api/app.py` | **MODIFY** | M2: CSRF + CORS tightening, M4: CSP headers |
+| `pyproject.toml` | **MODIFY** | Add nh3 dependency |
+
+---
+
+### Phase QC3: Error Handling & Observability (~30 min)
+
+**Goal:** Replace all silent error swallowing with specific exception handling, structured logging, and proper error responses.
+
+**Findings:** H4, H5, M8, M11, M13
+
+**Deliverables:**
+1. **H4** — Remove `commit()` from `SettingsRepository.upsert()`. Let service/endpoint layer control transaction boundaries.
+2. **H5** — Replace bare `except Exception: pass` blocks across the codebase (`app.py`, `chat.py`, `cost.py`, `health.py`, etc. — at least 15 locations) with specific exception types, structured logging with `trace_id`, and appropriate error responses.
+3. **M8** — Fix cost endpoint to return HTTP 500 on database errors instead of HTTP 200 with empty data.
+4. **M11** — Create a typed `AuthUser` dataclass. Parse user identity once in `require_auth`, pass structured object to all endpoints. Eliminate the three different `user.get("user_id", user.get("sub", ""))` patterns.
+5. **M13** — Add `check=True` to backup subprocess call. Filter environment variables before passing to subprocess (whitelist only needed vars).
+
+**Files:**
+
+| File | Action | Findings |
+|------|--------|----------|
+| `src/noa/settings/repository.py` | **MODIFY** | H4: remove commit() |
+| `src/noa/api/app.py` | **MODIFY** | H5: replace bare excepts |
+| `src/noa/api/v1/chat.py` | **MODIFY** | H5, M11: specific excepts + AuthUser |
+| `src/noa/api/v1/cost.py` | **MODIFY** | H5, M8, M11: excepts + 500 on error + AuthUser |
+| `src/noa/api/v1/settings.py` | **MODIFY** | H5, M11: specific excepts + AuthUser |
+| `src/noa/maintenance/backup.py` | **MODIFY** | M13: check=True + env whitelist |
+| `src/noa/auth/middleware.py` | **MODIFY** | M11: add AuthUser dataclass + parse once |
+
+---
+
+### Phase QC4: Domain Isolation & Worker Wiring (~45 min)
+
+**Goal:** Enforce dual-domain separation per SPEC.md and make workers functional with real endpoints.
+
+**Findings:** C2, H1, H9
+
+**Deliverables:**
+1. **C2** — Move `OllamaClient` from `noa.private_worker.ollama_client` to a shared `noa.llm.providers` module. Move `MAX_N_RESULTS` to `noa.constants`. Remove all cross-domain imports between `external_worker` and `private_worker`.
+2. **H1** — Wire real endpoints into both workers:
+   - External worker: `POST /v1/complete` endpoint using `ProviderRouter`
+   - Private worker: `POST /rpc` endpoint dispatching to memory/DLP handlers
+3. **H9** — Add synthetic `"id": uuid.uuid4().hex` to Google AI tool call parser so downstream code can match results.
+
+**Files:**
+
+| File | Action | Findings |
+|------|--------|----------|
+| `src/noa/llm/providers/__init__.py` | **CREATE** | C2: shared provider module |
+| `src/noa/constants.py` | **CREATE** | C2: shared constants (MAX_N_RESULTS) |
+| `src/noa/external_worker/llm/router.py` | **MODIFY** | C2: import from shared module |
+| `src/noa/tools/memory.py` | **MODIFY** | C2: import from constants |
+| `src/noa/external_worker/app.py` | **MODIFY** | H1: add POST /v1/complete endpoint |
+| `src/noa/private_worker/app.py` | **MODIFY** | H1: add POST /rpc endpoint |
+| `src/noa/external_worker/llm/google_ai.py` | **MODIFY** | H9: add synthetic tool call id |
+
+---
+
+### Phase QC5: Database & Data Integrity (~30 min)
+
+**Goal:** Add performance indexes, fix data integrity issues, and clean up async/sync inconsistencies in the data layer.
+
+**Findings:** H2, M3, M6, M9, M12
+
+**Deliverables:**
+1. **H2** — Create migration `006_performance_indexes.py` adding indexes on: `audit_log(timestamp)`, `audit_log(user_id)`, `audit_log(trace_id)`, `messages(thread_id)`, `run_events(run_id)`, `usage_stats(user_id, timestamp)`, `task_queue(status, queued_at)`.
+2. **M3** — Fix retention scheduler: make `purge_expired()` async or run via a background thread with a sync session. Remove the `_PurgeProxy` workaround that always skips.
+3. **M6** — Wire `expire_stale()` into the retention scheduler or a periodic background task so pending approvals are cleaned up.
+4. **M9** — Fix `ContractViolationTracker.violation_count` to filter violations within the 24-hour window instead of counting all-time total.
+5. **M12** — Standardize service layer on async. Convert `RunService` to accept `AsyncSession`. Remove sync methods from `AuditService` (keep async only).
+
+**Files:**
+
+| File | Action | Findings |
+|------|--------|----------|
+| `alembic/versions/006_performance_indexes.py` | **CREATE** | H2: add 7 indexes |
+| `src/noa/api/app.py` | **MODIFY** | M3: fix purge scheduler |
+| `src/noa/audit/service.py` | **MODIFY** | M3, M12: async purge, drop sync methods |
+| `src/noa/policy/approval.py` | **MODIFY** | M6: wire expire_stale into scheduler |
+| `src/noa/private_worker/rpc.py` | **MODIFY** | M9: fix 24h violation window |
+| `src/noa/orchestrator/runner.py` | **MODIFY** | M12: async RunService |
+
+---
+
+### Phase QC6: Frontend Critical & High Fixes (~30 min)
+
+**Goal:** Fix all broken UI behaviors that prevent core features from working correctly.
+
+**Findings:** UI-C1, UI-C2, UI-C3, UI-H1, UI-H2, UI-H3, UI-H4, UI-H5
+
+**Deliverables:**
+1. **UI-C1** — Change `sse.ts` BASE_URL default from `"http://localhost:8000"` to `""` to match `client.ts` (fixes CORS in dev).
+2. **UI-C2** — Add `"meta"` case in `handleSSEEvent` that calls `setCurrentRunId(event.data.run_id)`.
+3. **UI-C3** — Import `useQueryClient` and call `queryClient.clear()` on logout in `AuthContext.tsx`.
+4. **UI-H1** — Fix provider dropdown: change `"google"` to `"google_ai"` and add `"google_ai"` to the `Provider` type.
+5. **UI-H2** — Filter model dropdown based on selected provider. Group models by provider.
+6. **UI-H3** — Add `min="0"` and `step="0.01"` to budget inputs. Validate daily <= monthly before save.
+7. **UI-H4** — Add React error boundary at `ProtectedRoute` level with "Something went wrong" message and retry button.
+8. **UI-H5** — Add `AlertDialog` confirmation before memory fact deletion.
+
+**Files:**
+
+| File | Action | Findings |
+|------|--------|----------|
+| `web/src/api/sse.ts` | **MODIFY** | UI-C1: fix BASE_URL default |
+| `web/src/pages/Chat.tsx` | **MODIFY** | UI-C2: handle meta event, set currentRunId |
+| `web/src/auth/AuthContext.tsx` | **MODIFY** | UI-C3: clear React Query cache on logout |
+| `web/src/pages/Settings.tsx` | **MODIFY** | UI-H1, UI-H2, UI-H3: provider/model/budget fixes |
+| `web/src/api/types.ts` | **MODIFY** | UI-H1: add `"google_ai"` to Provider type |
+| `web/src/App.tsx` | **MODIFY** | UI-H4: wrap routes in ErrorBoundary |
+| `web/src/components/ErrorBoundary.tsx` | **CREATE** | UI-H4: error boundary component |
+| `web/src/pages/Memory.tsx` | **MODIFY** | UI-H5: delete confirmation AlertDialog |
+
+---
+
+### Phase QC7: Frontend Polish & UX (~45 min)
+
+**Goal:** Improve frontend usability, performance, and completeness.
+
+**Findings:** UI-M1, UI-M2, UI-M3, UI-M4, UI-M5, UI-M6, UI-M7, UI-M8, UI-M9, UI-M10
+
+**Deliverables:**
+1. **UI-M1** — Delete `web/src/pages/Index.tsx` (dead code, never routed to).
+2. **UI-M2** — Add cursor-based or offset pagination to Runs, Artifacts, and Cost pages using backend `limit`/`offset` params.
+3. **UI-M3** — Add runtime validation of SSE event types before processing. Log unknown types instead of unsafe `as` cast.
+4. **UI-M4** — On `result_ready`, immediately invalidate messages query (or append assistant message to local state) to eliminate the disappearing-text flash.
+5. **UI-M5** — Auto-generate thread title from first message content (truncated to ~50 chars).
+6. **UI-M6** — Add Tools page: fetch from `/api/v1/tools`, show name, description, risk tier, enabled status. Add sidebar link.
+7. **UI-M7** — Add loading skeletons and "No data yet" empty states to Cost charts.
+8. **UI-M8** — Use settings query data directly in Chat instead of copying to local state on mount, or invalidate cache on navigation.
+9. **UI-M9** — Fetch pending approval/queue counts and show badges on sidebar items.
+10. **UI-M10** — Add `React.lazy()` + `Suspense` for route-level code splitting. Lazy-load Cost (recharts) and other heavy pages.
+
+**Files:**
+
+| File | Action | Findings |
+|------|--------|----------|
+| `web/src/pages/Index.tsx` | **DELETE** | UI-M1: dead code |
+| `web/src/pages/Runs.tsx` | **MODIFY** | UI-M2: add pagination |
+| `web/src/pages/Artifacts.tsx` | **MODIFY** | UI-M2: add pagination |
+| `web/src/pages/Cost.tsx` | **MODIFY** | UI-M2, UI-M7: pagination + empty states |
+| `web/src/api/sse.ts` | **MODIFY** | UI-M3: validate event types |
+| `web/src/pages/Chat.tsx` | **MODIFY** | UI-M4, UI-M5, UI-M8: streaming + thread names + settings |
+| `web/src/pages/Tools.tsx` | **CREATE** | UI-M6: tools management page |
+| `web/src/components/layout/AppSidebar.tsx` | **MODIFY** | UI-M6, UI-M9: tools link + notification badges |
+| `web/src/App.tsx` | **MODIFY** | UI-M6, UI-M10: tools route + lazy loading |
+
+---
+
+### Phase QC8: Architecture & Robustness (~60 min)
+
+**Goal:** Address remaining architectural issues and medium-priority items for long-term code health.
+
+**Findings:** A1, A2, A4, A5, H8, M1, M5, M7, M10, M14
+
+**Deliverables:**
+1. **A1** — Replace module-level globals (`app_state.py`, `nodes/agent.py`, `nodes/tools.py`) with FastAPI `app.state` and dependency injection via `Depends()`.
+2. **A2** — Refactor `ProviderRouter.from_settings()`: inject pre-built clients via `dict[str, LLMClient]` instead of creating them internally.
+3. **A4** — Implement `Checkpointer` backed by Postgres (`run_checkpoints` table) per SPEC.md S10.1. Persist and restore orchestrator state on crash.
+4. **A5** — Create a `@transactional` async context manager for unit-of-work pattern. Apply to service methods that need atomic operations.
+5. **H8** — Replace in-memory rate limiting with database-backed rate limiting keyed by `(user_id, action)`. Survives restarts and multi-process deployment.
+6. **M1** — Wire idempotency key extraction into endpoints. Check for duplicate requests before processing.
+7. **M5** — Send `Last-Event-ID` header on SSE reconnection. Add backend event replay API for missed events.
+8. **M7** — Enforce step-up auth: check `requires_step_up_auth()` result and require re-authentication for high-risk actions.
+9. **M10** — Persist Google refresh tokens to the database instead of in-memory storage.
+10. **M14** — Add `AbortController` with configurable timeout to all `fetch()` calls in the frontend API client.
+
+**Files:**
+
+| File | Action | Findings |
+|------|--------|----------|
+| `src/noa/api/app.py` | **MODIFY** | A1: use app.state instead of globals |
+| `src/noa/api/dependencies.py` | **CREATE** | A1: DI providers via Depends() |
+| `src/noa/orchestrator/nodes/agent.py` | **MODIFY** | A1: remove module-level globals |
+| `src/noa/orchestrator/nodes/tools.py` | **MODIFY** | A1: remove module-level globals |
+| `src/noa/external_worker/llm/router.py` | **MODIFY** | A2: accept injected clients |
+| `src/noa/orchestrator/checkpointer.py` | **MODIFY** | A4: implement Postgres checkpointer |
+| `alembic/versions/007_run_checkpoints.py` | **CREATE** | A4: run_checkpoints table |
+| `src/noa/db/transaction.py` | **CREATE** | A5: @transactional context manager |
+| `src/noa/auth/service.py` | **MODIFY** | H8: DB-backed rate limiting |
+| `src/noa/tools/rate_limiter.py` | **MODIFY** | H8: key by (user_id, action) |
+| `src/noa/api/middleware.py` | **MODIFY** | M1: wire idempotency checks |
+| `web/src/api/sse.ts` | **MODIFY** | M5: Last-Event-ID on reconnect |
+| `src/noa/api/v1/runs.py` | **MODIFY** | M5: event replay endpoint |
+| `src/noa/policy/engine.py` | **MODIFY** | M7: enforce step-up auth |
+| `src/noa/tools/google_auth.py` | **MODIFY** | M10: persist refresh tokens to DB |
+| `web/src/api/client.ts` | **MODIFY** | M14: AbortController timeout |
+
+---
+
+## Wave 15: Native iOS Client (SwiftUI)
+
+Implements SPEC.md §36 Phase 3: a native SwiftUI thin client for iOS with push notifications, voice, biometric auth, offline queue, and VPN integration. All intelligence stays server-side — the app handles UI + auth + push + voice.
+
+**Project:** `ios/Noa/` in monorepo, iOS 17+, MVVM, Swift Package Manager, no external HTTP dependencies.
+
+**Dependency graph:**
+```
+iOS1 (APNs Backend) ──────────────────────────→ iOS6 (Push Client) ─→ iOS7 (Biometric/Approvals)
+iOS2 (Voice Backend) ─────────────────────────→ iOS8 (Voice)              ↑
+iOS3 (Scaffold) → iOS4 (Auth/Keychain) → iOS5 (Chat/SSE) ───────────────┘
+    ├→ iOS9 (Offline Queue)                         └─→ iOS8 (Voice)
+    └→ iOS10 (VPN/Pinning)
+All ──→ iOS11 (Integration/Polish)
+```
+
+---
+
+### Phase iOS1: APNs Push Notification Backend (~45 min)
+
+**Goal:** No push notification infrastructure exists on the backend. This phase adds device token registration, an APNs HTTP/2 push service, and hooks into approval/run events.
+
+**Spec refs:** SPEC.md §29.5, §23.2, §29.6
+
+**Depends on:** None (Wave 14 complete)
+**Blocks:** iOS6
+
+**Deliverables:**
+1. `device_push_tokens` DB table (user_id, device_id, platform, push_token, created_at, updated_at)
+2. Alembic migration `005_device_push_tokens.py`
+3. `POST /api/v1/devices/push-token` endpoint to register/update device push tokens
+4. `DELETE /api/v1/devices/push-token` endpoint to unregister on logout
+5. `APNsService` class using HTTP/2 to `api.push.apple.com` with JWT-based auth
+6. Push payload per §29.5: only notification_type, request_id, risk_tier (no private data)
+7. Approval batcher: 30-second window per §23.2
+8. Integration hooks in approval service and run service for push triggers
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/noa/db/models/device_token.py` | **CREATE** | DevicePushToken SQLAlchemy model |
+| `alembic/versions/005_device_push_tokens.py` | **CREATE** | Migration for device_push_tokens table |
+| `src/noa/push/__init__.py` | **CREATE** | Push notification package |
+| `src/noa/push/apns.py` | **CREATE** | APNsService: HTTP/2 client, JWT-based auth to APNs |
+| `src/noa/push/schemas.py` | **CREATE** | PushPayload, DeviceTokenRequest Pydantic schemas |
+| `src/noa/push/batcher.py` | **CREATE** | ApprovalBatcher: 30-second window batching per §23.2 |
+| `src/noa/api/v1/devices.py` | **CREATE** | Device push token registration endpoints |
+| `src/noa/config.py` | **MODIFY** | Add APNS_KEY_ID, APNS_TEAM_ID, APNS_KEY_PATH, APNS_BUNDLE_ID |
+| `src/noa/policy/approval.py` | **MODIFY** | Hook push notification on approval_requested events |
+| `src/noa/runs/service.py` | **MODIFY** | Hook push notification on run_completed/run_failed |
+| `tests/unit/test_ios1_apns.py` | **CREATE** | APNs service and endpoint tests |
+
+**Tests (~14):**
+- Device token registration: valid token stored, duplicate update works
+- Device token deletion: token removed on unregister
+- APNs payload construction: only type + request_id + risk_tier (no private data)
+- APNs HTTP/2 client: mock sends, error handling for expired/invalid tokens
+- Approval batching: events within 30s window batched into single notification
+- Approval batching: events outside window sent separately
+- Push trigger on approval_requested, run_completed, run_failed events
+- No push sent for low-risk auto-approved actions
+- Auth required: unauthenticated requests rejected with 401
+
+**Test gate:**
+```bash
+pytest tests/unit/test_ios1_apns.py -v
+```
+
+---
+
+### Phase iOS2: Voice Upload Endpoint (~30 min)
+
+**Goal:** No voice/audio endpoint exists. This phase adds an audio upload endpoint that accepts recorded audio, transcribes via Whisper API, and optionally pipes into the chat pipeline.
+
+**Spec refs:** SPEC.md §29.3, §36.3 item 3
+
+**Depends on:** None
+**Blocks:** iOS8
+
+**Deliverables:**
+1. `POST /api/v1/voice/transcribe` endpoint accepting multipart/form-data audio (m4a, wav, mp3)
+2. Audio validation: max 25MB, allowed MIME types
+3. `TranscriptionService` using OpenAI Whisper API (reuses existing httpx infrastructure)
+4. Optional mode: feed transcription directly into chat pipeline (returns SSE stream)
+5. Artifact storage for original audio file
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/noa/voice/__init__.py` | **CREATE** | Voice package |
+| `src/noa/voice/transcription.py` | **CREATE** | TranscriptionService: Whisper API client via httpx |
+| `src/noa/voice/schemas.py` | **CREATE** | VoiceUploadResponse, TranscriptionResult schemas |
+| `src/noa/api/v1/voice.py` | **CREATE** | Voice endpoint: multipart upload, transcribe, optional chat |
+| `src/noa/config.py` | **MODIFY** | Add WHISPER_MODEL, MAX_AUDIO_SIZE_MB settings |
+| `tests/unit/test_ios2_voice.py` | **CREATE** | Voice endpoint and transcription tests |
+
+**Tests (~10):**
+- Audio upload: valid m4a file accepted, returns transcription
+- Audio validation: file exceeding 25MB rejected with 413
+- Audio validation: unsupported MIME type rejected with 415
+- Transcription service: mock Whisper API call, parse response
+- Transcription with chat: transcribed text routed to chat pipeline, returns SSE
+- Transcription-only mode: returns JSON with transcription text
+- Error handling: Whisper API failure returns proper error envelope
+- Auth required, idempotency, artifact creation
+
+**Test gate:**
+```bash
+pytest tests/unit/test_ios2_voice.py -v
+```
+
+---
+
+### Phase iOS3: Xcode Project Scaffold & Networking Layer (~60 min)
+
+**Goal:** No iOS project exists. This phase creates the Xcode project, MVVM structure, and core networking layer with API client, SSE parser, and shared model types.
+
+**Spec refs:** SPEC.md §29.1, §25.3
+
+**Depends on:** None (backend API already exists)
+**Blocks:** iOS4, iOS5, iOS6, iOS7, iOS8, iOS9, iOS10
+
+**Deliverables:**
+1. Xcode project at `ios/Noa/` with SwiftUI app target and test targets
+2. MVVM directory structure: Models, Views, ViewModels, Services, Utilities
+3. `APIClient` class: generic request with `ApiResponse<T>` decoding, auth header injection, 401 retry with refresh, idempotency key generation
+4. `SSEClient` class: streaming line parser using `URLSession.bytes(for:)`, reconnection with backoff [1s, 2s, 5s, 10s]
+5. `NoaEnvironment` configuration (base URL, environment switching)
+6. Shared model types mirroring backend schemas (Thread, Message, Run, RunEvent, Approval, etc.)
+7. `DeviceID` utility — persistent UUID in Keychain
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `ios/Noa/Noa.xcodeproj/` | **CREATE** | Xcode project file |
+| `ios/Noa/Noa/NaoApp.swift` | **CREATE** | SwiftUI App entry point |
+| `ios/Noa/Noa/Configuration/Environment.swift` | **CREATE** | Base URL, environment enum |
+| `ios/Noa/Noa/Models/ApiResponse.swift` | **CREATE** | Generic ApiResponse<T>, ApiError matching §25.3 |
+| `ios/Noa/Noa/Models/AuthModels.swift` | **CREATE** | LoginRequest, AuthTokens, RefreshRequest |
+| `ios/Noa/Noa/Models/ChatModels.swift` | **CREATE** | Thread, Message, ChatRequest, SSEEvent |
+| `ios/Noa/Noa/Models/RunModels.swift` | **CREATE** | Run, RunEvent, RunStatus, RiskTier, PrivacyMode |
+| `ios/Noa/Noa/Models/ApprovalModels.swift` | **CREATE** | Approval, ApprovalDecision |
+| `ios/Noa/Noa/Services/APIClient.swift` | **CREATE** | HTTP client: generic request, auth injection, 401 retry |
+| `ios/Noa/Noa/Services/SSEClient.swift` | **CREATE** | SSE streaming parser, reconnection with backoff |
+| `ios/Noa/Noa/Services/Protocols/` | **CREATE** | Protocols for DI in tests |
+| `ios/Noa/Noa/Utilities/DeviceID.swift` | **CREATE** | Persistent device ID (UUID in Keychain) |
+| `ios/Noa/NaoTests/` | **CREATE** | Test targets |
+
+**Tests (~18):**
+- APIClient: GET/POST encoding, auth header, 401 retry, 429 handling, network error
+- SSEParser: `data:` frame parsing, malformed line handling, multi-line, reconnection, run_id capture
+- Model decoding: all types from JSON
+- DeviceID: generated once, persisted across calls
+- Idempotency key: unique per write request
+
+**Test gate:**
+```bash
+xcodebuild test -project ios/Noa/Noa.xcodeproj -scheme Noa -destination 'platform=iOS Simulator,name=iPhone 16'
+```
+
+---
+
+### Phase iOS4: Keychain Storage & Auth Flow (~45 min)
+
+**Goal:** Implement Keychain-based token storage, login screen, and token refresh lifecycle.
+
+**Spec refs:** SPEC.md §29.3 item 5, §5.1–5.4
+
+**Depends on:** iOS3
+**Blocks:** iOS5, iOS6, iOS7
+
+**Deliverables:**
+1. `KeychainService` wrapping Security framework (SecItemAdd/Update/Delete/CopyMatching)
+2. Token storage with `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`
+3. `AuthService` handling login, refresh, logout with Keychain persistence
+4. `AuthViewModel` (`@Observable`) managing auth state
+5. `LoginView` SwiftUI screen with email/password form
+6. `AuthGuard` view modifier redirecting to login when unauthenticated
+7. Automatic token refresh on app foreground (if access token near expiry)
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `ios/Noa/Noa/Services/KeychainService.swift` | **CREATE** | Keychain CRUD wrapper |
+| `ios/Noa/Noa/Services/AuthService.swift` | **CREATE** | Login/refresh/logout, Keychain persistence |
+| `ios/Noa/Noa/ViewModels/AuthViewModel.swift` | **CREATE** | Auth state, login action, auto-refresh |
+| `ios/Noa/Noa/Views/Auth/LoginView.swift` | **CREATE** | Email + password form |
+| `ios/Noa/Noa/Views/Auth/AuthGuard.swift` | **CREATE** | Auth check view modifier |
+| `ios/Noa/Noa/NaoApp.swift` | **MODIFY** | Inject AuthViewModel, wrap in AuthGuard |
+
+**Tests (~16):**
+- KeychainService: CRUD, access level enforcement
+- AuthService: login stores tokens, failure clears, refresh rotates, logout clears
+- AuthViewModel: state transitions, auto-refresh, error display
+
+**Test gate:**
+```bash
+xcodebuild test -project ios/Noa/Noa.xcodeproj -scheme Noa -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:NaoTests/KeychainServiceTests -only-testing:NaoTests/AuthServiceTests -only-testing:NaoTests/AuthViewModelTests
+```
+
+---
+
+### Phase iOS5: Chat UI with SSE Streaming (~60 min)
+
+**Goal:** Build the primary chat screen with message composition, SSE streaming responses, and thread management.
+
+**Spec refs:** SPEC.md §29.2, §22.2, §36.3 item 1
+
+**Depends on:** iOS3, iOS4
+**Blocks:** iOS7, iOS8
+
+**Deliverables:**
+1. `ChatView` with message list, composer bar, and real-time streaming display
+2. `ChatViewModel` managing SSE connection lifecycle and token accumulation
+3. `ThreadListView` and `ThreadListViewModel` for thread management
+4. `NavigationSplitView` layout (thread list + chat detail)
+5. Inline indicators: tool calls, approval requests, classification, step progress
+6. Model/privacy mode selectors in composer
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `ios/Noa/Noa/Services/ChatService.swift` | **CREATE** | POST /chat with SSE, thread CRUD |
+| `ios/Noa/Noa/ViewModels/ChatViewModel.swift` | **CREATE** | SSE lifecycle, token accumulation |
+| `ios/Noa/Noa/ViewModels/ThreadListViewModel.swift` | **CREATE** | Thread list loading, creation |
+| `ios/Noa/Noa/Views/Chat/ChatView.swift` | **CREATE** | Message list + composer + streaming |
+| `ios/Noa/Noa/Views/Chat/MessageBubble.swift` | **CREATE** | Individual message rendering |
+| `ios/Noa/Noa/Views/Chat/ComposerBar.swift` | **CREATE** | Text input, send button, selectors |
+| `ios/Noa/Noa/Views/Chat/ToolCallCard.swift` | **CREATE** | Inline tool call display |
+| `ios/Noa/Noa/Views/Chat/ThreadListView.swift` | **CREATE** | Thread sidebar |
+| `ios/Noa/Noa/Views/MainTabView.swift` | **CREATE** | Tab navigation (Chat, Runs, Settings) |
+
+**Tests (~14):**
+- SSE events: meta, token_stream accumulation, result_ready, error propagation
+- Tool/approval event display
+- Thread CRUD and message history loading
+
+**Test gate:**
+```bash
+xcodebuild test -project ios/Noa/Noa.xcodeproj -scheme Noa -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:NaoTests/ChatViewModelTests -only-testing:NaoTests/ChatServiceTests
+```
+
+---
+
+### Phase iOS6: Push Notifications (APNs Client) (~45 min)
+
+**Goal:** Integrate APNs, register device token with backend, handle notification display and deep linking.
+
+**Spec refs:** SPEC.md §29.5, §23.2, §36.3 item 2
+
+**Depends on:** iOS1 (backend), iOS4 (auth)
+**Blocks:** iOS7
+
+**Deliverables:**
+1. APNs entitlement and capability in Xcode project
+2. `PushNotificationService` handling UNUserNotificationCenter registration
+3. Device token registration with backend (`POST /api/v1/devices/push-token`)
+4. Token unregistration on logout
+5. Notification handling: approval_requested, run_completed, run_failed
+6. Deep linking: tapping notification opens relevant approval or run detail
+7. Notification categories with inline Approve/Deny actions (medium-risk)
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `ios/Noa/Noa/Noa.entitlements` | **CREATE** | Push notification entitlement |
+| `ios/Noa/Noa/Services/PushNotificationService.swift` | **CREATE** | UNUserNotificationCenter, token registration, deep link routing |
+| `ios/Noa/Noa/Services/DeviceService.swift` | **CREATE** | POST/DELETE /devices/push-token API calls |
+| `ios/Noa/Noa/NaoApp.swift` | **MODIFY** | AppDelegate for push token callback, notification categories |
+| `ios/Noa/Noa/Utilities/DeepLinkRouter.swift` | **CREATE** | Notification-based deep linking |
+
+**Tests (~12):**
+- Authorization grant/deny, token registration/unregistration, notification display per type, deep link navigation, inline actions
+
+**Test gate:**
+```bash
+xcodebuild test -project ios/Noa/Noa.xcodeproj -scheme Noa -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:NaoTests/PushNotificationServiceTests
+```
+
+---
+
+### Phase iOS7: Biometric Step-Up Auth & Approval Flow (~45 min)
+
+**Goal:** Add Face ID/Touch ID step-up for high-risk approvals and the full approval review UI with batch support.
+
+**Spec refs:** SPEC.md §29.3 item 4, §29.6, §23.2, §36.3 item 4
+
+**Depends on:** iOS5, iOS6
+**Blocks:** None
+
+**Deliverables:**
+1. `BiometricService` wrapping LocalAuthentication (LAContext)
+2. Face ID / Touch ID evaluation with passcode fallback
+3. `ApprovalListView` showing pending approvals with dry-run previews
+4. `ApprovalDetailView` with approve/deny actions
+5. Biometric gate: high-risk approvals require Face ID before submission
+6. Batch approval UI per §23.2: approve/deny individual or all
+7. NSFaceIDUsageDescription in Info.plist
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `ios/Noa/Noa/Services/BiometricService.swift` | **CREATE** | LAContext evaluation, capability check |
+| `ios/Noa/Noa/Services/ApprovalService.swift` | **CREATE** | GET pending, POST decide API calls |
+| `ios/Noa/Noa/ViewModels/ApprovalListViewModel.swift` | **CREATE** | Pending approvals, batch state |
+| `ios/Noa/Noa/ViewModels/ApprovalDetailViewModel.swift` | **CREATE** | Single approval, biometric gate |
+| `ios/Noa/Noa/Views/Approvals/ApprovalListView.swift` | **CREATE** | Pending approvals list |
+| `ios/Noa/Noa/Views/Approvals/ApprovalDetailView.swift` | **CREATE** | Approval detail with approve/deny |
+| `ios/Noa/Noa/Views/Approvals/BatchApprovalBar.swift` | **CREATE** | Batch controls |
+| `ios/Noa/Noa/Info.plist` | **MODIFY** | NSFaceIDUsageDescription |
+
+**Tests (~14):**
+- Biometric success/failure/fallback, approval fetch/submit, risk tier gating, batch operations, deep link integration
+
+**Test gate:**
+```bash
+xcodebuild test -project ios/Noa/Noa.xcodeproj -scheme Noa -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:NaoTests/BiometricServiceTests -only-testing:NaoTests/ApprovalViewModelTests
+```
+
+---
+
+### Phase iOS8: Voice Recording & Playback (~45 min)
+
+**Goal:** Add voice recording via AVFoundation, upload to backend voice endpoint, display transcription.
+
+**Spec refs:** SPEC.md §29.3 item 3, §36.3 item 3
+
+**Depends on:** iOS2 (backend), iOS5 (chat)
+**Blocks:** None
+
+**Deliverables:**
+1. `AudioRecorderService` using AVAudioRecorder for m4a recording
+2. `AudioPlayerService` using AVAudioPlayer for playback
+3. Microphone permission handling (NSMicrophoneUsageDescription)
+4. Voice button in ComposerBar: tap-and-hold or toggle recording
+5. Recording waveform/timer visualization
+6. Upload to `POST /api/v1/voice/transcribe`, auto-send to chat option
+7. Max 10 min recording duration
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `ios/Noa/Noa/Services/AudioRecorderService.swift` | **CREATE** | AVAudioRecorder wrapper |
+| `ios/Noa/Noa/Services/AudioPlayerService.swift` | **CREATE** | AVAudioPlayer wrapper |
+| `ios/Noa/Noa/Services/VoiceService.swift` | **CREATE** | Upload to /voice/transcribe |
+| `ios/Noa/Noa/ViewModels/VoiceViewModel.swift` | **CREATE** | Recording state, upload, transcription |
+| `ios/Noa/Noa/Views/Chat/VoiceRecordButton.swift` | **CREATE** | Record button with waveform |
+| `ios/Noa/Noa/Views/Chat/ComposerBar.swift` | **MODIFY** | Add voice button |
+| `ios/Noa/Noa/Info.plist` | **MODIFY** | NSMicrophoneUsageDescription |
+
+**Tests (~12):**
+- Recording start/stop, permission handling, upload multipart, transcription receipt, auto-send mode, cancel discard, max duration
+
+**Test gate:**
+```bash
+xcodebuild test -project ios/Noa/Noa.xcodeproj -scheme Noa -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:NaoTests/VoiceViewModelTests -only-testing:NaoTests/AudioRecorderServiceTests
+```
+
+---
+
+### Phase iOS9: Offline Request Queue with Idempotency (~45 min)
+
+**Goal:** Persistent queue for offline requests with idempotency keys, auto-drain on connectivity resume.
+
+**Spec refs:** SPEC.md §29.3 item 6, §25.4, §36.3 item 6
+
+**Depends on:** iOS3
+**Blocks:** None
+
+**Deliverables:**
+1. `OfflineQueueService` with file-based persistent FIFO storage
+2. `NetworkMonitorService` via NWPathMonitor
+3. Auto-drain on connectivity restored with idempotency keys
+4. Retry with exponential backoff (1s, 2s, 4s, 8s, 16s), max 5 retries
+5. APIClient integration: write requests queue when offline instead of failing
+6. UI offline indicator with queue count badge
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `ios/Noa/Noa/Services/OfflineQueueService.swift` | **CREATE** | Persistent queue, drain logic |
+| `ios/Noa/Noa/Services/NetworkMonitorService.swift` | **CREATE** | NWPathMonitor wrapper |
+| `ios/Noa/Noa/Models/QueuedRequest.swift` | **CREATE** | Codable model for persisted requests |
+| `ios/Noa/Noa/Services/APIClient.swift` | **MODIFY** | Intercept writes when offline |
+| `ios/Noa/Noa/Views/Shared/OfflineIndicator.swift` | **CREATE** | Offline banner + queue count |
+
+**Tests (~14):**
+- Enqueue/dequeue, persistence across restart, idempotency preservation, retry backoff, max retries, FIFO order, APIClient integration, network state detection
+
+**Test gate:**
+```bash
+xcodebuild test -project ios/Noa/Noa.xcodeproj -scheme Noa -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:NaoTests/OfflineQueueServiceTests -only-testing:NaoTests/NetworkMonitorServiceTests
+```
+
+---
+
+### Phase iOS10: VPN Auto-Connect & Certificate Pinning (~30 min)
+
+**Goal:** Certificate pinning on all API connections (mandatory §29.4) and VPN status detection with auto-connect prompt.
+
+**Spec refs:** SPEC.md §29.4, §36.3 item 7
+
+**Depends on:** iOS3
+**Blocks:** None
+
+**Deliverables:**
+1. `CertificatePinningDelegate` — URLSessionDelegate with public key (SPKI) pinning
+2. Pin hashes embedded in app bundle, configurable for rotation
+3. `VPNService` — NEVPNManager status detection
+4. Auto-connect prompt when off-LAN and VPN disconnected
+5. Launch Tailscale/WireGuard via URL scheme
+6. APIClient uses pinning delegate for all sessions
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `ios/Noa/Noa/Services/CertificatePinningDelegate.swift` | **CREATE** | URLSessionDelegate with SPKI pinning |
+| `ios/Noa/Noa/Services/VPNService.swift` | **CREATE** | NEVPNManager, URL scheme launch |
+| `ios/Noa/Noa/Configuration/PinnedCertificates.swift` | **CREATE** | Embedded pin hashes |
+| `ios/Noa/Noa/Services/APIClient.swift` | **MODIFY** | Use pinning delegate |
+| `ios/Noa/Noa/Views/Shared/VPNStatusBanner.swift` | **CREATE** | VPN connect prompt |
+
+**Tests (~10):**
+- Valid/invalid/expired/self-signed cert, multi-pin rotation, VPN state detection, URL scheme launch, on-LAN skip
+
+**Test gate:**
+```bash
+xcodebuild test -project ios/Noa/Noa.xcodeproj -scheme Noa -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:NaoTests/CertificatePinningTests -only-testing:NaoTests/VPNServiceTests
+```
+
+---
+
+### Phase iOS11: Integration Tests & Polish (~45 min)
+
+**Goal:** End-to-end integration tests, accessibility, dark mode, error states, app icon and launch screen.
+
+**Spec refs:** SPEC.md §37 (adapted for iOS)
+
+**Depends on:** iOS3–iOS10 (all previous iOS phases)
+**Blocks:** None
+
+**Deliverables:**
+1. Mock API server via URLProtocol for integration tests
+2. E2E tests: login, chat+SSE, approval+biometric, offline queue drain
+3. Accessibility: VoiceOver labels, Dynamic Type, contrast ratios
+4. Dark mode verification
+5. App icon, launch screen, error/empty state views
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `ios/Noa/NaoTests/Integration/MockURLProtocol.swift` | **CREATE** | URLProtocol-based mock server |
+| `ios/Noa/NaoTests/Integration/LoginFlowTests.swift` | **CREATE** | E2E login flow |
+| `ios/Noa/NaoTests/Integration/ChatFlowTests.swift` | **CREATE** | E2E chat + SSE |
+| `ios/Noa/NaoTests/Integration/ApprovalFlowTests.swift` | **CREATE** | E2E approval + biometric |
+| `ios/Noa/NaoTests/Integration/OfflineQueueFlowTests.swift` | **CREATE** | E2E offline drain |
+| `ios/Noa/Noa/Views/Shared/ErrorView.swift` | **CREATE** | Reusable error state |
+| `ios/Noa/Noa/Views/Shared/EmptyStateView.swift` | **CREATE** | Reusable empty state |
+| `ios/Noa/Noa/Assets.xcassets/` | **MODIFY** | App icon, accent color |
+
+**Tests (~16):**
+- E2E: login, chat streaming, approval+biometric, offline queue, token refresh, logout
+- Accessibility, Dynamic Type, dark mode, error states
+
+**Test gate:**
+```bash
+xcodebuild test -project ios/Noa/Noa.xcodeproj -scheme Noa -destination 'platform=iOS Simulator,name=iPhone 16'
+```
+
+---
+
+### Key Technical Decisions
+
+1. **No external HTTP library** — URLSession async/await + `bytes(for:)` handles SSE natively on iOS 17
+2. **Keychain with `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`** — tokens available for background push but not transferable
+3. **Public key (SPKI) pinning** — survives certificate rotation
+4. **VPN via URL scheme** — launches Tailscale/WireGuard app, no Network Extension needed
+5. **File-based offline queue** — simpler than SwiftData for FIFO of serialized requests
+6. **APNs JWT auth** (server-side) — Apple's recommended approach
+7. **Whisper API for voice transcription** — reuses existing OpenAI httpx infrastructure
+
+---
+
+## Wave 16: Playwright E2E Testing
+
+Browser-level end-to-end tests for the web frontend using Playwright. Covers auth flows, SSE chat streaming, settings persistence, and navigation. Runs against mock mode (`VITE_USE_MOCKS=true`) for deterministic, backend-independent execution.
+
+**Critical discovery:** The app's mock mode only intercepts `apiRequest()` calls. The `SSEClient` in `sse.ts` uses raw `fetch()` directly, so mock mode does **not** cover SSE streaming. Chat tests use Playwright's `page.route()` to intercept and simulate SSE responses at the network level.
+
+**Environment contract:**
+- Mock mode activated via `webServer.env: { VITE_USE_MOCKS: "true" }` in Playwright config
+- Vite dev server auto-started by Playwright on port 5173
+- Chromium only (headless), single browser to minimize install size
+- CI: retries=2, trace on first retry, screenshot + video on failure, `github` reporter
+- Local: retries=0, reuse existing dev server, `html` reporter
+
+**Auth fixture strategy:**
+- Reusable `storageState`-based fixture: login via UI → save tokens to `e2e/.auth/state.json` → reuse across tests
+- No direct localStorage injection — validates real login path
+
+**Selector conventions:**
+1. Role-based selectors first: `getByRole('button', { name: 'Sign in' })`, `getByLabel('Email')`
+2. `data-testid` only when role/label is ambiguous (chat input, send button, streaming area, message list)
+3. Never CSS classes (brittle with Tailwind), never DOM structure selectors
+
+---
+
+### Phase PW1: Playwright Setup & Auth Tests (~30 min)
+
+**Goal:** Install Playwright, create config with CI defaults, build auth fixture, and write auth/route-guard tests.
+
+**Findings addressed:** UI-C3 (logout doesn't clear cache — verified by logout test)
+
+**Deliverables:**
+1. Install `@playwright/test` as dev dependency, install Chromium browser
+2. Create `web/playwright.config.ts` with webServer (auto-start Vite + mock mode), Chromium project, CI/local defaults (retries, traces, screenshots, video)
+3. Create `web/e2e/fixtures.ts` with reusable `authenticatedPage` fixture using `storageState`
+4. Create `web/e2e/auth.spec.ts` with 6 tests:
+   - Login page renders with email + password fields
+   - Successful login redirects to chat
+   - Invalid credentials show error message (via `page.route()` intercept returning error)
+   - Unauthenticated user redirected to `/login`
+   - Logout clears session and redirects to login
+   - Register page renders with form fields
+5. Add npm scripts: `test:e2e`, `test:e2e:ui`, `test:e2e:report`
+6. Add Playwright artifacts to `web/.gitignore`
+
+**Files:**
+
+| File | Action |
+|------|--------|
+| `web/package.json` | EDIT — add `@playwright/test`, npm scripts |
+| `web/playwright.config.ts` | CREATE |
+| `web/e2e/fixtures.ts` | CREATE |
+| `web/e2e/auth.spec.ts` | CREATE |
+| `web/.gitignore` | EDIT — add `test-results/`, `playwright-report/`, `playwright/.cache/`, `e2e/.auth/` |
+
+**Spec refs:** S23 (authentication), S25 (session management)
+
+**Tests (verify green):**
+- `npm run test:e2e -- --grep auth` — 6 auth tests pass
+- Verify trace file generated on intentional failure
+
+---
+
+### Phase PW2: Chat E2E with SSE Simulation (~30 min)
+
+**Goal:** Test the core chat journey end-to-end including SSE streaming simulation and failure handling.
+
+**Deliverables:**
+1. Create `web/e2e/helpers/sse-mock.ts` — helper that intercepts `/api/v1/chat` POST via `page.route()` and responds with a `ReadableStream` of controlled SSE events (`token_stream`, `result_ready`, `error`)
+2. Add `data-testid` attributes to `Chat.tsx`: `chat-input`, `chat-send`, `streaming-content`, `message-list`
+3. Create `web/e2e/chat.spec.ts` with 6 tests:
+   - Authenticated user sees chat input and send button
+   - Send message → user message appears in UI
+   - Send message → SSE tokens stream incrementally into view
+   - Send message → stream completes → final message visible
+   - SSE error → error state shown, input re-enabled
+   - Send button disabled while streaming
+
+**Files:**
+
+| File | Action |
+|------|--------|
+| `web/e2e/helpers/sse-mock.ts` | CREATE |
+| `web/e2e/chat.spec.ts` | CREATE |
+| `web/src/pages/Chat.tsx` | EDIT — add 4 `data-testid` attributes |
+
+**Spec refs:** S10 (orchestrator SSE), S11 (run events)
+
+**Tests (verify green):**
+- `npm run test:e2e -- --grep chat` — 6 chat tests pass
+
+---
+
+### Phase PW3: Settings & Navigation Tests (~20 min)
+
+**Goal:** Test settings save/load flow and navigation correctness (routing, 404, sidebar).
+
+**Deliverables:**
+1. Create `web/e2e/settings.spec.ts` with 3 tests:
+   - Authenticated user sees settings form with populated fields
+   - Change provider → save → success toast appears
+   - Change budget values → save → values persist on reload (mock returns updated values)
+2. Create `web/e2e/navigation.spec.ts` with 3 tests:
+   - Unknown route shows 404 page
+   - Sidebar links navigate to correct pages
+   - Auth-protected pages redirect when unauthenticated
+
+**Files:**
+
+| File | Action |
+|------|--------|
+| `web/e2e/settings.spec.ts` | CREATE |
+| `web/e2e/navigation.spec.ts` | CREATE |
+
+**Spec refs:** S24 (user settings), S23.3 (route protection)
+
+**Tests (verify green):**
+- `npm run test:e2e` — all 18 tests pass
+- `npm run test:e2e:report` — HTML report generates correctly
 
 ---
 

@@ -40,6 +40,7 @@ class OrchestratorRunner:
         privacy_mode: str = "external",
         model: str = "anthropic/claude-haiku",
         provider: str | None = None,
+        system_prompt: str | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Execute the graph and yield structured events.
 
@@ -86,14 +87,24 @@ class OrchestratorRunner:
 
         # 5. Invoke graph
         try:
+            messages: list[dict[str, Any]] = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": message})
+
             initial_state: dict[str, Any] = {
-                "messages": [{"role": "user", "content": message}],
+                "messages": messages,
                 "privacy_mode": privacy_mode,
                 "selected_model": model,
+                "user_model_override": model,
+                "user_provider_override": provider,
                 "tool_calls": [],
                 "tool_results": [],
                 "response": None,
                 "total_cost": 0.0,
+                "llm_usage": [],
+                "model_config": {},
+                "tool_rounds": 0,
             }
 
             result = await self._graph.ainvoke(initial_state)
@@ -124,6 +135,7 @@ class OrchestratorRunner:
                 {
                     "response": response,
                     "total_cost": result.get("total_cost", 0.0),
+                    "llm_usage": result.get("llm_usage", []),
                 },
             )
             self._persist_event(run_service, run_id, event)

@@ -383,7 +383,8 @@ class TestAgentNode:
 class TestToolNode:
     """Tool node must enforce static allowlists per §2.1."""
 
-    def test_allowed_tool_is_dispatched(self):
+    @pytest.mark.asyncio
+    async def test_allowed_tool_is_dispatched(self):
         """Tools in the allowlist must be dispatched successfully.
         (SPEC.md §2.1 — tool allowlists are static per workflow)
         """
@@ -397,12 +398,13 @@ class TestToolNode:
             "noa.orchestrator.nodes.tools.execute_tool",
             return_value={"result": "No events today"},
         ):
-            result = tool_node(state)
+            result = await tool_node(state)
 
         assert "tool_results" in result
         assert len(result["tool_results"]) > 0
 
-    def test_disallowed_tool_is_rejected(self):
+    @pytest.mark.asyncio
+    async def test_disallowed_tool_is_rejected(self):
         """Tools NOT in the allowlist must be rejected, never executed.
         (SPEC.md §2.1 — tool allowlists are static per workflow;
          §2.2 — LLM may NOT execute tools not in allowlist)
@@ -413,7 +415,7 @@ class TestToolNode:
             tool_calls=[_make_tool_call("shell_exec", {"cmd": "rm -rf /"})],
         )
 
-        result = tool_node(state)
+        result = await tool_node(state)
 
         # The disallowed tool must be rejected
         assert "tool_results" in result
@@ -425,18 +427,20 @@ class TestToolNode:
                 "Disallowed tool must produce an error/denied result"
             )
 
-    def test_empty_tool_calls_returns_empty_results(self):
+    @pytest.mark.asyncio
+    async def test_empty_tool_calls_returns_empty_results(self):
         """When there are no tool calls, tool node returns empty results.
         (SPEC.md §2.1)
         """
         from noa.orchestrator.nodes.tools import tool_node
 
         state = _make_agent_state(tool_calls=[])
-        result = tool_node(state)
+        result = await tool_node(state)
 
         assert result.get("tool_results", []) == []
 
-    def test_tool_node_does_not_mutate_input_state(self):
+    @pytest.mark.asyncio
+    async def test_tool_node_does_not_mutate_input_state(self):
         """Tool node must return a state update, not mutate the input.
         (SPEC.md §2.2 — no side-channel memory)
         """
@@ -451,7 +455,7 @@ class TestToolNode:
             "noa.orchestrator.nodes.tools.execute_tool",
             return_value={"result": "ok"},
         ):
-            result = tool_node(state)
+            result = await tool_node(state)
 
         assert isinstance(result, dict)
         assert state["tool_calls"] == original_tool_calls
@@ -577,7 +581,8 @@ class TestNodeIsolation:
         # Must contain at least privacy_mode or selected_model
         assert "privacy_mode" in result or "selected_model" in result
 
-    def test_all_nodes_return_dicts(self):
+    @pytest.mark.asyncio
+    async def test_all_nodes_return_dicts(self):
         """Every node function must return a dict (state update).
         (SPEC.md §2.1 — deterministic outer shell)
         """
@@ -590,7 +595,7 @@ class TestNodeIsolation:
         assert isinstance(r, dict), "router_node must return dict"
 
         # Tools (with empty tool calls)
-        t = tool_node(_make_agent_state(tool_calls=[]))
+        t = await tool_node(_make_agent_state(tool_calls=[]))
         assert isinstance(t, dict), "tool_node must return dict"
 
         # Responder
