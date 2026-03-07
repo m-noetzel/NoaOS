@@ -6,10 +6,10 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, ForeignKey, String, Text
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from noa.db.models import Base
+from noa.db.models.base import Base
 
 
 class Run(Base):
@@ -45,6 +45,9 @@ class RunEvent(Base):
     """Append-only event stream for runs — §22.2."""
 
     __tablename__ = "run_events"
+    __table_args__ = (
+        Index("ix_run_events_run_id", "run_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     run_id: Mapped[uuid.UUID] = mapped_column(

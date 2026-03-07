@@ -8,6 +8,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from noa.constants import MAX_N_RESULTS
+
 logger = logging.getLogger(__name__)
 
 VALID_TASK_TYPES = frozenset({
@@ -20,7 +22,6 @@ VALID_SENSITIVITY_LABELS = frozenset({"none", "low", "medium", "high"})
 # Limits per §9.1 / §9.2
 MAX_QUERY_LEN = 4096
 MAX_FACT_LEN = 2048
-MAX_N_RESULTS = 20
 MAX_MAX_TOKENS = 4096
 MAX_PAYLOAD_BYTES = 16 * 1024  # 16 KB
 MAX_ANSWER_LEN = 8192
@@ -234,8 +235,11 @@ class ContractViolationTracker:
 
     @property
     def violation_count(self) -> int:
-        """Number of violations in the current window."""
-        return len(self._violations)
+        """Number of violations in the current 24-hour window."""
+        cutoff = time.monotonic() - self._window_seconds
+        return sum(
+            1 for v in self._violations if v["timestamp"] >= cutoff
+        )
 
     @property
     def should_alert(self) -> bool:

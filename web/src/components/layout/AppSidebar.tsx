@@ -1,11 +1,13 @@
 import {
   MessageSquare, Play, ShieldCheck, ListOrdered,
   Brain, FileBox, DollarSign, Settings, LogOut,
-  Sparkles,
+  Sparkles, Wrench,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
 import { useAuth } from "@/auth/AuthContext";
+import { useQuery } from "@tanstack/react-query";
+import { apiRequest } from "@/api/client";
 
 import {
   Sidebar,
@@ -30,6 +32,7 @@ const navItems = [
   { title: "Memory", url: "/memory", icon: Brain },
   { title: "Artifacts", url: "/artifacts", icon: FileBox },
   { title: "Cost", url: "/cost", icon: DollarSign },
+  { title: "Tools", url: "/tools", icon: Wrench },
 ];
 
 export function AppSidebar() {
@@ -37,6 +40,27 @@ export function AppSidebar() {
   const collapsed = state === "collapsed";
   const location = useLocation();
   const { logout } = useAuth();
+
+  // UI-M9: Fetch pending approvals and queue counts for badges
+  const { data: approvalsRes } = useQuery({
+    queryKey: ["approvalsPending"],
+    queryFn: () => apiRequest<unknown[]>("/api/v1/approvals/pending"),
+    retry: false,
+  });
+
+  const { data: queueRes } = useQuery({
+    queryKey: ["queueItems"],
+    queryFn: () => apiRequest<unknown[]>("/api/v1/queue"),
+    retry: false,
+  });
+
+  const approvalCount = approvalsRes?.data?.length ?? 0;
+  const queueCount = queueRes?.data?.length ?? 0;
+
+  const badgeCounts: Record<string, number> = {
+    Approvals: approvalCount,
+    Queue: queueCount,
+  };
 
   const isActive = (path: string) =>
     path === "/" ? location.pathname === "/" : location.pathname.startsWith(path);
@@ -71,7 +95,16 @@ export function AppSidebar() {
                       activeClassName="bg-accent text-accent-foreground font-medium glow-sm"
                     >
                       <item.icon className="h-4 w-4 transition-colors group-hover:text-primary" />
-                      {!collapsed && <span>{item.title}</span>}
+                      {!collapsed && (
+                        <>
+                          <span>{item.title}</span>
+                          {(badgeCounts[item.title] ?? 0) > 0 && (
+                            <span className="ml-auto inline-flex items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-medium h-5 min-w-[20px] px-1">
+                              {badgeCounts[item.title]}
+                            </span>
+                          )}
+                        </>
+                      )}
                     </NavLink>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

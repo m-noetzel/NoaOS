@@ -19,7 +19,7 @@ The argument is: `$ARGUMENTS`
 
 ### You CAN read:
 - `SPEC.md` — the product specification (source of truth for all requirements)
-- `Plan/MASTER_PLAN.md` — phase descriptions, deliverables, acceptance criteria
+- `Plan/PHASE_DETAILS.md` — phase descriptions, deliverables, acceptance criteria
 - `src/models/*.py` — ORM models and Pydantic schemas (data shapes only)
 - `src/config/*.py` — settings, profiles, constants (configuration contracts)
 - `tests/conftest.py` — available fixtures and test infrastructure
@@ -55,7 +55,7 @@ Find and read the SPEC.md sections relevant to `$ARGUMENTS`. Look for:
 - Constraints and invariants (what must always be true)
 
 ### Step 2: Read the phase plan
-Find the phase entry in `Plan/MASTER_PLAN.md` matching `$ARGUMENTS`. Extract:
+Find the phase entry in `Plan/PHASE_DETAILS.md` matching `$ARGUMENTS`. Extract:
 - Goal statement
 - Deliverables list
 - Files to be created/modified
@@ -91,7 +91,7 @@ def test_chunks_never_cross_sections(self):
 If the requirement comes from the phase plan rather than SPEC.md, cite it as:
 ```python
 def test_cost_tracked_per_operation(self):
-    """MASTER_PLAN Phase COST1: Each LLM call records cost to operations_cost table."""
+    """PLAN Phase COST1: Each LLM call records cost to operations_cost table."""
 ```
 
 ### Only 3 test categories are allowed:
@@ -128,7 +128,7 @@ At least **one test per phase** must call the real function/class **without mock
 ```python
 # GOOD: Integration test — calls real code, only mocks external boundary
 def test_tool_dispatch_returns_dict(self):
-    """MASTER_PLAN: Tool dispatch must return a dict, not a Future."""
+    """PLAN: Tool dispatch must return a dict, not a Future."""
     registry = ToolRegistry()
     registry.register("memory", MemoryTool(storage=FakeStorage()))
     result = registry.dispatch("memory", "recall", {"query": "test"})
@@ -238,7 +238,7 @@ Always use `profile_id="external"` in test data. The conftest autouse fixture fo
 """Tests for cost accumulator — Phase COST1.
 
 Spec refs: SPEC.md §12 (Evaluation & Telemetry), §14 (Performance & Cost)
-Phase plan: MASTER_PLAN.md Phase COST1
+Phase plan: PLAN.md Phase COST1
 
 These tests define the behavioral contract for operation cost tracking.
 They are written BEFORE implementation and must all fail initially.

@@ -5,10 +5,10 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from noa.db.models import Base
+from noa.db.models.base import Base
 
 
 class Conversation(Base):
@@ -28,6 +28,9 @@ class Conversation(Base):
 
 class Message(Base):
     __tablename__ = "messages"
+    __table_args__ = (
+        Index("ix_messages_thread_id", "thread_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     thread_id: Mapped[uuid.UUID] = mapped_column(

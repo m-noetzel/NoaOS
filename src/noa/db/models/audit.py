@@ -8,14 +8,29 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import (
+    JSON,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    Text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
-from noa.db.models import Base
+from noa.db.models.base import Base
 
 
 class AuditLog(Base):
     __tablename__ = "audit_log"
+    __table_args__ = (
+        Index("ix_audit_log_timestamp", "timestamp"),
+        Index("ix_audit_log_user_id", "user_id"),
+        Index("ix_audit_log_trace_id", "trace_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     timestamp: Mapped[datetime] = mapped_column(

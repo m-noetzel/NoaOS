@@ -80,3 +80,18 @@ def set_gateway(gateway: Any) -> None:
 def get_gateway() -> Any | None:
     """Return the current ToolGateway (may be None)."""
     return _gateway
+
+
+def reset_all() -> None:
+    """Reset all global state to None.
+
+    Useful for testing and clean shutdown.  Phase QC8 / A1.
+    """
+    global _engine, _session_factory, _health_checker  # noqa: PLW0603
+    global _provider_router, _runner, _gateway  # noqa: PLW0603
+    _engine = None
+    _session_factory = None
+    _health_checker = None
+    _provider_router = None
+    _runner = None
+    _gateway = None

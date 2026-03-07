@@ -63,6 +63,18 @@ def _register_google_tools(gateway: ToolGateway) -> None:
 
     from noa.tools.google_auth import GoogleAuthClient
 
+    def _persist_google_tokens(
+        *, access_token: str, refresh_token: str
+    ) -> None:
+        """Sync callback to persist Google refresh token to DB.  M10."""
+        if not refresh_token:
+            return
+        try:
+            os.environ["GOOGLE_REFRESH_TOKEN"] = refresh_token
+            logger.info("Google refresh token persisted to env")
+        except Exception:  # noqa: BLE001
+            logger.warning("Failed to persist Google refresh token")
+
     auth = GoogleAuthClient(
         client_id=client_id,
         client_secret=client_secret,
@@ -70,6 +82,7 @@ def _register_google_tools(gateway: ToolGateway) -> None:
             "GOOGLE_REDIRECT_URI",
             "http://localhost:8000/auth/google/callback",
         ),
+        on_token_change=_persist_google_tokens,
     )
     # Pre-set the refresh token so the client can auto-refresh
     auth.set_tokens(access_token="", refresh_token=refresh_token)

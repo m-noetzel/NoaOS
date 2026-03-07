@@ -39,6 +39,7 @@ dev = [
     "ruff>=0.8,<1.0",
     "mypy>=1.13,<2.0",
     "httpx>=0.28.0,<1.0",
+    "aiosqlite>=0.20,<1.0",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -46,7 +47,7 @@ packages = ["src/noa"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src", ".pip_libs"]
+pythonpath = ["src"]
 markers = [
     "f1: Phase F1 — Project Scaffold & Docker Compose",
     "f2: Phase F2 — Postgres Schema & Alembic Migrations",

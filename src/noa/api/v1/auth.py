@@ -166,18 +166,18 @@ async def refresh(
 @router.post("/logout")
 async def logout(
     response: Response,
-    payload: dict[str, Any] = Depends(require_auth),  # noqa: B008
+    payload: Any = Depends(require_auth),  # noqa: B008
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
     settings: Settings = Depends(_get_settings),  # noqa: B008
 ) -> dict[str, Any]:
     """Invalidate the current session."""
     rid = trace_id_ctx.get("")
-    session_id_str = payload.get("sid", "")
-    try:
-        service = AuthService(session=session, settings=settings)
-        await service.logout(session_id=uuid.UUID(session_id_str))
-    except Exception:  # noqa: BLE001, S110
-        pass  # Best-effort logout — token may be invalid/expired
+    if payload.session_id:
+        try:
+            service = AuthService(session=session, settings=settings)
+            await service.logout(session_id=uuid.UUID(payload.session_id))
+        except Exception:  # noqa: BLE001, S110
+            pass  # Best-effort logout — token may be invalid/expired
 
     # C6: Clear httpOnly cookies on logout
     response.delete_cookie("noa_access_token", path="/")

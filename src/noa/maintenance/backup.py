@@ -6,7 +6,6 @@ produced by the backup shell scripts (scripts/backup.sh, scripts/backup_private.
 
 from __future__ import annotations
 
-import os
 import re
 import subprocess
 from datetime import UTC, datetime
@@ -19,6 +18,9 @@ _GPG_MAGIC_BYTES = (b"\xc3", b"\x8c")
 
 # Also accept ASCII-armored GPG files
 _GPG_ARMOR_HEADER = b"-----BEGIN PGP MESSAGE-----"
+
+# M13: Safe env vars to pass to backup subprocesses (never leak secrets)
+_SAFE_ENV_KEYS = {"PATH", "HOME", "LANG", "LC_ALL", "TZ", "SHELL"}
 
 
 def verify_backup(path: str) -> bool:
@@ -107,14 +109,19 @@ def run_backup_script(
     if not script_path.is_file():
         raise FileNotFoundError(f"Backup script not found: {script}")
 
-    merged_env = {**os.environ, **(env or {})}
+    # M13: Only pass safe env vars — never leak full os.environ
+    import os as _os
+
+    clean_env = {k: v for k, v in _os.environ.items() if k in _SAFE_ENV_KEYS}
+    if env:
+        clean_env.update(env)
     return subprocess.run(  # noqa: S603
         ["bash", str(script_path)],  # noqa: S607
         capture_output=True,
         text=True,
         timeout=timeout,
-        env=merged_env,
-        check=False,
+        env=clean_env,
+        check=True,
     )
 
 

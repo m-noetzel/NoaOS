@@ -79,7 +79,7 @@ class TestOllamaRequestFormat:
             model_manifest={"llama3.1": "approved"},
         )
 
-        with patch("noa.private_worker.ollama_client.httpx.AsyncClient") as MockClient:
+        with patch("noa.llm.providers.ollama.httpx.AsyncClient") as MockClient:
             mock_instance = AsyncMock()
             mock_instance.post.return_value = _success_response()
             mock_instance.__aenter__ = AsyncMock(return_value=mock_instance)
@@ -109,7 +109,7 @@ class TestOllamaResponseParsing:
 
         client = OllamaClient(model_manifest={"llama3.1": "approved"})
 
-        with patch("noa.private_worker.ollama_client.httpx.AsyncClient") as MockClient:
+        with patch("noa.llm.providers.ollama.httpx.AsyncClient") as MockClient:
             mock_instance = AsyncMock()
             mock_instance.post.return_value = _success_response(content="World!")
             mock_instance.__aenter__ = AsyncMock(return_value=mock_instance)
@@ -129,7 +129,7 @@ class TestOllamaResponseParsing:
 
         client = OllamaClient(model_manifest={"llama3.1": "approved"})
 
-        with patch("noa.private_worker.ollama_client.httpx.AsyncClient") as MockClient:
+        with patch("noa.llm.providers.ollama.httpx.AsyncClient") as MockClient:
             mock_instance = AsyncMock()
             mock_instance.post.return_value = _success_response(
                 prompt_eval_count=42, eval_count=17,
@@ -190,7 +190,7 @@ class TestOllamaErrors:
 
         client = OllamaClient(model_manifest={"llama3.1": "approved"})
 
-        with patch("noa.private_worker.ollama_client.httpx.AsyncClient") as MockClient:
+        with patch("noa.llm.providers.ollama.httpx.AsyncClient") as MockClient:
             mock_instance = AsyncMock()
             mock_instance.post.side_effect = httpx.ConnectError("Connection refused")
             mock_instance.__aenter__ = AsyncMock(return_value=mock_instance)
@@ -211,7 +211,7 @@ class TestOllamaErrors:
 
         client = OllamaClient(model_manifest={"llama3.1": "approved"})
 
-        with patch("noa.private_worker.ollama_client.httpx.AsyncClient") as MockClient:
+        with patch("noa.llm.providers.ollama.httpx.AsyncClient") as MockClient:
             mock_instance = AsyncMock()
             mock_instance.post.side_effect = httpx.TimeoutException("timed out")
             mock_instance.__aenter__ = AsyncMock(return_value=mock_instance)

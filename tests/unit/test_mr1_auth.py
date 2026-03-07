@@ -368,8 +368,9 @@ async def test_logout_reads_sid_claim(monkeypatch):
 
     session_id = str(uuid.uuid4())
     secret = settings.secret_key or ""
+    test_user_id = str(uuid.uuid4())
     token = create_access_token(
-        user_id="user1",
+        user_id=test_user_id,
         secret_key=secret,
         expires_minutes=30,
         session_id=session_id,

@@ -634,19 +634,19 @@ Tests are tagged by implementation phase so you can run just the tests for what 
 Every feature follows this pipeline:
 
 ```
-  Plan           Test            Code            Review
-+--------+    +--------+    +----------+    +-----------+
-| Define |    | Write  |    | Write    |    |  QA agent |
-| phase  |--->| failing|--->| code to  |--->|  reviews  |
-| in     |    | tests  |    | pass     |    |  against  |
-| master |    | (red)  |    | tests    |    |  checklist|
-| plan   |    |        |    | (green)  |    |           |
-+--------+    +--------+    +----------+    +-----------+
-                  |              |               |
-                  v              v               v
-              "At least      "All tests      PASS: merge
-               1 test         pass +          FAIL: fix &
-               must FAIL"     ruff + mypy"    re-review
+  Plan           Test            Code          Code Review       QA Review
++--------+    +--------+    +----------+    +------------+    +-----------+
+| Define |    | Write  |    | Write    |    | Fast code  |    |  QA agent |
+| phase  |--->| failing|--->| code to  |--->| review     |--->|  reviews  |
+| in     |    | tests  |    | pass     |    | (sonnet)   |    |  against  |
+| master |    | (red)  |    | tests    |    | fix obvious|    |  checklist|
+| plan   |    |        |    | (green)  |    | issues     |    |           |
++--------+    +--------+    +----------+    +------------+    +-----------+
+                  |              |               |                  |
+                  v              v               v                  v
+              "At least      "All tests      APPROVE or        PASS: merge
+               1 test         pass +          REQUEST_          FAIL: fix &
+               must FAIL"     ruff + mypy"    CHANGES"          re-review
 ```
 
 ### Git Conventions
@@ -732,12 +732,12 @@ Wave 4: Tools               Wave 5: Advanced Backend    Wave 6: Web Client
 |---|---|
 | Read the full specification | Open `SPEC.md` |
 | Understand the product strategy | Open `STRATEGY.md` |
-| See what's been built | Check `Plan/MASTER_PLAN.md` |
+| See what's been built | Check `Plan/PLAN.md` |
 | Run the app locally | `docker-compose up` |
 | Run tests | `pytest` |
 | Run tests for one phase | `pytest -m f1` (replace `f1` with phase) |
 | Check code quality | `ruff check src/ tests/ && mypy src/` |
 | Add a database migration | `alembic revision --autogenerate -m "description"` |
 | Find a QA review | Look in `Plan/REVIEWS/` |
-| Understand an architecture decision | Check `Plan/DECISION_LOG.md` |
-| See known issues | Check `Plan/ISSUES.md` |
+| Understand an architecture decision | Check `Plan/ARCH_INVARIANTS.md` |
+| See known issues | Check `Plan/FINDINGS.md` |

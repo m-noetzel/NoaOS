@@ -18,10 +18,9 @@ The argument is: `$ARGUMENTS`
 ## 1. Access Restrictions (MANDATORY)
 
 ### You CAN read:
-- `Plan/MASTER_PLAN.md` — phase plans, estimates, actuals
-- `Plan/DECISION_LOG.md` — all decisions made during the wave
+- `Plan/PLAN.md` — phase plans, estimates, actuals
 - `Plan/REVIEWS/` — QA review reports for phases in this wave
-- `Plan/ISSUES.md` — problems encountered and resolutions
+- `Plan/FINDINGS.md` — audit findings and resolved issues
 - `Plan/RETROS/` — prior retrospectives (for trend analysis)
 - `.claude/skills/*/SKILL.md` — current skill definitions (to propose patches)
 - `SPEC.md` — for context on requirements
@@ -58,8 +57,7 @@ Analyze across all phases in the wave for patterns:
 - Does the test agent keep writing certain types of tests? (e.g., constructor tests, trivial assertions)
 - Does the code agent keep making similar mistakes?
 - Does QA keep flagging the same issues?
-- Are there common decision patterns in the DECISION_LOG?
-- Do the same types of issues keep appearing in ISSUES.md?
+- Do the same types of issues keep appearing in FINDINGS.md?
 
 ### Area 4: Estimation Accuracy
 For each phase in the wave, compare:
@@ -164,4 +162,4 @@ This ensures the CI agent runs automatically after every retrospective, closing 
 
 ---
 
-Now proceed: Read `Plan/MASTER_PLAN.md` and identify all phases in wave `$ARGUMENTS`.
+Now proceed: Read `Plan/PLAN.md` and identify all phases in wave `$ARGUMENTS`.

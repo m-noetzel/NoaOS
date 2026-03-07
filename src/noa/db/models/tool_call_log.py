@@ -12,7 +12,7 @@ from typing import Any
 from sqlalchemy import Boolean, DateTime, Float, String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from noa.db.models import Base
+from noa.db.models.base import Base
 
 
 class ToolCallLog(Base):

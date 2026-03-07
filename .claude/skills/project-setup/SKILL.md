@@ -1,6 +1,6 @@
 ---
 name: project-setup
-description: Bootstrap a new Python project with SPEC.md, CLAUDE.md, MASTER_PLAN.md, test infrastructure, and git. Sets up test-first workflow from day one.
+description: Bootstrap a new Python project with SPEC.md, CLAUDE.md, PLAN.md, test infrastructure, and git. Sets up test-first workflow from day one.
 argument-hint: [project-name] [short-description]
 disable-model-invocation: true
 ---
@@ -65,7 +65,7 @@ Rules for any AI agent working on this project:
 **Before starting ANY work:**
 1. Read this entire file
 2. Read `SPEC.md` — the product contract. Never deviate without user approval.
-3. Read `Plan/MASTER_PLAN.md` — check current phase status
+3. Read `Plan/PLAN.md` — check current phase status
 4. Skip completed phases (marked with checkmarks)
 
 **Before starting ANY phase:**
@@ -74,7 +74,7 @@ Rules for any AI agent working on this project:
 
 **Before finishing ANY phase:**
 1. All tests from `/write-tests` must pass
-2. Mark phase complete in MASTER_PLAN.md with timestamp
+2. Mark phase complete in PLAN.md with timestamp
 3. Commit changes
 
 **NEVER DO:**
@@ -87,7 +87,7 @@ Rules for any AI agent working on this project:
 **ALWAYS DO:**
 - CHECK SPEC.md before starting any work
 - Write tests FIRST using `/write-tests`
-- Update MASTER_PLAN.md before and after each phase
+- Update PLAN.md before and after each phase
 - Mock only external boundaries (LLM, network, filesystem) in tests
 
 ## Running Tests
@@ -112,13 +112,13 @@ tests/
 ├── integration/     # DB, may mock LLM
 └── conftest.py      # Shared fixtures
 Plan/
-├── MASTER_PLAN.md   # Phase tracking
+├── PLAN.md   # Phase tracking
 SPEC.md             # Product spec (READ-ONLY)
 CLAUDE.md            # This file
 \`\`\`
 ```
 
-### 3. `Plan/MASTER_PLAN.md` — Phase Tracking
+### 3. `Plan/PLAN.md` — Phase Tracking
 
 ```markdown
 # {Project Name} — Master Plan

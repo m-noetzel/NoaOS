@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 from typing import Any
 
 import httpx
@@ -102,7 +103,7 @@ class GoogleAIClient:
             try:
                 body = response.json()
                 detail = body.get("error", {}).get("message", "")
-            except Exception:
+            except (ValueError, KeyError, AttributeError):
                 detail = response.text
             msg = f"Google AI API error {response.status_code}: {detail}"
             raise ProviderError(msg)
@@ -121,6 +122,7 @@ class GoogleAIClient:
             if "functionCall" in p:
                 fc = p["functionCall"]
                 tool_calls.append({
+                    "id": uuid.uuid4().hex,
                     "name": fc["name"],
                     "input": fc.get("args", {}),
                 })

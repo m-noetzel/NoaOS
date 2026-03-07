@@ -6,14 +6,17 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Integer, String
+from sqlalchemy import JSON, DateTime, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from noa.db.models import Base
+from noa.db.models.base import Base
 
 
 class TaskQueue(Base):
     __tablename__ = "task_queue"
+    __table_args__ = (
+        Index("ix_task_queue_status_queued_at", "status", "queued_at"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     request_id: Mapped[uuid.UUID] = mapped_column(nullable=False)

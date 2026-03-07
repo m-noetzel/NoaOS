@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { apiRequest, WEB_DEVICE_ID } from "@/api/client";
 import type { LoginRequest, RegisterRequest } from "@/api/types";
 import { setTokens, clearTokens, hasTokens } from "./tokens";
@@ -14,6 +15,7 @@ interface AuthState {
 const AuthContext = createContext<AuthState | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const queryClient = useQueryClient();
   const [isAuthenticated, setIsAuthenticated] = useState(() => hasTokens());
   const [isLoading, setIsLoading] = useState(false);
 
@@ -66,8 +68,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Best-effort server logout
     apiRequest("/api/v1/auth/logout", { method: "POST" }).catch(() => {});
     clearTokens();
+    queryClient.clear();
     setIsAuthenticated(false);
-  }, []);
+  }, [queryClient]);
 
   return (
     <AuthContext.Provider value={{ isAuthenticated, isLoading, login, register, logout }}>

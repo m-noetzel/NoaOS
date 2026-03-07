@@ -6,14 +6,17 @@ import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from noa.db.models import Base
+from noa.db.models.base import Base
 
 
 class UsageStats(Base):
     __tablename__ = "usage_stats"
+    __table_args__ = (
+        Index("ix_usage_stats_user_id_timestamp", "user_id", "timestamp"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(

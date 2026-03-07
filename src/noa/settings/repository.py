@@ -45,5 +45,4 @@ class SettingsRepository:
             row.updated_at = datetime.now(UTC)
 
         await self._session.flush()
-        await self._session.commit()
         return row

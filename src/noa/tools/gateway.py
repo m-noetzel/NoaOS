@@ -31,6 +31,7 @@ class ToolRequest:
     user_id: uuid.UUID | None = None
     session_id: uuid.UUID | None = None
     trace_id: uuid.UUID | None = None
+    step_up_verified: bool = False
 
 
 @dataclass
@@ -95,10 +96,12 @@ class ToolGateway:
         self._adapters: dict[str, ToolAdapter] = {}
         self._idempotency_cache: dict[str, ToolResponse] = {}
         self._rate_limits: dict[str, _RateLimit] = {}
+        self._per_user_rate_calls: dict[str, list[float]] = {}
         self.telemetry: list[dict[str, Any]] = []
         self._audit_callback = audit_callback
         self._session_factory = session_factory
         self.capability_checker: Any | None = None
+        self.policy_engine: Any | None = None
 
     # -- registration -------------------------------------------------------
 
@@ -150,6 +153,17 @@ class ToolGateway:
                 await self._record_telemetry(request, resp, "capability_denied")
                 return resp
 
+        # 1c. Step-up auth check (M7 / §21)
+        if self.policy_engine is not None:
+            risk_tier = self.policy_engine.classify(request.function, request.args)
+            needs_step_up = self.policy_engine.requires_step_up_auth(risk_tier)
+            if needs_step_up and not request.step_up_verified:
+                resp = ToolResponse(
+                    error="Step_up authentication required for high-risk action",
+                )
+                await self._record_telemetry(request, resp, "step_up_required")
+                return resp
+
         # 2. Dry-run preview (§19.2)
         if dry_run:
             preview = {
@@ -178,19 +192,30 @@ class ToolGateway:
                 await self._fire_audit(request, resp, "cached")
                 return resp
 
-        # 4. Rate limit check (§19.3)
+        # 4. Rate limit check (§19.3) — per-user isolation (H8)
         rl = self._rate_limits.get(tool)
-        if rl and not rl.check():
-            resp = ToolResponse(error=f"Rate limit exceeded for {tool}")
-            await self._record_telemetry(request, resp, "rate_limited")
-            await self._fire_audit(request, resp, "rate_limited")
-            return resp
+        if rl:
+            user_key = f"{request.user_id or '__global__'}:{tool}"
+            now = time.monotonic()
+            calls = self._per_user_rate_calls.get(user_key)
+            if calls is None:
+                calls = []
+                self._per_user_rate_calls[user_key] = calls
+            cutoff = now - rl.window_seconds
+            calls[:] = [t for t in calls if t > cutoff]
+            if len(calls) >= rl.max_calls:
+                resp = ToolResponse(error=f"Rate limit exceeded for {tool}")
+                await self._record_telemetry(request, resp, "rate_limited")
+                await self._fire_audit(request, resp, "rate_limited")
+                return resp
+            calls.append(now)
 
         # 5. Execute via adapter
         t0 = time.monotonic()
         try:
             resp = await self._adapters[tool].execute(request)
         except Exception as exc:  # noqa: BLE001
+            logger.warning("Adapter exception for tool=%s", tool, exc_info=True)
             resp = ToolResponse(error=str(exc))
         resp.latency_ms = (time.monotonic() - t0) * 1000
 

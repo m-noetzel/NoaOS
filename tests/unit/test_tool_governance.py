@@ -166,7 +166,7 @@ class TestRateLimiting:
         # Simulate window expiry by shifting all timestamps back
         from collections import deque as _deque
         old_ts = time.monotonic() - 3601
-        limiter._timestamps["send_email"] = _deque([old_ts] * 10)
+        limiter._timestamps["__global__:send_email"] = _deque([old_ts] * 10)
         assert limiter.check("send_email") is True
 
 

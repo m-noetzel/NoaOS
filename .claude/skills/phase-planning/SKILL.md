@@ -1,6 +1,6 @@
 ---
 name: phase-planning
-description: Plan and track implementation phases. Reads SPEC.md and MASTER_PLAN.md, writes structured phase entries with spec-traceability, file tables, and test gates.
+description: Plan and track implementation phases. Reads SPEC.md and PLAN.md, writes structured phase entries with spec-traceability, file tables, and test gates.
 argument-hint: [phase-id-and-description]
 disable-model-invocation: true
 allowed-tools: Read, Grep, Glob, Edit
@@ -18,7 +18,7 @@ Plan and document an implementation phase with full spec-traceability.
 
 ### Step 1: Understand Current State
 
-Read `Plan/MASTER_PLAN.md` and extract:
+Read `Plan/PLAN.md` and extract:
 - Which phases are completed (look for checkmark status markers)
 - Which phases are in progress
 - The dependency graph (what blocks what)
@@ -38,7 +38,7 @@ Read `SPEC.md` and find sections relevant to `$ARGUMENTS`. Extract:
 
 ### Step 3: Write Phase Entry
 
-Add a detailed phase section to `Plan/MASTER_PLAN.md` using this EXACT format:
+Add a detailed phase section to `Plan/PHASE_DETAILS.md` using this EXACT format:
 
 ```markdown
 ### Phase {ID}: {Title} (~{est} min)
@@ -76,7 +76,7 @@ pytest tests/unit/test_{name}.py -v
 
 ### Step 4: Update Status Table
 
-Add a row to the Phase Status Summary table in `MASTER_PLAN.md`:
+Add a row to the Phase Status Summary table in `Plan/PLAN.md`:
 
 ```
 | **{ID}** | **{Title}** | Pending | ~{N} | — | ~{est} min | — |
@@ -153,6 +153,6 @@ These are approximate. Use `~{N}` format for pending phases. Replace with exact 
 ## After Planning
 
 Tell the user:
-1. The phase has been added to MASTER_PLAN.md
+1. The phase has been added to PLAN.md and PHASE_DETAILS.md
 2. Remind them to run `/write-tests {phase-id}` before implementation
 3. Show the test gate command they'll need to run when done

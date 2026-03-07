@@ -28,8 +28,9 @@ class OrchestratorRunner:
             yield sse_format(event)
     """
 
-    def __init__(self, graph: Any) -> None:
+    def __init__(self, graph: Any, checkpointer: Any | None = None) -> None:
         self._graph = graph
+        self._checkpointer = checkpointer
 
     async def run(
         self,

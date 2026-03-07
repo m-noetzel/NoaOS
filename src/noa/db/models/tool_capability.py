@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from sqlalchemy import DateTime, ForeignKey, Index, String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from noa.db.models import Base
+from noa.db.models.base import Base
 
 
 class ToolCapability(Base):

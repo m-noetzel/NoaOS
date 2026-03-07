@@ -12,12 +12,16 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from noa.api.middleware import trace_id_ctx
+from noa.api.middleware import idempotency_key_ctx, trace_id_ctx
 from noa.auth.middleware import require_auth
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["chat"])
+
+# M1: In-memory idempotency key tracking (TTL-based cleanup)
+_active_idempotency_keys: dict[str, float] = {}
+_IDEMPOTENCY_TTL_SECONDS = 300  # 5 minutes
 
 
 class ChatRequest(BaseModel):
@@ -40,11 +44,15 @@ def get_runner() -> Any:
     return get_runner()
 
 
-def get_session_factory() -> Any:
+def _get_session_factory() -> Any:
     """Get the DB session factory from app state."""
     from noa.api.app_state import get_session_factory
 
     return get_session_factory()
+
+
+# Backward-compatible alias for pre-QC3 callers and tests
+get_session_factory = _get_session_factory
 
 
 @router.post("/chat")
@@ -59,9 +67,35 @@ async def submit_chat(
     and streams events as SSE frames.
     """
     rid = trace_id_ctx.get("")
+
+    # M1: Check idempotency key for duplicate request detection
+    idem_key = idempotency_key_ctx.get()
+    if idem_key and idem_key in _active_idempotency_keys:
+        from fastapi.responses import JSONResponse
+
+        return JSONResponse(
+            status_code=409,
+            content={"ok": False, "error": {"code": "DUPLICATE_REQUEST",
+                     "message": "Duplicate request (same Idempotency-Key)"}},
+        )
+
     run_id = str(uuid.uuid4())
     thread_id = body.thread_id or str(uuid.uuid4())
-    user_id = user.get("user_id", user.get("sub", ""))
+    user_id = (
+        str(user.user_id) if hasattr(user, "user_id")
+        else user.get("user_id", user.get("sub", ""))
+    )
+
+    # M1: Register idempotency key as active
+    if idem_key:
+        import time as _time
+
+        _active_idempotency_keys[idem_key] = _time.monotonic()
+        # Prune expired keys
+        cutoff = _time.monotonic() - _IDEMPOTENCY_TTL_SECONDS
+        expired = [k for k, t in _active_idempotency_keys.items() if t < cutoff]
+        for k in expired:
+            _active_idempotency_keys.pop(k, None)
 
     runner = get_runner()
 
@@ -104,7 +138,7 @@ async def submit_chat(
                 if event.get("event_type") == "result_ready":
                     llm_usage = event.get("payload", {}).get("llm_usage", [])
                 yield f"data: {json.dumps(event)}\n\n"
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             err_event = {
                 "event_type": "error",
                 "payload": {"error": str(exc)},
@@ -136,7 +170,7 @@ def _make_run_service(
     Uses the DB session factory if available, otherwise returns
     a no-op service that logs events without persistence.
     """
-    factory = get_session_factory()
+    factory = _get_session_factory()
     if factory is not None:
         try:
             session = factory()
@@ -154,10 +188,11 @@ def _make_run_service(
                 )
                 session.commit()
             except Exception:  # noqa: BLE001
+                logger.debug("create_run failed, rolling back", exc_info=True)
                 session.rollback()
             return svc
-        except Exception:  # noqa: BLE001, S110
-            pass
+        except Exception:  # noqa: BLE001
+            logger.debug("Failed to create run_service via factory", exc_info=True)
 
     # Fallback: no-op service
     return _NoOpRunService()
@@ -182,14 +217,15 @@ async def _record_usage(
     llm_usage: list[dict[str, Any]],
 ) -> None:
     """Persist LLM usage records to UsageStats (best-effort)."""
-    factory = get_session_factory()
+    factory = _get_session_factory()
     if factory is None:
         return
 
     try:
         from noa.db.models.usage import UsageStats
+        from noa.db.transaction import transactional
 
-        async with factory() as session:
+        async with factory() as session, transactional(session):
             for entry in llm_usage:
                 row = UsageStats(
                     id=uuid.uuid4(),
@@ -202,6 +238,5 @@ async def _record_usage(
                     run_id=uuid.UUID(run_id),
                 )
                 session.add(row)
-            await session.commit()
     except Exception:  # noqa: BLE001
         logger.warning("Failed to persist usage stats for run %s", run_id)

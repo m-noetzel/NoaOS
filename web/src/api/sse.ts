@@ -1,7 +1,15 @@
 import type { SSEEvent, SSEEventType } from "./types";
 import { getAccessToken } from "@/auth/tokens";
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
+
+/** Runtime validation set matching the SSEEventType union exactly */
+export const VALID_SSE_EVENTS: Set<string> = new Set<string>([
+  "message_received", "classification_done", "step_started", "token_stream",
+  "tool_called", "tool_result", "approval_requested", "approval_received",
+  "artifact_created", "result_ready", "error", "planner_step",
+  "run_started", "run_completed", "run_failed", "run_cancelled", "meta",
+]);
 
 export type SSECallback = (event: SSEEvent) => void;
 
@@ -17,6 +25,7 @@ export class SSEClient {
   private controller: AbortController | null = null;
   private retryCount = 0;
   private runId: string | null = null;
+  private lastEventId: string | null = null;
   private options: SSEClientOptions;
   private closed = false;
 
@@ -91,7 +100,9 @@ export class SSEClient {
         let currentData = "";
 
         for (const line of lines) {
-          if (line.startsWith("event: ")) {
+          if (line.startsWith("id: ")) {
+            this.lastEventId = line.slice(4).trim();
+          } else if (line.startsWith("event: ")) {
             currentEvent = line.slice(7).trim();
           } else if (line.startsWith("data: ")) {
             currentData += line.slice(6);
@@ -109,6 +120,14 @@ export class SSEClient {
               const eventName = currentEvent
                 || parsed.event_type
                 || "unknown";
+
+              // Validate event type against known set; filter unknown events
+              if (!VALID_SSE_EVENTS.has(eventName)) {
+                // Skip unknown/invalid event types
+                currentEvent = null;
+                currentData = "";
+                continue;
+              }
 
               this.options.onEvent({
                 event: eventName as SSEEventType,
@@ -143,7 +162,10 @@ export class SSEClient {
     await new Promise((r) => setTimeout(r, delay));
 
     if (!this.closed) {
-      await this.startStream(`/api/v1/runs/${this.runId}/events`);
+      const reconnectPath = this.lastEventId
+        ? `/api/v1/runs/${this.runId}/events?after_event_id=${this.lastEventId}`
+        : `/api/v1/runs/${this.runId}/events`;
+      await this.startStream(reconnectPath);
     }
   }
 

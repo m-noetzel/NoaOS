@@ -17,6 +17,11 @@ from noa.api.schemas.common import error_envelope
 # Context var to carry trace_id through the request lifecycle
 trace_id_ctx: ContextVar[str] = ContextVar("trace_id", default="")
 
+# Context var for idempotency key — set by middleware, read by endpoints (M1)
+idempotency_key_ctx: ContextVar[str | None] = ContextVar(
+    "idempotency_key", default=None
+)
+
 
 def extract_idempotency_key(headers: dict[str, str]) -> str | None:
     """Extract Idempotency-Key from request headers per §25.4.
@@ -47,6 +52,9 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: Any) -> Any:  # noqa: ANN401
         rid = str(uuid.uuid4())
         trace_id_ctx.set(rid)
+        # M1: Extract idempotency key from request headers
+        idem_key = extract_idempotency_key(dict(request.headers))
+        idempotency_key_ctx.set(idem_key)
         response = await call_next(request)
         response.headers["X-Trace-ID"] = rid
         return response

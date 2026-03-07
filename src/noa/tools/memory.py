@@ -13,7 +13,7 @@ import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from noa.private_worker.rpc import MAX_N_RESULTS
+from noa.constants import MAX_N_RESULTS
 
 # Type alias for the RPC client callable.
 RPCClient = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]

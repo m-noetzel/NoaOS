@@ -6,11 +6,11 @@ import logging
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from noa.api.middleware import trace_id_ctx
 from noa.api.schemas.common import success_envelope
-from noa.auth.middleware import require_auth
+from noa.auth.middleware import AuthUser, require_auth
 
 logger = logging.getLogger(__name__)
 
@@ -23,11 +23,20 @@ def _get_session_factory() -> Any:
     return get_session_factory()
 
 
+def _extract_user_id(user: Any) -> uuid.UUID:
+    """Extract user_id from AuthUser or legacy dict payload."""
+    if isinstance(user, AuthUser):
+        return user.user_id
+    # Legacy dict support (e.g. patched require_auth in tests)
+    raw = user.get("user_id", user.get("sub", ""))
+    return uuid.UUID(raw) if isinstance(raw, str) else raw
+
+
 @router.get("/summary")
 async def cost_summary(
     request: Request,
     period: str = Query("monthly", pattern="^(daily|monthly)$"),
-    user: dict[str, Any] = Depends(require_auth),  # noqa: B008
+    user: Any = Depends(require_auth),  # noqa: B008
 ) -> dict[str, Any]:
     """Return cost summary aggregated by period."""
     rid = trace_id_ctx.get("")
@@ -35,13 +44,11 @@ async def cost_summary(
     if factory is None:
         return success_envelope(data=[], trace_id=rid)
 
-    user_id = user.get("user_id", user.get("sub", ""))
+    uid = _extract_user_id(user)
 
     try:
         async with factory() as session:
             from sqlalchemy import text
-
-            uid = uuid.UUID(user_id)
 
             # For summary, return both daily and monthly aggregates
             summaries = []
@@ -69,16 +76,16 @@ async def cost_summary(
                 })
 
         return success_envelope(data=summaries, trace_id=rid)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         logger.warning("Failed to query cost summary", exc_info=True)
-        return success_envelope(data=[], trace_id=rid)
+        raise HTTPException(status_code=500, detail="Database error") from exc
 
 
 @router.get("/records")
 async def cost_records(
     request: Request,
     limit: int = Query(50, ge=1, le=200),
-    user: dict[str, Any] = Depends(require_auth),  # noqa: B008
+    user: Any = Depends(require_auth),  # noqa: B008
 ) -> dict[str, Any]:
     """Return recent cost records."""
     rid = trace_id_ctx.get("")
@@ -86,14 +93,12 @@ async def cost_records(
     if factory is None:
         return success_envelope(data=[], trace_id=rid)
 
-    user_id = user.get("user_id", user.get("sub", ""))
+    uid = _extract_user_id(user)
 
     try:
         from sqlalchemy import select
 
         from noa.db.models.usage import UsageStats
-
-        uid = uuid.UUID(user_id)
 
         async with factory() as session:
             stmt = (
@@ -119,6 +124,6 @@ async def cost_records(
             ]
 
         return success_envelope(data=records, trace_id=rid)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         logger.warning("Failed to query cost records", exc_info=True)
-        return success_envelope(data=[], trace_id=rid)
+        raise HTTPException(status_code=500, detail="Database error") from exc

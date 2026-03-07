@@ -87,7 +87,13 @@ export async function apiRequest<T>(
       headers["Idempotency-Key"] = generateIdempotencyKey();
     }
 
-    return fetch(`${BASE_URL}${path}`, { ...options, headers, credentials: "include" });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30_000);
+    try {
+      return await fetch(`${BASE_URL}${path}`, { ...options, headers, credentials: "include", signal: controller.signal });
+    } finally {
+      clearTimeout(timeoutId);
+    }
   };
 
   let response = await makeRequest();

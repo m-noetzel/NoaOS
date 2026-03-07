@@ -49,45 +49,48 @@ function groupMessagesByRun(messages: Message[], runs: Run[]): MessageGroup[] {
   return groups;
 }
 
+/** Derive a thread title from the first message content */
+function deriveThreadTitle(message: string): string {
+  const trimmed = message.trim();
+  if (!trimmed) return "New Thread";
+  if (trimmed.length <= 50) return trimmed;
+  return trimmed.slice(0, 50) + "...";
+}
+
 export default function Chat() {
   const { toast } = useToast();
   const [activeThread, setActiveThread] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [streamingContent, setStreamingContent] = useState("");
+  const [optimisticMessage, setOptimisticMessage] = useState<Message | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamEvents, setStreamEvents] = useState<SSEEvent[]>([]);
   const [currentRunId, setCurrentRunId] = useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [temperature, setTemperature] = useState(0.7);
   const [maxTokens, setMaxTokens] = useState(4096);
-  const [model, setModel] = useState("claude-sonnet-4-20250514");
-  const [provider, setProvider] = useState<Provider>("anthropic");
-  const [privacyMode, setPrivacyMode] = useState<PrivacyMode>("private");
   const [systemPrompt, setSystemPrompt] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const sseRef = useRef<SSEClient | null>(null);
   const queryClient = useQueryClient();
 
-  // Load saved settings as defaults
+  // Load saved settings — use query data directly (UI-M8: no local state copy)
   const { data: settingsRes } = useQuery({
     queryKey: ["settings"],
     queryFn: () => apiRequest<UserSettings>("/api/v1/settings"),
   });
 
-  useEffect(() => {
-    const s = settingsRes?.data;
-    if (s) {
-      if (s.default_model) setModel(s.default_model);
-      if (s.default_provider) setProvider(s.default_provider as Provider);
-      if (s.default_privacy_mode) setPrivacyMode(s.default_privacy_mode as PrivacyMode);
-    }
-  }, [settingsRes]);
+  // Derive model/provider/privacyMode directly from settings query data
+  const settings = settingsRes?.data;
+  const model = settings?.default_model || "claude-sonnet-4-20250514";
+  const provider = (settings?.default_provider || "anthropic") as Provider;
+  const privacyMode = (settings?.default_privacy_mode || "private") as PrivacyMode;
 
   const createThreadMutation = useMutation({
-    mutationFn: () =>
+    mutationFn: (title: string) =>
       apiRequest<Thread>("/api/v1/threads", {
         method: "POST",
-        body: JSON.stringify({ title: "New Thread" }),
+        body: JSON.stringify({ title }),
       }),
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ["threads"] });
@@ -114,9 +117,28 @@ export default function Chat() {
   });
 
   const threads = threadsRes?.data || [];
-  const messages = messagesRes?.data || [];
+  const rawMessages = messagesRes?.data || [];
   const runs = runsRes?.data || [];
   const threadRuns = runs.filter((r) => r.thread_id === activeThread);
+
+  // UI-M4: Include optimistic message, clear it when refetch brings real data
+  const messages = (() => {
+    if (optimisticMessage && rawMessages.length > 0) {
+      // If the refetched messages already contain assistant content matching the optimistic one, drop it
+      const hasReal = rawMessages.some(
+        (m) => m.role === "assistant" && m.content === optimisticMessage.content
+      );
+      if (hasReal) {
+        // Clear optimistic on next tick to avoid state update during render
+        queueMicrotask(() => setOptimisticMessage(null));
+        return rawMessages;
+      }
+    }
+    if (optimisticMessage) {
+      return [...rawMessages, optimisticMessage];
+    }
+    return rawMessages;
+  })();
 
   const messageGroups = groupMessagesByRun(messages, threadRuns);
 
@@ -127,25 +149,45 @@ export default function Chat() {
   }, [threads, activeThread]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (messagesEndRef.current?.scrollIntoView) {
+      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
   }, [messages, streamingContent, streamEvents]);
 
   const handleSSEEvent = useCallback((event: SSEEvent) => {
     setStreamEvents((prev) => [...prev, event]);
 
     switch (event.event) {
+      case "meta":
+        if (event.data.run_id) {
+          setCurrentRunId(event.data.run_id as string);
+        }
+        break;
       case "token_stream":
         setStreamingContent((prev) => prev + (event.data.token as string));
         break;
       case "result_ready":
-        setStreamingContent("");
+        // UI-M4: Optimistically append assistant message before clearing streaming
+        setStreamingContent((prev) => {
+          if (prev) {
+            setOptimisticMessage({
+              id: `optimistic-${Date.now()}`,
+              thread_id: activeThread || "",
+              role: "assistant",
+              content: prev,
+              created_at: new Date().toISOString(),
+            });
+          }
+          return "";
+        });
         setIsStreaming(false);
+        queryClient.invalidateQueries({ queryKey: ["messages", activeThread] });
         break;
       case "error":
         setIsStreaming(false);
         break;
     }
-  }, []);
+  }, [activeThread, queryClient]);
 
   const handleSend = async () => {
     if (!input.trim() || isStreaming) return;
@@ -153,8 +195,15 @@ export default function Chat() {
     const message = input.trim();
     setInput("");
     setStreamingContent("");
+    setOptimisticMessage(null);
     setStreamEvents([]);
     setIsStreaming(true);
+
+    // UI-M5: Create a new thread with title derived from message if none active
+    if (!activeThread) {
+      const title = deriveThreadTitle(message);
+      createThreadMutation.mutate(title);
+    }
 
     const client = new SSEClient({
       onEvent: handleSSEEvent,
@@ -190,7 +239,7 @@ export default function Chat() {
       <div className="w-60 border-r border-border/50 flex flex-col shrink-0 bg-muted/20">
         <div className="p-3 flex items-center justify-between border-b border-border/30">
           <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Threads</span>
-          <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg hover:bg-accent/60 hover:text-primary transition-all" onClick={() => createThreadMutation.mutate()}>
+          <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg hover:bg-accent/60 hover:text-primary transition-all" onClick={() => createThreadMutation.mutate("New Thread")}>
             <Plus className="h-3.5 w-3.5" />
           </Button>
         </div>

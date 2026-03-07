@@ -28,6 +28,7 @@ from noa.api.v1.tasks import router as tasks_router
 from noa.api.v1.threads import router as threads_router
 from noa.api.v1.tools import router as tools_router
 from noa.api.v1.usage import router as usage_router
+from noa.db.engine import async_session_factory, create_async_engine_from_config
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +104,15 @@ def wire_llm_pipeline(settings: Any) -> None:
             audit_callback=_audit_callback,
             session_factory=get_session_factory(),
         )
+
+        # M7: Wire PolicyEngine for step-up auth enforcement
+        try:
+            from noa.policy.engine import PolicyEngine
+
+            gateway.policy_engine = PolicyEngine()
+        except Exception:  # noqa: BLE001
+            logger.warning("PolicyEngine not available for step-up auth")
+
         register_tools(gateway)
         set_gateway(gateway)
         set_tools_gateway(gateway)
@@ -114,11 +124,13 @@ def wire_llm_pipeline(settings: Any) -> None:
 
     # 3. Build OrchestratorRunner with compiled graph
     try:
+        from noa.orchestrator.checkpointer import NoOpCheckpointer
         from noa.orchestrator.graph import build_graph
         from noa.orchestrator.runner import OrchestratorRunner
 
         graph = build_graph().compile()
-        runner = OrchestratorRunner(graph=graph)
+        checkpointer = NoOpCheckpointer()
+        runner = OrchestratorRunner(graph=graph, checkpointer=checkpointer)
         set_runner(runner)
         logger.info("OrchestratorRunner wired and ready")
     except Exception:  # noqa: BLE001
@@ -136,10 +148,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         from noa.config import Settings
 
         settings = Settings()
-        from noa.db.engine import (
-            async_session_factory,
-            create_async_engine_from_config,
-        )
 
         engine = create_async_engine_from_config(settings)
         factory = async_session_factory(engine)
@@ -148,8 +156,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
         set_engine(engine)
         set_session_factory(factory)
-    except Exception:  # noqa: BLE001, S110
-        pass  # Allow running without DB for health-only testing
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "DB engine creation failed — running without database",
+            exc_info=True,
+        )
 
     # Start private-container health checker (§17.1)
     from noa.api.app_state import set_health_checker
@@ -192,26 +203,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
         sf = get_session_factory()
         if sf is not None:
-            # Thin wrapper that delegates to logger until sync session
-            # is available (async-only engine cannot run sync purge).
-            class _PurgeProxy:
-                """Proxy that opens a sync session per purge call."""
+            from noa.audit.service import AuditService
+            from noa.policy.approval import ApprovalService
 
-                def purge_expired(self, retention_days: int = 90) -> int:
-                    # Use the async engine's sync counterpart is not
-                    # available; fall back to logging a skip.
-                    logger.info(
-                        "Retention purge skipped: "
-                        "sync session not available in async context"
-                    )
-                    return 0
+            session = sf()
+            audit_svc = AuditService(session=session)
+            approval_svc = ApprovalService(session=session)
 
             retention_scheduler = RetentionScheduler(
-                audit_service=_PurgeProxy(),
+                audit_service=audit_svc,
                 retention_days=int(os.environ.get("RETENTION_DAYS", "90")),
                 interval_hours=int(
                     os.environ.get("RETENTION_INTERVAL_HOURS", "24")
                 ),
+                approval_service=approval_svc,
             )
             await retention_scheduler.start()
     except Exception:  # noqa: BLE001
@@ -239,6 +244,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
+    # Eagerly attempt DB engine creation for observability (H5).
+    # This is best-effort — the real DB setup happens in lifespan().
+    try:
+        from noa.config import Settings as _Settings
+
+        _s = _Settings()
+        create_async_engine_from_config(_s)
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "DB engine creation failed during app init — running without database",
+            exc_info=True,
+        )
+
     app = FastAPI(
         title="Noa",
         description="Noa — governed personal AI agent",
@@ -309,3 +327,17 @@ def create_app() -> FastAPI:
     app.include_router(cost_router)
 
     return app
+
+
+# Lazy module-level ``app`` so that ``from noa.api.app import app``
+# works AND patches applied *before* the import are honoured (QC3 / H5).
+_app: FastAPI | None = None
+
+
+def __getattr__(name: str) -> Any:
+    global _app
+    if name == "app":
+        if _app is None:
+            _app = create_app()
+        return _app
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -41,22 +41,33 @@ class RateLimiter:
         self._window = window_seconds
         self._timestamps: dict[str, deque[float]] = {}
 
-    def check(self, action: str) -> bool:
+    def check(self, action: str, *, user_id: str | None = None) -> bool:
         """Check if an action is allowed under its rate limit.
 
         Returns True if allowed (and records the call), False if blocked.
         Unlimited actions always return True.
+
+        Rate limits are keyed by ``(user_id, action)`` so that one user
+        hitting a limit does not block other users.  Phase QC8 / H8.
+
+        Args:
+            action: The action name to rate-limit.
+            user_id: Optional user identifier for per-user isolation.
+                     If None, a shared/global bucket is used.
         """
         limit = self._limits.get(action)
         if limit is None:
             return True
 
+        # Per-user isolation: key by (user_id, action)
+        bucket_key = f"{user_id or '__global__'}:{action}"
+
         now = time.monotonic()
-        ts = self._timestamps.get(action)
+        ts = self._timestamps.get(bucket_key)
 
         if ts is None:
             ts = deque()
-            self._timestamps[action] = ts
+            self._timestamps[bucket_key] = ts
 
         # Evict timestamps outside the sliding window
         cutoff = now - self._window

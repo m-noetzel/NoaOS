@@ -46,7 +46,7 @@ export interface RefreshRequest {
 export type RunStatus = "queued" | "pending" | "running" | "waiting_for_approval" | "completed" | "failed" | "cancelled";
 export type RiskTier = "low" | "medium" | "high" | "critical";
 export type PrivacyMode = "private" | "external";
-export type Provider = "ollama" | "anthropic" | "openai";
+export type Provider = "ollama" | "anthropic" | "openai" | "google_ai";
 export type ReplayMode = "tool_only" | "downstream" | "full";
 
 // --- Pricing ---
@@ -230,7 +230,8 @@ export type SSEEventType =
   | "run_started"
   | "run_completed"
   | "run_failed"
-  | "run_cancelled";
+  | "run_cancelled"
+  | "meta";
 
 export interface SSEEvent {
   event: SSEEventType;

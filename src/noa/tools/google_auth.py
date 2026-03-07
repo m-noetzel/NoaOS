@@ -11,6 +11,7 @@ and token refresh.
 from __future__ import annotations
 
 import logging
+from typing import Any
 from urllib.parse import quote, urlencode
 
 import httpx
@@ -54,12 +55,14 @@ class GoogleAuthClient:
         client_id: str,
         client_secret: str,
         redirect_uri: str,
+        on_token_change: Any | None = None,
     ) -> None:
         self.client_id = client_id
         self._client_secret = client_secret
         self._redirect_uri = redirect_uri
         self._access_token: str | None = None
         self._refresh_token: str | None = None
+        self._on_token_change = on_token_change
 
     def get_auth_url(self, scopes: list[str]) -> str:
         """Generate the Google OAuth2 authorization URL.
@@ -88,9 +91,43 @@ class GoogleAuthClient:
     def set_tokens(
         self, *, access_token: str, refresh_token: str
     ) -> None:
-        """Store tokens after OAuth2 code exchange."""
+        """Store tokens after OAuth2 code exchange.
+
+        Calls the on_token_change callback if configured.  Phase QC8 / M10.
+        """
         self._access_token = access_token
         self._refresh_token = refresh_token
+        self._notify_token_change()
+
+    def _notify_token_change(self) -> None:
+        """Invoke the on_token_change callback if configured.
+
+        The callback must be synchronous. If an async callable is passed,
+        a warning is logged and the coroutine is properly closed to avoid
+        resource leaks.
+
+        Catches and logs callback errors so they never break the client.
+        Phase QC8 / M10.
+        """
+        if self._on_token_change is None:
+            return
+        try:
+            import inspect
+
+            result = self._on_token_change(
+                access_token=self._access_token,
+                refresh_token=self._refresh_token,
+            )
+            if inspect.isawaitable(result):
+                logger.warning(
+                    "on_token_change callback returned a coroutine — "
+                    "callback must be synchronous; closing coroutine"
+                )
+                result.close()  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "on_token_change callback failed", exc_info=True,
+            )
 
     @property
     def access_token(self) -> str | None:
@@ -144,6 +181,7 @@ class GoogleAuthClient:
         self._access_token = at
         self._refresh_token = rt
 
+        self._notify_token_change()
         logger.info("Google OAuth2 code exchange succeeded")
         return {"access_token": at, "refresh_token": rt}
 
@@ -179,4 +217,5 @@ class GoogleAuthClient:
         if "refresh_token" in body:
             self._refresh_token = body["refresh_token"]
 
+        self._notify_token_change()
         logger.info("Google OAuth2 token refresh succeeded")

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/api/client";
 import type { CostRecord, CostSummary } from "@/api/types";
@@ -6,18 +7,22 @@ import { Progress } from "@/components/ui/progress";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 
 const COLORS = ["hsl(225, 60%, 55%)", "hsl(142, 60%, 40%)", "hsl(38, 80%, 50%)", "hsl(0, 72%, 51%)"];
+const PAGE_LIMIT = 20;
 
 export default function Cost() {
-  const { data: summaryRes } = useQuery({
+  const [offset, setOffset] = useState(0);
+
+  const { data: summaryRes, isLoading: summaryLoading } = useQuery({
     queryKey: ["costSummary"],
     queryFn: () => apiRequest<CostSummary[]>("/api/v1/cost/summary"),
   });
 
-  const { data: recordsRes } = useQuery({
-    queryKey: ["costRecords"],
-    queryFn: () => apiRequest<CostRecord[]>("/api/v1/cost/records"),
+  const { data: recordsRes, isLoading: recordsLoading } = useQuery({
+    queryKey: ["costRecords", offset],
+    queryFn: () => apiRequest<CostRecord[]>(`/api/v1/cost/records?limit=${PAGE_LIMIT}&offset=${offset}`),
   });
 
+  const isLoading = summaryLoading || recordsLoading;
   const summaries = summaryRes?.data || [];
   const records = recordsRes?.data || [];
 
@@ -38,6 +43,34 @@ export default function Cost() {
   }, {});
 
   const barData = Object.entries(byModel).map(([model, data]) => ({ model, ...data }));
+
+  if (isLoading) {
+    return (
+      <div className="p-6 space-y-6">
+        <div>
+          <h1 className="text-lg font-semibold">Cost Dashboard</h1>
+          <p className="text-sm text-muted-foreground">Token usage and cost tracking</p>
+        </div>
+        <div className="space-y-4">
+          <div className="animate-pulse h-24 bg-muted rounded-lg" role="status" />
+          <div className="animate-pulse h-24 bg-muted rounded-lg" />
+          <div className="animate-pulse h-24 bg-muted rounded-lg" />
+        </div>
+      </div>
+    );
+  }
+
+  if (summaries.length === 0 && records.length === 0) {
+    return (
+      <div className="p-6 space-y-6">
+        <div>
+          <h1 className="text-lg font-semibold">Cost Dashboard</h1>
+          <p className="text-sm text-muted-foreground">Token usage and cost tracking</p>
+        </div>
+        <p className="text-sm text-muted-foreground">No cost data</p>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 space-y-6">

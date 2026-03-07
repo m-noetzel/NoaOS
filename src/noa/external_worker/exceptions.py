@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+# Re-export shared LLM exceptions for backward compatibility
+from noa.llm.exceptions import ProviderError, ProviderTimeoutError
 
-class ProviderError(Exception):
-    """Raised when an upstream LLM provider returns an error."""
-
-
-class ProviderTimeoutError(ProviderError):
-    """Raised when an upstream LLM provider request times out."""
+__all__ = [
+    "PrivacyViolationError",
+    "ProviderError",
+    "ProviderTimeoutError",
+    "ToolNotFoundError",
+]
 
 
 class PrivacyViolationError(ValueError):

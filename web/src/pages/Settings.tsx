@@ -9,6 +9,25 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 
+/** Models grouped by provider (UI-H2) */
+export const PROVIDER_MODELS: Record<string, { value: string; label: string }[]> = {
+  anthropic: [
+    { value: "claude-sonnet-4-20250514", label: "Claude Sonnet 4" },
+    { value: "claude-opus-4-6", label: "Claude Opus 4.6" },
+  ],
+  openai: [
+    { value: "gpt-4.1", label: "GPT-4.1" },
+    { value: "gpt-4.1-mini", label: "GPT-4.1 Mini" },
+    { value: "gpt-4o", label: "GPT-4o" },
+  ],
+  google_ai: [
+    { value: "gemini-2.0-flash", label: "Gemini 2.0 Flash" },
+  ],
+  ollama: [
+    { value: "llama-3.1-70b", label: "Llama 3.1 70B (Local)" },
+  ],
+};
+
 export default function Settings() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -20,24 +39,67 @@ export default function Settings() {
 
   const settings = settingsRes?.data;
 
-  const [model, setModel] = useState(settings?.default_model || "claude-sonnet-4-20250514");
-  const [provider, setProvider] = useState(settings?.default_provider || "anthropic");
-  const [privacy, setPrivacy] = useState<PrivacyMode>(settings?.default_privacy_mode || "private");
-  const [dailyBudget, setDailyBudget] = useState(String(settings?.budget_daily_usd || 10));
-  const [monthlyBudget, setMonthlyBudget] = useState(String(settings?.budget_monthly_usd || 200));
-
-  const [ollamaUrl, setOllamaUrl] = useState(settings?.ollama_base_url || "http://private-worker:11434");
+  const [model, setModel] = useState("");
+  const [provider, setProvider] = useState("");
+  const [privacy, setPrivacy] = useState<PrivacyMode>("private");
+  const [dailyBudget, setDailyBudget] = useState("10");
+  const [monthlyBudget, setMonthlyBudget] = useState("200");
+  const [budgetError, setBudgetError] = useState<string | null>(null);
+  const [ollamaUrl, setOllamaUrl] = useState("http://private-worker:11434");
+  const [initialized, setInitialized] = useState(false);
 
   useEffect(() => {
     if (settings) {
-      setModel(settings.default_model);
-      setProvider(settings.default_provider || "anthropic");
+      const newProvider = settings.default_provider || "anthropic";
+      const newModel = settings.default_model;
+      setProvider(newProvider);
+      // Validate that the model belongs to the provider
+      const models = PROVIDER_MODELS[newProvider];
+      if (models && models.some((m) => m.value === newModel)) {
+        setModel(newModel);
+      } else if (models && models.length > 0) {
+        setModel(models[0].value);
+      }
       setPrivacy(settings.default_privacy_mode || "private");
       setDailyBudget(String(settings.budget_daily_usd || 10));
       setMonthlyBudget(String(settings.budget_monthly_usd || 200));
       setOllamaUrl(settings.ollama_base_url || "http://private-worker:11434");
+      setInitialized(true);
     }
   }, [settings]);
+
+  // When provider changes, reset model to first valid model for that provider (UI-H2)
+  const handleProviderChange = (newProvider: string) => {
+    setProvider(newProvider);
+    const models = PROVIDER_MODELS[newProvider];
+    if (models && models.length > 0) {
+      const currentModelValid = models.some((m) => m.value === model);
+      if (!currentModelValid) {
+        setModel(models[0].value);
+      }
+    }
+  };
+
+  // Budget validation (UI-H3)
+  const validateBudgets = (): boolean => {
+    const daily = parseFloat(dailyBudget);
+    const monthly = parseFloat(monthlyBudget);
+
+    if (isNaN(daily) || isNaN(monthly)) {
+      setBudgetError("Budget values must be valid numbers");
+      return false;
+    }
+    if (daily < 0 || monthly < 0) {
+      setBudgetError("Budget values must not be negative");
+      return false;
+    }
+    if (daily > monthly) {
+      setBudgetError("Daily budget must not exceed monthly budget");
+      return false;
+    }
+    setBudgetError(null);
+    return true;
+  };
 
   const saveMutation = useMutation({
     mutationFn: () => {
@@ -63,6 +125,24 @@ export default function Settings() {
     },
   });
 
+  const handleSave = () => {
+    if (!validateBudgets()) return;
+    saveMutation.mutate();
+  };
+
+  const availableModels = PROVIDER_MODELS[provider] || [];
+
+  if (!initialized) {
+    return (
+      <div className="p-6 space-y-6 max-w-xl">
+        <div>
+          <h1 className="text-lg font-semibold">Settings</h1>
+          <p className="text-sm text-muted-foreground">Loading settings...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 space-y-6 max-w-xl">
       <div>
@@ -78,14 +158,14 @@ export default function Settings() {
         <CardContent className="space-y-4">
           <div className="space-y-1.5">
             <Label className="text-xs">Default Provider</Label>
-            <Select value={provider} onValueChange={setProvider}>
+            <Select value={provider} onValueChange={handleProviderChange}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="anthropic">Anthropic</SelectItem>
                 <SelectItem value="openai">OpenAI</SelectItem>
-                <SelectItem value="google">Google AI</SelectItem>
+                <SelectItem value="google_ai">Google AI</SelectItem>
                 <SelectItem value="ollama">Ollama (Local)</SelectItem>
               </SelectContent>
             </Select>
@@ -98,13 +178,9 @@ export default function Settings() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="gpt-4.1">GPT-4.1</SelectItem>
-                <SelectItem value="gpt-4.1-mini">GPT-4.1 Mini</SelectItem>
-                <SelectItem value="gpt-4o">GPT-4o</SelectItem>
-                <SelectItem value="claude-sonnet-4-20250514">Claude Sonnet 4</SelectItem>
-                <SelectItem value="claude-opus-4-6">Claude Opus 4.6</SelectItem>
-                <SelectItem value="gemini-2.0-flash">Gemini 2.0 Flash</SelectItem>
-                <SelectItem value="llama-3.1-70b">Llama 3.1 70B (Local)</SelectItem>
+                {availableModels.map((m) => (
+                  <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -132,12 +208,15 @@ export default function Settings() {
         <CardContent className="space-y-4">
           <div className="space-y-1.5">
             <Label className="text-xs">Daily Budget (USD)</Label>
-            <Input type="number" value={dailyBudget} onChange={(e) => setDailyBudget(e.target.value)} />
+            <Input type="number" min="0" step="0.01" value={dailyBudget} onChange={(e) => setDailyBudget(e.target.value)} />
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs">Monthly Budget (USD)</Label>
-            <Input type="number" value={monthlyBudget} onChange={(e) => setMonthlyBudget(e.target.value)} />
+            <Input type="number" min="0" step="0.01" value={monthlyBudget} onChange={(e) => setMonthlyBudget(e.target.value)} />
           </div>
+          {budgetError && (
+            <p className="text-sm text-destructive">{budgetError}</p>
+          )}
         </CardContent>
       </Card>
 
@@ -167,7 +246,7 @@ export default function Settings() {
         </CardContent>
       </Card>
 
-      <Button onClick={() => saveMutation.mutate()}>Save Settings</Button>
+      <Button onClick={handleSave}>Save Settings</Button>
     </div>
   );
 }

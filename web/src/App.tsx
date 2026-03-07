@@ -1,3 +1,4 @@
+import React, { Suspense } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -16,9 +17,13 @@ import Approvals from "@/pages/Approvals";
 import Queue from "@/pages/Queue";
 import Memory from "@/pages/Memory";
 import Artifacts from "@/pages/Artifacts";
-import Cost from "@/pages/Cost";
 import Settings from "@/pages/Settings";
 import NotFound from "@/pages/NotFound";
+import ErrorBoundary from "@/components/ErrorBoundary";
+
+// UI-M10: Lazy-load heavy pages for code splitting
+const Cost = React.lazy(() => import("@/pages/Cost"));
+const Tools = React.lazy(() => import("@/pages/Tools"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -32,7 +37,9 @@ const queryClient = new QueryClient({
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return (
     <AuthGuard>
-      <AppLayout>{children}</AppLayout>
+      <AppLayout>
+        <ErrorBoundary>{children}</ErrorBoundary>
+      </AppLayout>
     </AuthGuard>
   );
 }
@@ -45,20 +52,23 @@ const App = () => (
         <Sonner />
         <BrowserRouter>
           <AuthProvider>
-            <Routes>
-              <Route path="/login" element={<Login />} />
-              <Route path="/register" element={<Register />} />
-              <Route path="/" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
-              <Route path="/runs" element={<ProtectedRoute><Runs /></ProtectedRoute>} />
-              <Route path="/runs/:runId" element={<ProtectedRoute><RunDetail /></ProtectedRoute>} />
-              <Route path="/approvals" element={<ProtectedRoute><Approvals /></ProtectedRoute>} />
-              <Route path="/queue" element={<ProtectedRoute><Queue /></ProtectedRoute>} />
-              <Route path="/memory" element={<ProtectedRoute><Memory /></ProtectedRoute>} />
-              <Route path="/artifacts" element={<ProtectedRoute><Artifacts /></ProtectedRoute>} />
-              <Route path="/cost" element={<ProtectedRoute><Cost /></ProtectedRoute>} />
-              <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
-              <Route path="*" element={<NotFound />} />
-            </Routes>
+            <Suspense fallback={<div className="p-6 text-muted-foreground">Loading...</div>}>
+              <Routes>
+                <Route path="/login" element={<Login />} />
+                <Route path="/register" element={<Register />} />
+                <Route path="/" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
+                <Route path="/runs" element={<ProtectedRoute><Runs /></ProtectedRoute>} />
+                <Route path="/runs/:runId" element={<ProtectedRoute><RunDetail /></ProtectedRoute>} />
+                <Route path="/approvals" element={<ProtectedRoute><Approvals /></ProtectedRoute>} />
+                <Route path="/queue" element={<ProtectedRoute><Queue /></ProtectedRoute>} />
+                <Route path="/memory" element={<ProtectedRoute><Memory /></ProtectedRoute>} />
+                <Route path="/artifacts" element={<ProtectedRoute><Artifacts /></ProtectedRoute>} />
+                <Route path="/cost" element={<ProtectedRoute><Cost /></ProtectedRoute>} />
+                <Route path="/tools" element={<ProtectedRoute><Tools /></ProtectedRoute>} />
+                <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </Suspense>
           </AuthProvider>
         </BrowserRouter>
       </TooltipProvider>

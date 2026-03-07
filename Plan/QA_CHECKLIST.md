@@ -7,7 +7,7 @@ Every QA review evaluates against these criteria. PASS requires ALL must-haves g
 ## Must-Haves (BLOCKING — any failure = FAIL verdict)
 
 ### M1: Spec Traceability
-- [ ] Every test class/method has a docstring citing SPEC.md §X.Y or MASTER_PLAN Phase ID
+- [ ] Every test class/method has a docstring citing SPEC.md §X.Y or PLAN Phase ID
 - [ ] Every spec requirement listed in the phase plan has at least one corresponding test
 - [ ] No orphan tests (tests that don't trace to any requirement)
 

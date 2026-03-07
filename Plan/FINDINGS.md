@@ -7,6 +7,68 @@
 
 ---
 
+## Tracking Summary
+
+| ID | Severity | Title | Status | Resolved By |
+|----|----------|-------|--------|-------------|
+| C1 | Critical | Async/Sync Mismatch in Tool Dispatch | **Resolved** | QC1 |
+| C2 | Critical | Domain Isolation Violation — External→Private Import | Open | QC4 (planned) |
+| C3 | Critical | Audit Hash Chain Race Condition | **Resolved** | QC2 |
+| C4 | Critical | Schema Drift — Model vs Migration Mismatch | **Resolved** | QC1 |
+| C5 | Critical | JWT Secret Key Falls Back to Empty String | **Resolved** | QC1 |
+| C6 | Critical | Token Storage in localStorage (XSS-Vulnerable) | **Resolved** | QC2 |
+| H1 | High | Workers Are Skeleton-Only — No Actual Endpoints | Open | QC4 (planned) |
+| H2 | High | No Database Indexes (Performance Cliff) | Open | QC5 (planned) |
+| H3 | High | AuditService Instantiation Bypasses `__init__` | **Resolved** | QC1 |
+| H4 | High | Settings Repository Commits Inside Repository Layer | **Resolved** | QC3 |
+| H5 | High | Bare `except Exception: pass` Throughout Codebase | **Resolved** | QC3 |
+| H6 | High | No Input Validation on Email Recipients | **Resolved** | QC2 |
+| H7 | High | Tool Capability Default is "Allow" | **Resolved** | QC2 |
+| H8 | High | Rate Limiting Is Process-Local and Per-Action | **Partially Resolved** | QC8 (per-user in-memory, DB-backed deferred) |
+| H9 | High | Google AI Provider Missing Tool Call `id` Field | Open | QC4 (planned) |
+| H10 | High | Notion HTML Sanitization Is Regex-Based | **Resolved** | QC2 |
+| M1 | Medium | Idempotency Implementation Is Dead Code | **Resolved** | QC8 |
+| M2 | Medium | No CSRF Protection | **Resolved** | QC2 |
+| M3 | Medium | Retention Scheduler Never Actually Purges | Open | QC5 (planned) |
+| M4 | Medium | No Content-Security-Policy Headers | **Resolved** | QC2 |
+| M5 | Medium | SSE Reconnection Loses Events | **Partially Resolved** | QC8 (Last-Event-ID tracked, replay endpoint stub) |
+| M6 | Medium | Approval Expiry Never Enforced | Open | QC5 (planned) |
+| M7 | Medium | Step-Up Auth Defined But Not Enforced | **Resolved** | QC8 |
+| M8 | Medium | Cost Endpoint Returns 200 on Database Error | **Resolved** | QC3 |
+| M9 | Medium | ContractViolationTracker Window Never Pruned | Open | QC5 (planned) |
+| M10 | Medium | Google Refresh Tokens Not Persisted | **Partially Resolved** | QC8 (env-var persistence, DB deferred) |
+| M11 | Medium | Inconsistent User ID Extraction from JWT | **Resolved** | QC3 |
+| M12 | Medium | Mixed Sync/Async Service Layer | Open | QC5 (planned) |
+| M13 | Medium | Backup Script Errors Silently Ignored | **Resolved** | QC3 |
+| M14 | Medium | No Frontend Request Timeouts | **Resolved** | QC8 |
+| A1 | Arch | Global Mutable State Instead of DI | **Partially Resolved** | QC8 (reset_all for tests, full DI deferred) |
+| A2 | Arch | ProviderRouter Is Both Router and Factory | **Resolved** | QC8 |
+| A3 | Arch | Orchestrator State Not Fully Initialized | **Resolved** | QC1 |
+| A4 | Arch | Checkpointer Is an Empty Stub | **Partially Resolved** | QC8 (NoOpCheckpointer wired, real impl deferred) |
+| A5 | Arch | No Transaction Abstraction | **Resolved** | QC8 |
+| UI-C1 | Critical | SSE BASE_URL Differs From API Client | **Resolved** | QC6 |
+| UI-C2 | Critical | Chat `currentRunId` Never Set From SSE | **Resolved** | QC6 |
+| UI-C3 | Critical | Logout Does Not Clear React Query Cache | **Resolved** | QC6 |
+| UI-H1 | High | Provider Dropdown Contains Invalid "google" | **Resolved** | QC6 |
+| UI-H2 | High | Model Dropdown Is Hardcoded, Doesn't Match Provider | **Resolved** | QC6 |
+| UI-H3 | High | Budget Inputs Accept Negative Numbers | **Resolved** | QC6 |
+| UI-H4 | High | No Error Boundaries — API Failures Crash Page | **Resolved** | QC6 |
+| UI-H5 | High | Memory Delete Has No Confirmation Dialog | **Resolved** | QC6 |
+| UI-M1 | Medium | Index Page Is a Placeholder | Open | QC7 (planned) |
+| UI-M2 | Medium | No Pagination on Runs, Artifacts, Cost Records | Open | QC7 (planned) |
+| UI-M3 | Medium | SSE Event Types Not Validated Before Processing | Open | QC7 (planned) |
+| UI-M4 | Medium | Streaming Content Not Added to Message History | Open | QC7 (planned) |
+| UI-M5 | Medium | Thread Names Are Always "New Thread" | Open | QC7 (planned) |
+| UI-M6 | Medium | No Tools Page in Navigation | Open | QC7 (planned) |
+| UI-M7 | Medium | Cost Charts Have No Loading or Empty States | Open | QC7 (planned) |
+| UI-M8 | Medium | Settings Changes Don't Immediately Affect Chat | Open | QC7 (planned) |
+| UI-M9 | Medium | No Notification Badges on Sidebar | Open | QC7 (planned) |
+| UI-M10 | Medium | JS Bundle Is 965 KB (No Code Splitting) | Open | QC7 (planned) |
+
+**Open:** 10 | **Partially Resolved:** 5 | **Resolved:** 34 | **Total:** 49
+
+---
+
 ## Executive Summary
 
 The project has a well-thought-out architecture (dual-domain isolation, policy engine, audit hash chain) and solid planning artifacts. However, the implementation has significant gaps between what the models/spec describe and what actually runs. Several subsystems are skeleton-only (workers, approvals, artifact storage). The code that does exist has critical issues around async/sync mixing, domain isolation violations, missing database indexes, and security weaknesses in token handling and input validation.
@@ -710,3 +772,18 @@ The sidebar shows no count badges for pending approvals, active queue items, or 
 All pages and all UI components are in one bundle. The `recharts` library alone is ~300 KB. Pages like Cost (with charts) and RunDetail (with graph visualization) should be lazy-loaded.
 
 **Fix:** Use `React.lazy()` + `Suspense` for route-level code splitting. Move heavy dependencies (recharts, run graph) into separate chunks.
+
+---
+
+## 8. Resolved Pipeline Issues
+
+Historical issues encountered during pipeline execution (formerly `Plan/ISSUES.md`). All resolved.
+
+| ID | Phase | Severity | Description | Resolution |
+|----|-------|----------|-------------|------------|
+| I1 | F4 | LOW | Tests use mock session; broad exception assertions | Replaced `pytest.raises(Exception)` with specific error types; mock session kept for unit tests |
+| I2 | OC3 | LOW | Audit log query/export endpoint not implemented | Created `src/noa/api/v1/audit.py` with GET/POST endpoints; wired into app.py |
+| I3 | DW1 | LOW | Private worker app.py wiring missing; 24h windowing not implemented | HealthChecker in app lifespan; 24h sliding-window stats via `stats_24h()` |
+| I4 | DW4 | LOW | Router not wired to PrivacyClassifier; LLM classification deferred | Router delegates to PrivacyClassifier as of DW4 |
+| I5 | TI6 | LOW | Tool node not wired; rate limiter fixed-window not sliding-window | Replaced with true sliding-window implementation using timestamp deque |
+| I6 | TI6 | LOW | `extract_idempotency_key` case-sensitive for header lookup | Now checks canonical, lowercase, and full case-insensitive fallback per RFC 7230 |

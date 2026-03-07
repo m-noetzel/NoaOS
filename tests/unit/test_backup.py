@@ -7,6 +7,7 @@ We create synthetic GPG files, temp directories, and mock subprocesses.
 from __future__ import annotations
 
 import os
+import subprocess
 import textwrap
 from pathlib import Path
 
@@ -162,9 +163,10 @@ class TestRunBackupScript:
         script.write_text("#!/bin/bash\necho 'DB unreachable' >&2\nexit 1")
         script.chmod(0o755)
 
-        result = run_backup_script(str(script))
-        assert result.returncode != 0
-        assert "DB unreachable" in result.stderr
+        with pytest.raises(subprocess.CalledProcessError) as exc_info:
+            run_backup_script(str(script))
+        assert exc_info.value.returncode != 0
+        assert "DB unreachable" in exc_info.value.stderr
 
     def test_env_passthrough(self, tmp_path: Path) -> None:
         script = tmp_path / "env.sh"
@@ -303,6 +305,6 @@ class TestRestoreRecovery:
         """))
         script.chmod(0o755)
 
-        result = run_backup_script(str(script))
-        assert result.returncode != 0
-        assert "unreachable" in result.stderr.lower() or result.returncode != 0
+        with pytest.raises(subprocess.CalledProcessError) as exc_info:
+            run_backup_script(str(script))
+        assert exc_info.value.returncode != 0

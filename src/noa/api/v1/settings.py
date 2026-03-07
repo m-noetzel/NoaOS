@@ -45,7 +45,7 @@ async def get_settings(
     """Get user settings with masked API keys."""
     rid = trace_id_ctx.get("")
     service = SettingsService(SettingsRepository(session))
-    user_id = uuid.UUID(user["sub"])
+    user_id = user.user_id if hasattr(user, "user_id") else uuid.UUID(user["sub"])
     data = await service.get_settings(user_id)
     return success_envelope(data=data, trace_id=rid)
 
@@ -60,7 +60,7 @@ async def update_settings(
     """Update user settings. Partial updates supported."""
     rid = trace_id_ctx.get("")
     service = SettingsService(SettingsRepository(session))
-    user_id = uuid.UUID(user["sub"])
+    user_id = user.user_id if hasattr(user, "user_id") else uuid.UUID(user["sub"])
     updates = body.model_dump(exclude_unset=True)
     data = await service.update_settings(user_id, updates)
     return success_envelope(data=data, trace_id=rid)

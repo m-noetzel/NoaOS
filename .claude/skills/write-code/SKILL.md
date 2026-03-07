@@ -23,8 +23,7 @@ The argument is: `$ARGUMENTS`
 - `src/models/*.py` — ORM models and Pydantic schemas
 - `src/config/*.py` — settings, profiles, constants
 - `src/` — all existing source code (understand patterns, reuse components)
-- `Plan/MASTER_PLAN.md` — phase descriptions and deliverables
-- `Plan/DECISION_LOG.md` — prior decisions for context
+- `Plan/PHASE_DETAILS.md` — phase descriptions and deliverables
 
 ### You CANNOT do:
 - **NEVER modify any file in `tests/`** — tests are the contract, not your code
@@ -33,7 +32,6 @@ The argument is: `$ARGUMENTS`
 
 ### You CAN write to:
 - `src/` — implementation code (new files or edits to existing files)
-- `Plan/DECISION_LOG.md` — document significant implementation decisions
 
 ---
 
@@ -83,24 +81,7 @@ pytest tests/unit/test_{name}.py -v
 
 ---
 
-## 3. Decision Logging
-
-When you choose between two or more reasonable approaches, log it:
-
-Append a row to `Plan/DECISION_LOG.md`:
-```
-| {date} | {phase-id} | {decision} | {alternatives} | {rationale} | Agent: write-code |
-```
-
-Examples of decisions worth logging:
-- Choosing between inheritance vs composition
-- Selecting a data structure (dict vs dataclass vs ORM model)
-- Error handling strategy (exceptions vs return codes)
-- Whether to add a new module vs extend an existing one
-
----
-
-## 4. Escalation Protocol
+## 3. Escalation Protocol
 
 ### If a test seems wrong or untestable:
 - **DO NOT modify the test**
@@ -124,7 +105,7 @@ Examples of decisions worth logging:
 
 ---
 
-## 5. Mandatory Code Quality Rules
+## 4. Mandatory Code Quality Rules
 
 ### Wiring is NOT optional
 If you create any of the following, you MUST wire it into the running system:
@@ -147,23 +128,22 @@ A phase is NOT complete until its code is callable from the running application.
 
 ---
 
-## 6. Output Contract (MANDATORY)
+## 5. Output Contract (MANDATORY)
 
 - Write implementation code ONLY in `src/`
 - All tests for this phase MUST pass (green)
 - Follow existing project conventions
-- Log non-trivial decisions to `Plan/DECISION_LOG.md`
 - Do NOT add features beyond what tests require
 - Do NOT write your own tests
 - Do NOT refactor unrelated code
 
 ---
 
-## 7. Before You Start
+## 6. Before You Start
 
 Confirm you understand the constraints:
 1. Tests are your contract — you implement to satisfy them, never modify them
-2. You write only to `src/` and `Plan/DECISION_LOG.md`
+2. You write only to `src/`
 3. You follow existing project patterns and conventions
 4. You escalate rather than hack around problematic tests
 5. Minimum viable implementation — no gold-plating

@@ -169,11 +169,35 @@ class AuditService:
         )
         return results
 
-    def purge_expired(self, retention_days: int = 90) -> int:
+    async def purge_expired_async(self, retention_days: int = 90) -> int:
         """Delete audit entries older than retention_days (§28.7).
 
-        Returns the number of entries purged.
+        Runs the sync DB query in a thread pool to avoid blocking
+        the event loop. Falls back to direct execution for SQLite
+        (which does not support cross-thread access).
         """
+        import asyncio
+
+        def _sync_purge() -> int:
+            cutoff = datetime.now(UTC) - timedelta(days=retention_days)
+            count: int = (
+                self._session.query(AuditLog)
+                .filter(AuditLog.timestamp < cutoff)
+                .delete(synchronize_session="fetch")
+            )
+            self._session.flush()
+            return count
+
+        # SQLite in-memory DBs can't be used across threads
+        bind = getattr(self._session, "bind", None)
+        dialect = getattr(bind, "dialect", None)
+        if dialect and getattr(dialect, "name", "") == "sqlite":
+            return _sync_purge()
+
+        return await asyncio.to_thread(_sync_purge)
+
+    def purge_expired(self, retention_days: int = 90) -> int:
+        """Sync variant of purge — for backward compatibility."""
         cutoff = datetime.now(UTC) - timedelta(days=retention_days)
         count: int = (
             self._session.query(AuditLog)

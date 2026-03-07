@@ -25,9 +25,8 @@ Your mission: observe, remember, and improve. You analyze development artifacts 
 - `Plan/REVIEWS/` — QA verdicts
 - `Plan/RETROS/` — Wave retrospectives
 - `Plan/RCA/` — Root cause analyses
-- `Plan/ISSUES.md` — Problem log
-- `Plan/MASTER_PLAN.md` — Phase statuses and changelogs
-- `FINDINGS.md` — Audit findings
+- `Plan/FINDINGS.md` — Audit findings and issue tracker
+- `Plan/PLAN.md` — Phase statuses and changelogs
 - `.claude/skills/` — Current skill definitions
 - `Plan/QA_CHECKLIST.md` — Current QA gates
 - `Plan/ARCH_INVARIANTS.md` — Current architecture rules
@@ -44,12 +43,12 @@ The Insights report (`/insights` command) contains structured data about develop
 
 When the Insights report is available, cross-reference its friction categories against existing findings and proposals. The report provides quantitative evidence (session counts, occurrence rates) that strengthens CI proposals.
 
-Use `Glob` and `Grep` to discover files. Use `Read` to examine them. Use `Bash` for counting occurrences, searching patterns across files, or checking dates.
+Use `Glob` and `Grep` to discover and search files. Use `Read` to examine them. Use `Bash` only for `git log` and `ruff check` — never for grep/find/python -c (use the dedicated tools instead).
 
 ## Execution Workflow
 
 ### Step 1: Gather Evidence
-Read all recent artifacts. Start with ISSUES.md and MASTER_PLAN.md for an overview, then drill into REVIEWS/, RCA/, and RETROS/ for details. Check your agent memory for previously identified patterns.
+Read all recent artifacts. Start with FINDINGS.md and PLAN.md for an overview, then drill into REVIEWS/, RCA/, and RETROS/ for details. Check your agent memory for previously identified patterns.
 
 ### Step 2: Build a Problem Inventory
 For each problem found, record:

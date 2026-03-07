@@ -1,18 +1,23 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/api/client";
 import type { Run } from "@/api/types";
 import { RunStatusBadge } from "@/components/badges/RunStatusBadge";
 import { RiskTierBadge } from "@/components/badges/RiskTierBadge";
-import { PrivacyModeBadge } from "@/components/badges/PrivacyModeBadge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
 import { Clock, Zap } from "lucide-react";
 
+const PAGE_LIMIT = 20;
+
 export default function Runs() {
   const navigate = useNavigate();
+  const [offset, setOffset] = useState(0);
+
   const { data: runsRes, isLoading } = useQuery({
-    queryKey: ["runs"],
-    queryFn: () => apiRequest<Run[]>("/api/v1/runs"),
+    queryKey: ["runs", offset],
+    queryFn: () => apiRequest<Run[]>(`/api/v1/runs?limit=${PAGE_LIMIT}&offset=${offset}`),
   });
 
   const runs = runsRes?.data || [];
@@ -84,6 +89,25 @@ export default function Runs() {
             )}
           </TableBody>
         </Table>
+      </div>
+
+      <div className="flex justify-end gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={offset === 0}
+          onClick={() => setOffset((prev) => Math.max(0, prev - PAGE_LIMIT))}
+        >
+          Previous
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={runs.length < PAGE_LIMIT}
+          onClick={() => setOffset((prev) => prev + PAGE_LIMIT)}
+        >
+          Next
+        </Button>
       </div>
     </div>
   );

@@ -8,11 +8,22 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Check, Pencil, X, Trash2, Search } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export default function Memory() {
   const [search, setSearch] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const { data: factsRes, isLoading } = useQuery({
@@ -45,9 +56,24 @@ export default function Memory() {
     mutationFn: (id: string) =>
       apiRequest<void>(`/api/v1/memory/facts/${id}`, { method: "DELETE" }),
     onSuccess: () => {
+      setDeleteTargetId(null);
       queryClient.invalidateQueries({ queryKey: ["memory-facts"] });
     },
   });
+
+  const handleDeleteClick = (id: string) => {
+    setDeleteTargetId(id);
+  };
+
+  const handleDeleteConfirm = () => {
+    if (deleteTargetId) {
+      deleteMutation.mutate(deleteTargetId);
+    }
+  };
+
+  const handleDeleteCancel = () => {
+    setDeleteTargetId(null);
+  };
 
   const facts = factsRes?.data || [];
   const pending = facts.filter((f) => f.status === "pending");
@@ -70,7 +96,7 @@ export default function Memory() {
           <TabsTrigger value="approved">Approved ({approved.length})</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="pending" className="mt-4">
+        <TabsContent value="pending" className="mt-4" forceMount>
           <div className="rounded-md border">
             <Table>
               <TableHeader>
@@ -137,7 +163,7 @@ export default function Memory() {
                             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditingId(fact.id); setEditText(fact.fact); }}>
                               <Pencil className="h-3.5 w-3.5" />
                             </Button>
-                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => deleteMutation.mutate(fact.id)}>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" aria-label="Delete" onClick={() => handleDeleteClick(fact.id)}>
                               <X className="h-3.5 w-3.5" />
                             </Button>
                           </div>
@@ -151,7 +177,7 @@ export default function Memory() {
           </div>
         </TabsContent>
 
-        <TabsContent value="approved" className="mt-4 space-y-3">
+        <TabsContent value="approved" className="mt-4 space-y-3" forceMount>
           <div className="relative max-w-sm">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
@@ -189,7 +215,7 @@ export default function Memory() {
                         {new Date(fact.created_at).toLocaleDateString()}
                       </TableCell>
                       <TableCell>
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => deleteMutation.mutate(fact.id)}>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" aria-label="Delete" onClick={() => handleDeleteClick(fact.id)}>
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </TableCell>
@@ -201,6 +227,22 @@ export default function Memory() {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Delete confirmation dialog (UI-H5) */}
+      <AlertDialog open={deleteTargetId !== null} onOpenChange={(open) => { if (!open) handleDeleteCancel(); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete memory fact</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this memory fact? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={handleDeleteCancel}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteConfirm}>Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -22,6 +22,7 @@ __all__ = [
     "ProviderError",
     "ProviderRouter",
     "ProviderTimeoutError",
+    "build_llm_clients",
 ]
 
 # Default models per provider
@@ -49,17 +50,22 @@ class ProviderRouter:
     forwarded to an external provider.
     """
 
-    def __init__(self, config: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        config: dict[str, Any],
+        clients: dict[str, Any] | None = None,
+    ) -> None:
         self._default_provider: str = config["default_provider"]
         self._providers: dict[str, Any] = config.get("providers", {})
-        self._clients: dict[str, Any] = {}
+        self._clients: dict[str, Any] = clients if clients is not None else {}
 
     @classmethod
     def from_settings(cls, settings: Any) -> ProviderRouter:
         """Create a ProviderRouter from a UserSettings object.
 
         Instantiates real LLM clients for each provider that has
-        credentials configured.
+        credentials configured.  Delegates client construction to
+        ``build_llm_clients()`` (Phase QC8 / A2).
         """
         default = (
             getattr(settings, "default_provider", "anthropic")
@@ -69,56 +75,8 @@ class ProviderRouter:
             "default_provider": default,
             "providers": {},
         }
-
-        router = cls(config)
-
-        # Anthropic
-        anthropic_key = getattr(settings, "anthropic_api_key", None)
-        if anthropic_key:
-            from noa.external_worker.llm.anthropic import AnthropicClient
-
-            default_model = (
-                getattr(settings, "default_model", None)
-                or _DEFAULT_MODELS["anthropic"]
-            )
-            # Use provider default if not an Anthropic model
-            if not default_model.startswith("claude"):
-                default_model = _DEFAULT_MODELS["anthropic"]
-            router._clients["anthropic"] = AnthropicClient(
-                api_key=anthropic_key,
-                model=default_model,
-            )
-
-        # OpenAI
-        openai_key = getattr(settings, "openai_api_key", None)
-        if openai_key:
-            from noa.external_worker.llm.openai import OpenAIClient
-
-            router._clients["openai"] = OpenAIClient(
-                api_key=openai_key,
-                model=_DEFAULT_MODELS["openai"],
-            )
-
-        # Google AI
-        google_key = getattr(settings, "google_ai_api_key", None)
-        if google_key:
-            from noa.external_worker.llm.google_ai import GoogleAIClient
-
-            router._clients["google_ai"] = GoogleAIClient(
-                api_key=google_key,
-                model=_DEFAULT_MODELS["google_ai"],
-            )
-
-        # Ollama (always available — local service)
-        ollama_url = getattr(settings, "ollama_base_url", "http://ollama:11434") or "http://ollama:11434"
-        from noa.private_worker.ollama_client import OllamaClient
-
-        router._clients["ollama"] = OllamaClient(
-            base_url=ollama_url,
-            model_manifest=_DEFAULT_OLLAMA_MANIFEST,
-        )
-
-        return router
+        clients = build_llm_clients(settings)
+        return cls(config, clients=clients)
 
     @property
     def available_providers(self) -> list[str]:
@@ -207,3 +165,58 @@ class ProviderRouter:
             **kwargs,
         )
         return result
+
+
+def build_llm_clients(settings: Any) -> dict[str, Any]:
+    """Build a dict of LLM clients from settings.
+
+    Returns only providers that have valid credentials configured.
+    Ollama is always included as a local provider.
+
+    Phase QC8 / A2.
+    """
+    clients: dict[str, Any] = {}
+
+    # Anthropic
+    anthropic_key = getattr(settings, "anthropic_api_key", None)
+    if anthropic_key:
+        from noa.external_worker.llm.anthropic import AnthropicClient
+
+        clients["anthropic"] = AnthropicClient(
+            api_key=anthropic_key,
+            model=_DEFAULT_MODELS["anthropic"],
+        )
+
+    # OpenAI
+    openai_key = getattr(settings, "openai_api_key", None)
+    if openai_key:
+        from noa.external_worker.llm.openai import OpenAIClient
+
+        clients["openai"] = OpenAIClient(
+            api_key=openai_key,
+            model=_DEFAULT_MODELS["openai"],
+        )
+
+    # Google AI
+    google_key = getattr(settings, "google_ai_api_key", None)
+    if google_key:
+        from noa.external_worker.llm.google_ai import GoogleAIClient
+
+        clients["google_ai"] = GoogleAIClient(
+            api_key=google_key,
+            model=_DEFAULT_MODELS["google_ai"],
+        )
+
+    # Ollama (always available — local service)
+    ollama_url = (
+        getattr(settings, "ollama_base_url", "http://ollama:11434")
+        or "http://ollama:11434"
+    )
+    from noa.llm.providers import OllamaClient
+
+    clients["ollama"] = OllamaClient(
+        base_url=ollama_url,
+        model_manifest=_DEFAULT_OLLAMA_MANIFEST,
+    )
+
+    return clients

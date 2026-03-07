@@ -5,10 +5,10 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, String
+from sqlalchemy import DateTime, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from noa.db.models import Base
+from noa.db.models.base import Base
 
 
 class User(Base):
@@ -21,6 +21,9 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
+        server_default=func.now(),
         nullable=False,
     )
-    is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
+    is_active: Mapped[bool] = mapped_column(
+        default=True, server_default="1", nullable=False,
+    )

@@ -8,12 +8,15 @@ import { Download, Eye } from "lucide-react";
 import { useState } from "react";
 import DOMPurify from "dompurify";
 
+const PAGE_LIMIT = 20;
+
 export default function Artifacts() {
   const [previewId, setPreviewId] = useState<string | null>(null);
+  const [offset, setOffset] = useState(0);
 
   const { data: artifactsRes, isLoading } = useQuery({
-    queryKey: ["artifacts"],
-    queryFn: () => apiRequest<Artifact[]>("/api/v1/artifacts"),
+    queryKey: ["artifacts", offset],
+    queryFn: () => apiRequest<Artifact[]>(`/api/v1/artifacts?limit=${PAGE_LIMIT}&offset=${offset}`),
   });
 
   const artifacts = artifactsRes?.data || [];

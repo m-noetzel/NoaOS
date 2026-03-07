@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-
-from sqlalchemy.orm import Session
+from typing import Any
 
 from noa.db.models.artifact import Artifact
 from noa.db.models.run import Run, RunEvent
@@ -15,7 +14,7 @@ from noa.runs.schemas import VALID_EVENT_TYPES, VALID_TRANSITIONS
 class RunService:
     """Service layer for Run, RunEvent, and Artifact operations."""
 
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Any = None) -> None:
         self._session = session
 
     # -- Run CRUD ------------------------------------------------------------
