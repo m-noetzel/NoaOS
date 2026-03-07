@@ -54,8 +54,8 @@ class DbCapabilityChecker:
     ) -> bool:
         cap_str = TOOL_CAPABILITIES.get(tool_name)
         if cap_str is None:
-            # Tool not in capabilities map — allow by default
-            return True
+            # Tool not in capabilities map — deny by default (H7)
+            return False
         stmt = select(ToolCapability).where(
             ToolCapability.user_id == user_id,
             ToolCapability.tool_name == tool_name,

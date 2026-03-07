@@ -54,12 +54,14 @@ export class SSEClient {
           headers,
           body: JSON.stringify(body),
           signal: this.controller.signal,
+          credentials: "include",
         });
       } else {
         response = await fetch(`${BASE_URL}${path}`, {
           method: "GET",
           headers,
           signal: this.controller.signal,
+          credentials: "include",
         });
       }
 

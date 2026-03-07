@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.cors import CORSMiddleware
 
 from noa.api.middleware import RequestIDMiddleware, register_error_handlers
@@ -16,8 +17,8 @@ from noa.api.v1.approvals import router as approvals_router
 from noa.api.v1.artifacts import router as artifacts_router
 from noa.api.v1.audit import router as audit_router
 from noa.api.v1.auth import router as auth_router
-from noa.api.v1.cost import router as cost_router
 from noa.api.v1.chat import router as chat_router
+from noa.api.v1.cost import router as cost_router
 from noa.api.v1.health import router as health_router
 from noa.api.v1.memory import router as memory_router
 from noa.api.v1.queue import router as queue_router
@@ -247,18 +248,42 @@ def create_app() -> FastAPI:
 
     # Middleware (order matters — outermost first)
     # §29.4: LAN/VPN only — restrict CORS to known origins
-    allowed_origins = os.environ.get(
+    allowed_origins_raw = os.environ.get(
         "CORS_ALLOWED_ORIGINS",
         "http://localhost:5173,http://localhost:5174,http://localhost:4173,http://localhost:8000",
     ).split(",")
+    # M2: Reject wildcard origins — credentials require explicit origins
+    allowed_origins = [
+        o.strip() for o in allowed_origins_raw
+        if o.strip() and o.strip() != "*"
+    ]
     app.add_middleware(
         CORSMiddleware,
         allow_origins=allowed_origins,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+        allow_headers=[
+            "Authorization", "Content-Type", "Accept",
+            "Idempotency-Key", "X-Trace-ID", "X-CSRF-Token",
+        ],
     )
     app.add_middleware(RequestIDMiddleware)
+
+    # Content-Security-Policy header middleware (M4)
+    class CSPMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request: Any, call_next: Any) -> Any:  # noqa: ANN401
+            response = await call_next(request)
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self'; "
+                "script-src 'self'; "
+                "style-src 'self' 'unsafe-inline'; "
+                "img-src 'self' data:; "
+                "connect-src 'self'; "
+                "frame-ancestors 'none'"
+            )
+            return response
+
+    app.add_middleware(CSPMiddleware)
 
     # Error handlers
     register_error_handlers(app)

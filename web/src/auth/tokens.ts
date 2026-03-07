@@ -1,24 +1,27 @@
-const ACCESS_TOKEN_KEY = "noa_access_token";
-const REFRESH_TOKEN_KEY = "noa_refresh_token";
+// Auth state tracking (C6: tokens are in httpOnly cookies, not accessible to JS)
+const AUTH_FLAG_KEY = "noa_authenticated";
 
 export function getAccessToken(): string | null {
-  return localStorage.getItem(ACCESS_TOKEN_KEY);
+  // Tokens are in httpOnly cookies — not readable by JS.
+  // Return null; auth is handled by cookies sent automatically.
+  return null;
 }
 
 export function getRefreshToken(): string | null {
-  return localStorage.getItem(REFRESH_TOKEN_KEY);
+  return null;
 }
 
-export function setTokens(access: string, refresh: string): void {
-  localStorage.setItem(ACCESS_TOKEN_KEY, access);
-  localStorage.setItem(REFRESH_TOKEN_KEY, refresh);
+export function setTokens(_access: string, _refresh: string): void {
+  // Tokens are set as httpOnly cookies by the server.
+  // We only track the "authenticated" flag in localStorage.
+  localStorage.setItem(AUTH_FLAG_KEY, "true");
 }
 
 export function clearTokens(): void {
-  localStorage.removeItem(ACCESS_TOKEN_KEY);
-  localStorage.removeItem(REFRESH_TOKEN_KEY);
+  localStorage.removeItem(AUTH_FLAG_KEY);
 }
 
 export function hasTokens(): boolean {
-  return !!getAccessToken() && !!getRefreshToken();
+  // Check the auth flag — actual tokens are in httpOnly cookies
+  return localStorage.getItem(AUTH_FLAG_KEY) === "true";
 }

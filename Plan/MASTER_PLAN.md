@@ -96,7 +96,7 @@ The plan is organized into **waves** — groups of related phases that deliver a
 | **OP5** | Operational Runbook | **Complete** | 11 | main | ~20 min | ~4 min | Pre-flight checks, runbook with 8 sections, troubleshooting |
 | — | — **WAVE 14B: QUALITY & CLEANUP** — | — | — | — | — | — | — |
 | **QC1** | Critical Runtime Fixes | **Complete** | 13 | main | ~30 min | ~15 min | C1: async tool dispatch, C4: migration 005, C5: JWT no empty fallback, A3: full state init, H3: proper AuditService ctor |
-| **QC2** | Security Hardening | Planned | — | — | ~45 min | — | C3, C6, H6, H7, H10, M2, M4 |
+| **QC2** | Security Hardening | **Complete** | 31 | main | ~45 min | ~40 min | C3: audit FOR UPDATE, C6: httpOnly cookies, H6: email validation, H7: default deny, H10: nh3 sanitization, M2: CORS tightening, M4: CSP headers |
 | **QC3** | Error Handling & Observability | Planned | — | — | ~30 min | — | H4, H5, M8, M11, M13 |
 | **QC4** | Domain Isolation & Worker Wiring | Planned | — | — | ~45 min | — | C2, H1, H9 |
 | **QC5** | Database & Data Integrity | Planned | — | — | ~30 min | — | H2, M3, M6, M9, M12 |

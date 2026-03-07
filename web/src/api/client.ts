@@ -15,15 +15,14 @@ function generateIdempotencyKey(): string {
 }
 
 async function refreshAccessToken(): Promise<boolean> {
-  const refresh = getRefreshToken();
-  if (!refresh) return false;
-
+  // C6: Refresh token is in httpOnly cookie, sent automatically
   try {
-    const body: RefreshRequest = { refresh_token: refresh, device_id: WEB_DEVICE_ID };
+    const body: RefreshRequest = { refresh_token: "", device_id: WEB_DEVICE_ID };
     const res = await fetch(`${BASE_URL}/api/v1/auth/refresh`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      credentials: "include",
     });
 
     if (!res.ok) {
@@ -31,13 +30,14 @@ async function refreshAccessToken(): Promise<boolean> {
       return false;
     }
 
-    const envelope: ApiResponse<AuthTokens> = await res.json();
+    const envelope = await res.json();
     if (!envelope.ok || envelope.error) {
       clearTokens();
       return false;
     }
 
-    setTokens(envelope.data.access_token, envelope.data.refresh_token);
+    // Tokens are in httpOnly cookies; just confirm auth state
+    setTokens("", "");
     return true;
   } catch {
     clearTokens();
@@ -87,7 +87,7 @@ export async function apiRequest<T>(
       headers["Idempotency-Key"] = generateIdempotencyKey();
     }
 
-    return fetch(`${BASE_URL}${path}`, { ...options, headers });
+    return fetch(`${BASE_URL}${path}`, { ...options, headers, credentials: "include" });
   };
 
   let response = await makeRequest();

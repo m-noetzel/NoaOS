@@ -49,10 +49,13 @@ class AuditService:
         The new entry's previous_entry_hash is set to the SHA-256 of the
         most recent existing entry's hash_chain_data().
         """
-        # Compute previous entry hash from the latest entry in the chain
+        # Compute previous entry hash from the latest entry in the chain.
+        # Use FOR UPDATE to prevent race conditions (C3): two concurrent
+        # inserts must not read the same "latest" entry.
         latest: AuditLog | None = (
             self._session.query(AuditLog)
             .order_by(AuditLog.timestamp.desc(), AuditLog.id.desc())
+            .with_for_update()
             .first()
         )
         previous_hash: str | None = None
@@ -115,10 +118,12 @@ class AuditService:
         """
         from sqlalchemy import select
 
+        # Use FOR UPDATE to prevent race conditions (C3)
         latest_stmt = (
             select(AuditLog)
             .order_by(AuditLog.timestamp.desc(), AuditLog.id.desc())
             .limit(1)
+            .with_for_update()
         )
         result = await session.scalars(latest_stmt)
         latest: AuditLog | None = result.first()

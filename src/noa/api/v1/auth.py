@@ -11,7 +11,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -54,6 +54,30 @@ def _get_settings() -> Settings:
     return Settings()
 
 
+def _set_auth_cookies(
+    response: Response, tokens: dict[str, Any],
+) -> None:
+    """Set httpOnly cookies for auth tokens (C6)."""
+    response.set_cookie(
+        key="noa_access_token",
+        value=tokens["access_token"],
+        httponly=True,
+        secure=True,
+        samesite="strict",
+        max_age=900,  # 15 minutes
+        path="/",
+    )
+    response.set_cookie(
+        key="noa_refresh_token",
+        value=tokens["refresh_token"],
+        httponly=True,
+        secure=True,
+        samesite="strict",
+        max_age=7 * 24 * 3600,  # 7 days
+        path="/api/v1/auth",  # Only sent to auth endpoints
+    )
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -61,6 +85,7 @@ def _get_settings() -> Settings:
 @router.post("/login")
 async def login(
     body: LoginRequest,
+    response: Response,
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
     settings: Settings = Depends(_get_settings),  # noqa: B008
 ) -> dict[str, Any]:
@@ -88,12 +113,21 @@ async def login(
             detail=str(exc),
         ) from exc
 
-    return success_envelope(data=result, trace_id=rid)
+    _set_auth_cookies(response, result)
+    # C6: Don't expose raw tokens in JSON body — they're in httpOnly cookies
+    safe_result = {
+        k: v for k, v in result.items()
+        if k not in ("access_token", "refresh_token")
+    }
+    safe_result["authenticated"] = True
+    return success_envelope(data=safe_result, trace_id=rid)
 
 
 @router.post("/refresh")
 async def refresh(
+    request: Request,
     body: RefreshRequest,
+    response: Response,
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
     settings: Settings = Depends(_get_settings),  # noqa: B008
 ) -> dict[str, Any]:
@@ -105,8 +139,13 @@ async def refresh(
             did = uuid.UUID(body.device_id)
         except (ValueError, AttributeError):
             did = uuid.uuid5(uuid.NAMESPACE_DNS, body.device_id or "unknown")
+        # C6: Prefer refresh token from httpOnly cookie, fall back to body
+        refresh_token = (
+            request.cookies.get("noa_refresh_token")
+            or body.refresh_token
+        )
         result = await service.refresh(
-            refresh_token=body.refresh_token,
+            refresh_token=refresh_token,
             device_id=did,
         )
     except (AuthError, TokenError) as exc:
@@ -115,11 +154,18 @@ async def refresh(
             detail=str(exc),
         ) from exc
 
-    return success_envelope(data=result, trace_id=rid)
+    _set_auth_cookies(response, result)
+    safe_result = {
+        k: v for k, v in result.items()
+        if k not in ("access_token", "refresh_token")
+    }
+    safe_result["authenticated"] = True
+    return success_envelope(data=safe_result, trace_id=rid)
 
 
 @router.post("/logout")
 async def logout(
+    response: Response,
     payload: dict[str, Any] = Depends(require_auth),  # noqa: B008
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
     settings: Settings = Depends(_get_settings),  # noqa: B008
@@ -133,6 +179,9 @@ async def logout(
     except Exception:  # noqa: BLE001, S110
         pass  # Best-effort logout — token may be invalid/expired
 
+    # C6: Clear httpOnly cookies on logout
+    response.delete_cookie("noa_access_token", path="/")
+    response.delete_cookie("noa_refresh_token", path="/api/v1/auth")
     return success_envelope(data={"status": "logged_out"}, trace_id=rid)
 
 

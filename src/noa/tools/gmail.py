@@ -9,9 +9,31 @@ and gmail.compose scopes. All operations go through the external domain.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# RFC 5322 simplified: local@domain, no commas/newlines/spaces
+_EMAIL_RE = re.compile(
+    r"^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+"
+    r"@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*$"
+)
+
+
+def _validate_email_recipient(to: str) -> None:
+    """Validate a single email recipient address (H6).
+
+    Rejects empty, malformed, multi-recipient injection, and header injection.
+    """
+    if not to or not to.strip():
+        raise ValueError("Invalid email recipient: address is empty")
+    if "," in to or ";" in to:
+        raise ValueError("Invalid email recipient: multiple recipients not allowed")
+    if "\n" in to or "\r" in to:
+        raise ValueError("Invalid email recipient: newline injection detected")
+    if not _EMAIL_RE.match(to.strip()):
+        raise ValueError(f"Invalid email recipient: {to!r}")
 
 
 class GmailAPIError(Exception):
@@ -104,6 +126,7 @@ class GmailTool:
         Returns:
             Send confirmation dict with id and status.
         """
+        _validate_email_recipient(to)
         result = await self._client.send_email(
             to=to,
             subject=subject,
@@ -137,6 +160,7 @@ class GmailTool:
         Returns:
             Draft dict with id and status.
         """
+        _validate_email_recipient(to)
         return await self._client.draft_email(
             to=to,
             subject=subject,

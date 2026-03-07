@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
 import { apiRequest, WEB_DEVICE_ID } from "@/api/client";
-import type { AuthTokens, LoginRequest, RegisterRequest } from "@/api/types";
+import type { LoginRequest, RegisterRequest } from "@/api/types";
 import { setTokens, clearTokens, hasTokens } from "./tokens";
 
 interface AuthState {
@@ -25,7 +25,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(true);
     try {
       const body: LoginRequest = { email, password, device_id: WEB_DEVICE_ID };
-      const res = await apiRequest<AuthTokens>("/api/v1/auth/login", {
+      const res = await apiRequest<{ authenticated: boolean }>("/api/v1/auth/login", {
         method: "POST",
         body: JSON.stringify(body),
       });
@@ -34,7 +34,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error(res.error?.message || "Login failed");
       }
 
-      setTokens(res.data.access_token, res.data.refresh_token);
+      // C6: Tokens are in httpOnly cookies; just track auth state
+      setTokens("", "");
       setIsAuthenticated(true);
     } finally {
       setIsLoading(false);

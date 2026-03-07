@@ -8,23 +8,44 @@ before display per §16.3.
 
 from __future__ import annotations
 
-import re
 from typing import Any
+
+import nh3
 
 
 class NotionAPIError(Exception):
     """Raised when the Notion API returns an error."""
 
 
-# Pattern to strip script tags and their content per §16.3
-_SCRIPT_TAG_RE = re.compile(
-    r"<script[^>]*>.*?</script>", re.IGNORECASE | re.DOTALL
-)
+# Allowed tags for nh3 sanitization (H10)
+_ALLOWED_TAGS = {
+    "a", "abbr", "b", "blockquote", "br", "code", "dd", "del", "details",
+    "div", "dl", "dt", "em", "h1", "h2", "h3", "h4", "h5", "h6", "hr",
+    "i", "ins", "kbd", "li", "mark", "ol", "p", "pre", "q", "s", "samp",
+    "small", "span", "strong", "sub", "summary", "sup", "table", "tbody",
+    "td", "th", "thead", "tr", "u", "ul",
+}
+
+_ALLOWED_ATTRIBUTES: dict[str, set[str]] = {
+    "a": {"href", "title"},
+    "img": {"src", "alt", "title"},
+    "td": {"colspan", "rowspan"},
+    "th": {"colspan", "rowspan"},
+}
 
 
 def _sanitize_content(content: str) -> str:
-    """Remove potentially dangerous HTML from Notion content per §16.3."""
-    return _SCRIPT_TAG_RE.sub("", content)
+    """Sanitize HTML content using nh3 per §16.3 (H10).
+
+    Strips all dangerous elements/attributes including script tags,
+    event handlers, SVG-based XSS, and javascript: URIs.
+    """
+    return nh3.clean(
+        content,
+        tags=_ALLOWED_TAGS,
+        attributes=_ALLOWED_ATTRIBUTES,
+        url_schemes={"http", "https", "mailto"},
+    )
 
 
 class NotionTool:
