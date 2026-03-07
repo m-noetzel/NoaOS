@@ -54,18 +54,18 @@
 | UI-H3 | High | Budget Inputs Accept Negative Numbers | **Resolved** | QC6 |
 | UI-H4 | High | No Error Boundaries — API Failures Crash Page | **Resolved** | QC6 |
 | UI-H5 | High | Memory Delete Has No Confirmation Dialog | **Resolved** | QC6 |
-| UI-M1 | Medium | Index Page Is a Placeholder | Open | QC7 (planned) |
-| UI-M2 | Medium | No Pagination on Runs, Artifacts, Cost Records | Open | QC7 (planned) |
-| UI-M3 | Medium | SSE Event Types Not Validated Before Processing | Open | QC7 (planned) |
-| UI-M4 | Medium | Streaming Content Not Added to Message History | Open | QC7 (planned) |
-| UI-M5 | Medium | Thread Names Are Always "New Thread" | Open | QC7 (planned) |
-| UI-M6 | Medium | No Tools Page in Navigation | Open | QC7 (planned) |
-| UI-M7 | Medium | Cost Charts Have No Loading or Empty States | Open | QC7 (planned) |
-| UI-M8 | Medium | Settings Changes Don't Immediately Affect Chat | Open | QC7 (planned) |
-| UI-M9 | Medium | No Notification Badges on Sidebar | Open | QC7 (planned) |
-| UI-M10 | Medium | JS Bundle Is 965 KB (No Code Splitting) | Open | QC7 (planned) |
+| UI-M1 | Medium | Index Page Is a Placeholder | **Resolved** | QC7 |
+| UI-M2 | Medium | No Pagination on Runs, Artifacts, Cost Records | **Resolved** | QC7 |
+| UI-M3 | Medium | SSE Event Types Not Validated Before Processing | **Resolved** | QC7 |
+| UI-M4 | Medium | Streaming Content Not Added to Message History | **Resolved** | QC7 |
+| UI-M5 | Medium | Thread Names Are Always "New Thread" | **Resolved** | QC7 |
+| UI-M6 | Medium | No Tools Page in Navigation | **Resolved** | QC7 |
+| UI-M7 | Medium | Cost Charts Have No Loading or Empty States | **Resolved** | QC7 |
+| UI-M8 | Medium | Settings Changes Don't Immediately Affect Chat | **Resolved** | QC7 |
+| UI-M9 | Medium | No Notification Badges on Sidebar | **Resolved** | QC7 |
+| UI-M10 | Medium | JS Bundle Is 965 KB (No Code Splitting) | **Resolved** | QC7 |
 
-**Open:** 10 | **Partially Resolved:** 5 | **Resolved:** 34 | **Total:** 49
+**Open:** 0 | **Partially Resolved:** 5 | **Resolved:** 44 | **Total:** 49
 
 ---
 

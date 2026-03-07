@@ -10,7 +10,7 @@ The plan is organized into **waves** — groups of related phases that deliver a
 
 ## Key Documents
 
-- **[FINDINGS.md](FINDINGS.md)** — 49 audit findings (19 resolved, 30 open). Updated inline when findings are resolved.
+- **[FINDINGS.md](FINDINGS.md)** — 49 audit findings (44 resolved, 0 open, 5 partially resolved). Updated inline when findings are resolved.
 - **[PHASE_DETAILS.md](PHASE_DETAILS.md)** — Detailed phase descriptions (search by phase ID).
 - **[QA_CHECKLIST.md](QA_CHECKLIST.md)** — QA criteria (M1-M8 must-haves, S1-S5 should-haves).
 
@@ -109,7 +109,7 @@ The plan is organized into **waves** — groups of related phases that deliver a
 | **QC4** | Domain Isolation & Worker Wiring | **Complete** | 15 | main | ~45 min | ~30 min | C2: shared OllamaClient in noa.llm.providers, H1: /v1/complete + /rpc endpoints, H9: Google AI tool call id |
 | **QC5** | Database & Data Integrity | **Complete** | 20 | main | ~30 min | ~30 min | H2: 7 indexes + migration 006, M3: async purge, M6: approval expiry wired, M9: 24h violation window, M12: Any session type |
 | **QC6** | Frontend Critical & High Fixes | **Complete** | 26 | main | ~30 min | ~45 min | QA PASS_WITH_NOTES: UI-C1 SSE BASE_URL, UI-C2 meta event, UI-C3 logout cache, UI-H1 google_ai, UI-H2 model filter, UI-H3 budget validation, UI-H4 ErrorBoundary, UI-H5 delete confirm |
-| **QC7** | Frontend Polish & UX | Planned | — | — | ~45 min | — | UI-M1–M10 |
+| **QC7** | Frontend Polish & UX | **Complete** | 36 | main | ~45 min | ~30 min | UI-M1–M10: pagination, SSE validation, optimistic append, thread titles, Tools page, Cost states, settings freshness, sidebar badges, code splitting |
 | **QC8** | Architecture & Robustness | **Complete** | 33 | main | ~60 min | ~60 min | QA PASS_WITH_NOTES (cycle 2): A1 reset_all, A2 injected clients, A4 NoOpCheckpointer, A5 transactional, H8 per-user rate limit, M1 idempotency wiring, M5 SSE reconnect, M7 step-up auth, M10 token persist (env), M14 timeouts |
 | — | — **WAVE 15A: BACKEND EXTENSIONS (iOS)** — | — | — | — | — | — | — |
 | **iOS1** | APNs Push Notification Backend | Planned | — | — | ~45 min | — | Device token registration, HTTP/2 APNs service, approval batching |
@@ -126,7 +126,7 @@ The plan is organized into **waves** — groups of related phases that deliver a
 | **iOS10** | VPN Auto-Connect & Certificate Pinning | Planned | — | — | ~30 min | — | SPKI pinning, NEVPNManager, Tailscale/WireGuard URL scheme |
 | **iOS11** | Integration Tests & Polish | Planned | — | — | ~45 min | — | E2E tests, accessibility, dark mode, error states |
 | — | — **WAVE 16: PLAYWRIGHT E2E TESTING** — | — | — | — | — | — | — |
-| **PW1** | Playwright Setup & Auth Tests | Planned | — | — | ~30 min | — | Install, config, auth fixture, 6 auth/route-guard tests |
-| **PW2** | Chat E2E with SSE Simulation | Planned | — | — | ~30 min | — | SSE mock helper, 6 chat streaming tests |
-| **PW3** | Settings & Navigation Tests | Planned | — | — | ~20 min | — | 3 settings tests, 3 navigation tests, data-testid attrs |
+| **PW1** | Playwright Setup & Auth Tests | **Complete** | 6 | main | ~30 min | ~10 min | QA PASS_WITH_NOTES 2026-03-07 |
+| **PW2** | Chat E2E with SSE Simulation | **Complete** | 6 | main | ~30 min | ~15 min | QA PASS_WITH_NOTES 2026-03-07 |
+| **PW3** | Settings & Navigation Tests | **Complete** | 6 | main | ~20 min | ~5 min | QA PASS_WITH_NOTES 2026-03-07 |
 

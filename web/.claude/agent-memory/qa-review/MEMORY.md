@@ -32,9 +32,21 @@
 ### Security Patterns
 - `tokens.ts`: Auth flag in localStorage, actual tokens in httpOnly cookies — correct per C6 fix
 - `getAccessToken()` returning null means SSE Authorization header is omitted — relies on cookies
+- CORS: explicitly rejects wildcard, restricted to localhost origins
+
+### E2E Testing Patterns (Wave 16, 2026-03-07)
+- **page.route() over mock mode**: Playwright's page.route() is superior to VITE_USE_MOCKS because it covers raw fetch() calls (SSE) that the app's mock interceptor cannot.
+- **Positional selectors are fragile**: `locator('input[type="number"]').first()` breaks when form layout changes. Prefer data-testid or label associations.
+- **route.fulfill delivers SSE atomically**: Cannot test incremental streaming UX. Only end-state assertions are valid.
+- **Missing route mocks cause proxy errors**: Unmocked routes hit Vite proxy -> ECONNREFUSED. Does not fail tests but clutters output.
+- **Register flow only tested for render**: The mock exists in fixtures.ts but no test exercises full register -> auto-login -> redirect.
 
 ### File Locations
 - Frontend tests: `web/src/test/`
 - Frontend source: `web/src/`
+- E2E tests: `web/e2e/`
+- E2E fixtures: `web/e2e/fixtures.ts`
+- Playwright config: `web/playwright.config.ts`
 - vitest config: `web/vitest.config.ts`
 - QA reviews: `Plan/REVIEWS/review_{phase-id}.md`
+- Health briefs: `Plan/REVIEWS/health_{date}.md`

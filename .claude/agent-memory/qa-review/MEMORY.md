@@ -67,8 +67,23 @@ source .venv/bin/activate && python3 -c "from noa.X import Y"  # Works from proj
 - `src/noa/api/app.py:209-215`: `approval_service` not passed to `RetentionScheduler` — M6 not wired in production
 - `alembic/versions/`: migration 006 (H2 performance indexes) never created
 
+### E2E Testing Patterns (Wave 16, 2026-03-07)
+- **page.route() over mock mode**: Playwright's page.route() is superior to VITE_USE_MOCKS because it covers raw fetch() calls (SSE) that the app's mock interceptor cannot.
+- **Positional selectors are fragile**: `locator('input[type="number"]').first()` breaks when form layout changes. Prefer data-testid or label associations.
+- **route.fulfill delivers SSE atomically**: Cannot test incremental streaming UX. Only end-state assertions are valid.
+- **Missing route mocks cause proxy errors**: Unmocked routes hit Vite proxy -> ECONNREFUSED. Add comprehensive mocks in fixtures.ts.
+- E2E config: `web/playwright.config.ts`, tests: `web/e2e/`, fixtures: `web/e2e/fixtures.ts`
+
+### Infrastructure Security Baseline (2026-03-07)
+- Claude Code: 107 allow rules, all scoped. Deny blocks curl, wget, ssh, rm -rf, python -c.
+- Docker: No root user, no privileged, no secrets in ENV.
+- CORS: Explicit localhost origins, wildcard rejected.
+- Secrets: .env/.env.secrets gitignored. Only .env.example tracked.
+- Deps: Loose >= pins with upper bounds. No lockfile -- risk for production.
+
 ### File Paths
 - Reviews go to: `Plan/REVIEWS/review_{phase-id}.md`
+- Health briefs: `Plan/REVIEWS/health_{date}.md`
 - QA Checklist: `Plan/QA_CHECKLIST.md`
 - Arch Invariants: `Plan/ARCH_INVARIANTS.md`
 - Domain isolation tokens MUST use httpOnly cookies (L11), not localStorage (ARCH_INVARIANTS.md)

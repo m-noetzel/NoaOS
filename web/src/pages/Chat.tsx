@@ -71,7 +71,6 @@ export default function Chat() {
   const [maxTokens, setMaxTokens] = useState(4096);
   const [systemPrompt, setSystemPrompt] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const sseRef = useRef<SSEClient | null>(null);
   const queryClient = useQueryClient();
 
   // Load saved settings — use query data directly (UI-M8: no local state copy)
@@ -154,6 +153,10 @@ export default function Chat() {
     }
   }, [messages, streamingContent, streamEvents]);
 
+  // Ref to hold the latest activeThread for SSE event handler
+  const activeThreadRef = useRef(activeThread);
+  activeThreadRef.current = activeThread;
+
   const handleSSEEvent = useCallback((event: SSEEvent) => {
     setStreamEvents((prev) => [...prev, event]);
 
@@ -172,7 +175,7 @@ export default function Chat() {
           if (prev) {
             setOptimisticMessage({
               id: `optimistic-${Date.now()}`,
-              thread_id: activeThread || "",
+              thread_id: activeThreadRef.current || "",
               role: "assistant",
               content: prev,
               created_at: new Date().toISOString(),
@@ -181,13 +184,30 @@ export default function Chat() {
           return "";
         });
         setIsStreaming(false);
-        queryClient.invalidateQueries({ queryKey: ["messages", activeThread] });
+        queryClient.invalidateQueries({ queryKey: ["messages", activeThreadRef.current] });
         break;
       case "error":
         setIsStreaming(false);
         break;
     }
-  }, [activeThread, queryClient]);
+  }, [queryClient]);
+
+  // Create SSEClient eagerly so event handler is wired at mount time
+  const sseClientRef = useRef<SSEClient | null>(null);
+  if (!sseClientRef.current) {
+    sseClientRef.current = new SSEClient({
+      onEvent: (event) => handleSSEEvent(event),
+      onError: (err) => {
+        setIsStreaming(false);
+        toast({
+          title: "Connection failed",
+          description: err?.message || "Could not reach the backend. Is Noa running?",
+          variant: "destructive",
+        });
+      },
+      onClose: () => setIsStreaming(false),
+    });
+  }
 
   const handleSend = async () => {
     if (!input.trim() || isStreaming) return;
@@ -205,20 +225,6 @@ export default function Chat() {
       createThreadMutation.mutate(title);
     }
 
-    const client = new SSEClient({
-      onEvent: handleSSEEvent,
-      onError: (err) => {
-        setIsStreaming(false);
-        toast({
-          title: "Connection failed",
-          description: err?.message || "Could not reach the backend. Is Noa running?",
-          variant: "destructive",
-        });
-      },
-      onClose: () => setIsStreaming(false),
-    });
-    sseRef.current = client;
-
     const body: ChatRequest = {
       message,
       thread_id: activeThread || undefined,
@@ -230,7 +236,7 @@ export default function Chat() {
       ...(systemPrompt.trim() ? { system_prompt: systemPrompt.trim() } : {}),
     };
 
-    await client.connect("/api/v1/chat", body);
+    await sseClientRef.current!.connect("/api/v1/chat", body);
   };
 
   return (
@@ -239,7 +245,7 @@ export default function Chat() {
       <div className="w-60 border-r border-border/50 flex flex-col shrink-0 bg-muted/20">
         <div className="p-3 flex items-center justify-between border-b border-border/30">
           <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Threads</span>
-          <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg hover:bg-accent/60 hover:text-primary transition-all" onClick={() => createThreadMutation.mutate("New Thread")}>
+          <Button variant="ghost" size="icon" aria-label="New thread" className="h-7 w-7 rounded-lg hover:bg-accent/60 hover:text-primary transition-all" onClick={() => createThreadMutation.mutate("New Thread")}>
             <Plus className="h-3.5 w-3.5" />
           </Button>
         </div>
@@ -268,7 +274,7 @@ export default function Chat() {
       {/* Message area */}
       <div className="flex-1 flex flex-col min-w-0">
         <ScrollArea className="flex-1 p-4">
-          <div className="max-w-2xl mx-auto space-y-3 py-4">
+          <div className="max-w-2xl mx-auto space-y-3 py-4" data-testid="message-list">
             {/* Render message groups with run context */}
             {messageGroups.map((group, gi) => (
               <div key={gi} className="space-y-2">
@@ -331,7 +337,7 @@ export default function Chat() {
 
             {/* Streaming content */}
             {streamingContent && (
-              <div className="flex gap-3 animate-fade-in">
+              <div className="flex gap-3 animate-fade-in" data-testid="streaming-content">
                 <div className="flex-shrink-0 h-7 w-7 rounded-lg gradient-primary text-primary-foreground flex items-center justify-center mt-0.5 shadow-sm animate-glow-pulse">
                   <Sparkles className="h-3.5 w-3.5" />
                 </div>
@@ -386,6 +392,7 @@ export default function Chat() {
                   <Button
                     variant="ghost"
                     size="icon"
+                    aria-label="Advanced settings"
                     className={cn(
                       "h-10 w-10 shrink-0 rounded-xl transition-all duration-200",
                       advancedOpen ? "bg-accent text-primary" : "hover:bg-accent/60"
@@ -402,6 +409,7 @@ export default function Chat() {
                     placeholder="Message Noa…"
                     className="h-10 pr-12 rounded-xl bg-muted/40 border-border/40 focus:border-primary/40 focus:glow-sm transition-all placeholder:text-muted-foreground/50"
                     disabled={isStreaming}
+                    data-testid="chat-input"
                   />
                 </div>
                 <Button
@@ -409,6 +417,7 @@ export default function Chat() {
                   disabled={!input.trim() || isStreaming}
                   size="icon"
                   className="h-10 w-10 shrink-0 rounded-xl gradient-primary shadow-md hover:shadow-lg hover:brightness-110 transition-all duration-200 disabled:opacity-30"
+                  data-testid="chat-send"
                 >
                   <Send className="h-4 w-4" />
                 </Button>
