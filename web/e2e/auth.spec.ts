@@ -1,5 +1,6 @@
 import { test, expect, setupApiMocks } from "./fixtures";
 
+// Spec refs: S23 (authentication), S25 (session management)
 test.describe("Auth - Login", () => {
   test("login page renders with email and password fields", async ({ page }) => {
     await setupApiMocks(page);
@@ -69,5 +70,18 @@ test.describe("Auth - Register", () => {
     await expect(page.getByLabel(/^Password$/)).toBeVisible();
     await expect(page.getByLabel("Confirm Password")).toBeVisible();
     await expect(page.getByRole("button", { name: "Create account" })).toBeVisible();
+  });
+
+  test("successful registration redirects to chat", async ({ page }) => {
+    await setupApiMocks(page);
+    await page.goto("/register");
+
+    await page.getByLabel("Email").fill("new@example.com");
+    await page.getByLabel(/^Password$/).fill("securePass123");
+    await page.getByLabel("Confirm Password").fill("securePass123");
+    await page.getByRole("button", { name: "Create account" }).click();
+
+    // After successful registration, should redirect to login or auto-login to chat
+    await page.waitForURL(/\/(login)?$/, { timeout: 5000 });
   });
 });

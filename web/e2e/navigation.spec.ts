@@ -1,5 +1,6 @@
 import { test, expect, setupApiMocks, loginViaUI } from "./fixtures";
 
+// Spec refs: S23.3 (route guards), S26 (navigation)
 test.describe("Navigation", () => {
   test("unknown route shows 404 page", async ({ page }) => {
     await setupApiMocks(page);

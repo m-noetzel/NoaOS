@@ -44,6 +44,7 @@ async function setupChatMocks(
   });
 }
 
+// Spec refs: S10 (chat interface), S11 (streaming responses)
 test.describe("Chat", () => {
   test("authenticated user sees chat input and send button", async ({ authenticatedPage: page }) => {
     await expect(page.getByTestId("chat-input")).toBeVisible();

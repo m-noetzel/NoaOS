@@ -207,12 +207,12 @@ export default function Settings() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-1.5">
-            <Label className="text-xs">Daily Budget (USD)</Label>
-            <Input type="number" min="0" step="0.01" value={dailyBudget} onChange={(e) => setDailyBudget(e.target.value)} />
+            <Label htmlFor="daily-budget" className="text-xs">Daily Budget (USD)</Label>
+            <Input id="daily-budget" type="number" min="0" step="0.01" value={dailyBudget} onChange={(e) => setDailyBudget(e.target.value)} />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs">Monthly Budget (USD)</Label>
-            <Input type="number" min="0" step="0.01" value={monthlyBudget} onChange={(e) => setMonthlyBudget(e.target.value)} />
+            <Label htmlFor="monthly-budget" className="text-xs">Monthly Budget (USD)</Label>
+            <Input id="monthly-budget" type="number" min="0" step="0.01" value={monthlyBudget} onChange={(e) => setMonthlyBudget(e.target.value)} />
           </div>
           {budgetError && (
             <p className="text-sm text-destructive">{budgetError}</p>

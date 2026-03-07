@@ -144,6 +144,20 @@ async function setupApiMocks(page: Page) {
     });
   });
 
+  // Memory facts (memory page)
+  await page.route("**/api/v1/memory/facts", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        data: [],
+        error: null,
+        trace_id: "test",
+      }),
+    });
+  });
+
   // Approvals pending (sidebar badge)
   await page.route("**/api/v1/approvals/pending", async (route) => {
     await route.fulfill({

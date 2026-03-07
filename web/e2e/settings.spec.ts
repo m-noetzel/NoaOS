@@ -1,5 +1,6 @@
 import { test, expect, setupApiMocks, loginViaUI } from "./fixtures";
 
+// Spec refs: S24 (user settings)
 test.describe("Settings", () => {
   test("authenticated user sees settings form with populated fields", async ({ page }) => {
     await setupApiMocks(page);
@@ -15,9 +16,8 @@ test.describe("Settings", () => {
     await expect(page.getByText("Default Model", { exact: true })).toBeVisible();
 
     // Budget fields should be populated from mock (5.0 / 50.0)
-    // Labels don't use htmlFor, so locate inputs via their parent section
-    const dailyInput = page.locator('input[type="number"]').first();
-    const monthlyInput = page.locator('input[type="number"]').nth(1);
+    const dailyInput = page.getByLabel("Daily Budget (USD)");
+    const monthlyInput = page.getByLabel("Monthly Budget (USD)");
     await expect(dailyInput).toHaveValue("5");
     await expect(monthlyInput).toHaveValue("50");
 
@@ -63,7 +63,7 @@ test.describe("Settings", () => {
 
     // Wait for form to load
     await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
-    await expect(page.locator('input[type="number"]').first()).toHaveValue("5");
+    await expect(page.getByLabel("Daily Budget (USD)")).toHaveValue("5");
 
     // Click save
     await page.getByRole("button", { name: "Save Settings" }).click();
@@ -79,8 +79,8 @@ test.describe("Settings", () => {
     await page.goto("/settings");
 
     // Wait for form to load
-    const dailyInput = page.locator('input[type="number"]').first();
-    const monthlyInput = page.locator('input[type="number"]').nth(1);
+    const dailyInput = page.getByLabel("Daily Budget (USD)");
+    const monthlyInput = page.getByLabel("Monthly Budget (USD)");
     await expect(dailyInput).toBeVisible();
 
     // Set daily > monthly
