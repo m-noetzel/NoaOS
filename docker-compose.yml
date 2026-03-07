@@ -19,7 +19,7 @@ services:
       - noa-internal
       - noa-external
     environment:
-      - DATABASE_URL=postgresql+asyncpg://noa:noa@postgres:5432/noa
+      - DATABASE_URL=postgresql+asyncpg://noa:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/noa
       - NOA_ENV=production
       - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set}
       - JWT_SECRET=${JWT_SECRET:-}
@@ -133,7 +133,7 @@ services:
     networks:
       - noa-external
     labels:
-      noa.egress.allowlist: "api.anthropic.com,api.openai.com,*.googleapis.com,api.notion.com,api.tavily.com,registry.npmjs.org,pypi.org,files.pythonhosted.org"
+      noa.egress.allowlist: "api.anthropic.com,api.openai.com,generativelanguage.googleapis.com,gmail.googleapis.com,www.googleapis.com,oauth2.googleapis.com,accounts.google.com,api.notion.com,api.tavily.com,registry.npmjs.org,pypi.org,files.pythonhosted.org"
       noa.dns.logging: "true"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8002/health"]

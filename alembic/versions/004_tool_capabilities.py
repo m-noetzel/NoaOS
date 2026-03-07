@@ -1,7 +1,7 @@
 """Add tool_capabilities table for per-tool capability grants.
 
 Revision ID: 004
-Revises: 002
+Revises: 003
 Create Date: 2026-03-06
 """
 
@@ -11,7 +11,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision: str = "004"
-down_revision: str = "002"
+down_revision: str = "003"
 branch_labels: str | None = None
 depends_on: str | None = None
 

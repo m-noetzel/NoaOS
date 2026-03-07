@@ -8,6 +8,7 @@ import { AuthProvider } from "@/auth/AuthContext";
 import { AuthGuard } from "@/auth/AuthGuard";
 import { AppLayout } from "@/components/layout/AppLayout";
 import Login from "@/pages/Login";
+import Register from "@/pages/Register";
 import Chat from "@/pages/Chat";
 import Runs from "@/pages/Runs";
 import RunDetail from "@/pages/RunDetail";
@@ -46,6 +47,7 @@ const App = () => (
           <AuthProvider>
             <Routes>
               <Route path="/login" element={<Login />} />
+              <Route path="/register" element={<Register />} />
               <Route path="/" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
               <Route path="/runs" element={<ProtectedRoute><Runs /></ProtectedRoute>} />
               <Route path="/runs/:runId" element={<ProtectedRoute><RunDetail /></ProtectedRoute>} />

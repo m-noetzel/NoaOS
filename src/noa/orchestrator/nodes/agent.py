@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from noa.cost.pricing import estimate_cost
 from noa.orchestrator.state import AgentState
 
 # Maximum tool calls the agent will forward per step (S2.1 cost/iteration limits).
@@ -114,7 +115,29 @@ async def agent_node(state: AgentState) -> dict[str, Any]:
 
     content: str = response.content or ""
 
-    result: dict[str, Any] = {"tool_calls": tool_calls}
+    # Track token usage from this LLM call.
+    usage = response.usage or {}
+    input_tokens = usage.get("prompt_tokens", 0) or usage.get("input_tokens", 0)
+    output_tokens = usage.get("completion_tokens", 0) or usage.get("output_tokens", 0)
+    provider_name = response.provider or ""
+    model_name = response.model or ""
+    cost = estimate_cost(
+        provider=provider_name,
+        model=model_name,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+    )
+    usage_record: dict[str, Any] = {
+        "provider": provider_name,
+        "model": model_name,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "cost_usd": float(cost),
+    }
+    prev_usage: list[dict[str, Any]] = list(state.get("llm_usage", []))
+    prev_usage.append(usage_record)
+
+    result: dict[str, Any] = {"tool_calls": tool_calls, "llm_usage": prev_usage}
 
     if not tool_calls and content:
         result["response"] = content

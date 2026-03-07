@@ -2,13 +2,15 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/api/client";
 import { SSEClient } from "@/api/sse";
-import type { Thread, Message, SSEEvent, ChatRequest, Run, PrivacyMode, Provider } from "@/api/types";
+import type { Thread, Message, SSEEvent, ChatRequest, Run, PrivacyMode, Provider, UserSettings } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useToast } from "@/hooks/use-toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ActivityStream } from "@/components/chat/ActivityStream";
 import { ExecutionDetails } from "@/components/chat/ExecutionDetails";
 import { cn } from "@/lib/utils";
+import { Textarea } from "@/components/ui/textarea";
 import { Send, Plus, Settings2, Sparkles, User } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Slider } from "@/components/ui/slider";
@@ -48,6 +50,7 @@ function groupMessagesByRun(messages: Message[], runs: Run[]): MessageGroup[] {
 }
 
 export default function Chat() {
+  const { toast } = useToast();
   const [activeThread, setActiveThread] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [streamingContent, setStreamingContent] = useState("");
@@ -57,12 +60,28 @@ export default function Chat() {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [temperature, setTemperature] = useState(0.7);
   const [maxTokens, setMaxTokens] = useState(4096);
-  const [model, setModel] = useState("claude-3.5-sonnet");
+  const [model, setModel] = useState("claude-sonnet-4-20250514");
   const [provider, setProvider] = useState<Provider>("anthropic");
   const [privacyMode, setPrivacyMode] = useState<PrivacyMode>("private");
+  const [systemPrompt, setSystemPrompt] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const sseRef = useRef<SSEClient | null>(null);
   const queryClient = useQueryClient();
+
+  // Load saved settings as defaults
+  const { data: settingsRes } = useQuery({
+    queryKey: ["settings"],
+    queryFn: () => apiRequest<UserSettings>("/api/v1/settings"),
+  });
+
+  useEffect(() => {
+    const s = settingsRes?.data;
+    if (s) {
+      if (s.default_model) setModel(s.default_model);
+      if (s.default_provider) setProvider(s.default_provider as Provider);
+      if (s.default_privacy_mode) setPrivacyMode(s.default_privacy_mode as PrivacyMode);
+    }
+  }, [settingsRes]);
 
   const createThreadMutation = useMutation({
     mutationFn: () =>
@@ -137,41 +156,16 @@ export default function Chat() {
     setStreamEvents([]);
     setIsStreaming(true);
 
-    const isMock = !import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_USE_MOCKS === "true";
-    if (isMock) {
-      // Simulate activity stream
-      const mockRunId = "r_" + Date.now();
-      setCurrentRunId(mockRunId);
-
-      const mockActivities: SSEEvent[] = [
-        { event: "planner_step", data: { step: "Planning request" } },
-        { event: "planner_step", data: { step: "Searching the web" } },
-        { event: "tool_called", data: { tool_name: "web_search", args: { query: message } } },
-        { event: "tool_result", data: { tool_name: "web_search", result: "Found 8 results", duration_ms: 3200 } },
-        { event: "planner_step", data: { step: "Parsing results" } },
-        { event: "planner_step", data: { step: "Writing response" } },
-      ];
-
-      for (const activity of mockActivities) {
-        await new Promise((r) => setTimeout(r, 600));
-        setStreamEvents((prev) => [...prev, activity]);
-      }
-
-      const mockResponse = "This is a simulated response from the Noa agent. In production, this would stream tokens from the backend via SSE.";
-      for (let i = 0; i < mockResponse.length; i++) {
-        await new Promise((r) => setTimeout(r, 15));
-        setStreamingContent((prev) => prev + mockResponse[i]);
-      }
-
-      setStreamEvents((prev) => [...prev, { event: "result_ready", data: { response_text: mockResponse } }]);
-      setIsStreaming(false);
-      setStreamingContent("");
-      return;
-    }
-
     const client = new SSEClient({
       onEvent: handleSSEEvent,
-      onError: () => setIsStreaming(false),
+      onError: (err) => {
+        setIsStreaming(false);
+        toast({
+          title: "Connection failed",
+          description: err?.message || "Could not reach the backend. Is Noa running?",
+          variant: "destructive",
+        });
+      },
       onClose: () => setIsStreaming(false),
     });
     sseRef.current = client;
@@ -184,6 +178,7 @@ export default function Chat() {
       provider,
       temperature,
       max_tokens: maxTokens,
+      ...(systemPrompt.trim() ? { system_prompt: systemPrompt.trim() } : {}),
     };
 
     await client.connect("/api/v1/chat", body);
@@ -307,18 +302,32 @@ export default function Chat() {
           <div className="p-4 max-w-2xl mx-auto w-full">
             <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
               <CollapsibleContent className="mb-3 space-y-3 animate-fade-in">
-                <div className="grid grid-cols-2 gap-4 p-3 rounded-xl bg-muted/40 border border-border/30">
-                  <div className="space-y-2">
-                    <Label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-                      Temperature: {temperature}
-                    </Label>
-                    <Slider value={[temperature]} onValueChange={([v]) => setTemperature(v)} min={0} max={2} step={0.1} />
+                <div className="space-y-3 p-3 rounded-xl bg-muted/40 border border-border/30">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                        Temperature: {temperature}
+                      </Label>
+                      <Slider value={[temperature]} onValueChange={([v]) => setTemperature(v)} min={0} max={2} step={0.1} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                        Max tokens: {maxTokens}
+                      </Label>
+                      <Slider value={[maxTokens]} onValueChange={([v]) => setMaxTokens(v)} min={256} max={16384} step={256} />
+                    </div>
                   </div>
                   <div className="space-y-2">
                     <Label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-                      Max tokens: {maxTokens}
+                      System prompt
                     </Label>
-                    <Slider value={[maxTokens]} onValueChange={([v]) => setMaxTokens(v)} min={256} max={16384} step={256} />
+                    <Textarea
+                      value={systemPrompt}
+                      onChange={(e) => setSystemPrompt(e.target.value)}
+                      placeholder="Optional system prompt (e.g. 'Antworte immer auf Deutsch')"
+                      className="min-h-[60px] text-sm bg-background/50 border-border/40 resize-y"
+                      rows={2}
+                    />
                   </div>
                 </div>
               </CollapsibleContent>

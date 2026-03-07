@@ -28,7 +28,7 @@ async def list_facts(
 ) -> dict[str, Any]:
     """List memory facts for the authenticated user."""
     rid = trace_id_ctx.get("")
-    return success_envelope(data={"facts": []}, trace_id=rid)
+    return success_envelope(data=[], trace_id=rid)
 
 
 @router.post("/facts/{fact_id}/approve")

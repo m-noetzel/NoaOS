@@ -3,7 +3,12 @@
 # Install: ln -sf "$(pwd)/noa" /usr/local/bin/noa
 set -euo pipefail
 
-NOA_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Resolve symlink to find the real project directory
+SCRIPT_PATH="$0"
+if [[ -L "$SCRIPT_PATH" ]]; then
+    SCRIPT_PATH="$(readlink "$SCRIPT_PATH")"
+fi
+NOA_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 cd "$NOA_DIR"
 
 # Colors
@@ -35,6 +40,10 @@ usage() {
     echo "  noa preflight        Run pre-flight checks only"
     echo "  noa setup            First-time setup (build images, verify keychain)"
     echo "  noa shell [service]  Open shell in a container"
+    echo "  noa dev              Dev mode (backend containers + Vite UI with hot reload)"
+    echo "  noa claude           Start Claude Code in the dev container"
+    echo "  noa claude build     Rebuild dev container (updates Claude Code)"
+    echo "  noa reset-password <email> [pw]  Reset a user's password"
     echo "  noa db migrate       Run database migrations"
     echo "  noa db console       Open psql console"
     echo
@@ -45,18 +54,20 @@ usage() {
 # No file is written to disk. Docker Compose reads ${VAR} from the
 # shell environment at runtime.
 
+# Format: "keychain_account_name:ENV_VAR_NAME"
+# Account names match what's stored in macOS Keychain under service "noa"
 KEYCHAIN_MAP=(
-    "secret-key:SECRET_KEY"
-    "jwt-secret:JWT_SECRET"
-    "postgres-password:POSTGRES_PASSWORD"
-    "backup-passphrase:BACKUP_PASSPHRASE"
-    "anthropic-api-key:ANTHROPIC_API_KEY"
-    "openai-api-key:OPENAI_API_KEY"
-    "google-ai-api-key:GOOGLE_AI_API_KEY"
-    "google-client-id:GOOGLE_CLIENT_ID"
-    "google-client-secret:GOOGLE_CLIENT_SECRET"
-    "notion-token:NOTION_TOKEN"
-    "tavily-api-key:TAVILY_API_KEY"
+    "SECRET_KEY:SECRET_KEY"
+    "JWT_SECRET:JWT_SECRET"
+    "POSTGRES_PASSWORD:POSTGRES_PASSWORD"
+    "BACKUP_PASSPHRASE:BACKUP_PASSPHRASE"
+    "ANTHROPIC_API_KEY:ANTHROPIC_API_KEY"
+    "OPENAI_API_KEY:OPENAI_API_KEY"
+    "GOOGLE_AI_API_KEY:GOOGLE_AI_API_KEY"
+    "GOOGLE_CLIENT_ID:GOOGLE_CLIENT_ID"
+    "GOOGLE_CLIENT_SECRET:GOOGLE_CLIENT_SECRET"
+    "NOTION_TOKEN:NOTION_TOKEN"
+    "TAVILY_API_KEY:TAVILY_API_KEY"
 )
 
 load_keychain() {
@@ -109,7 +120,7 @@ preflight() {
     # Required secrets
     for var in SECRET_KEY POSTGRES_PASSWORD BACKUP_PASSPHRASE; do
         if [[ -z "${!var:-}" ]]; then
-            err "${var} not in Keychain — run: ./tools/keychain_store.sh set $(echo "$var" | tr '_' '-' | tr '[:upper:]' '[:lower:]') <value>"
+            err "${var} not in Keychain — run: ./tools/keychain_store.sh set ${var} <value>"
             errors=1
         fi
     done
@@ -127,19 +138,30 @@ cmd_setup() {
     load_keychain
 
     # Auto-generate required secrets if not in Keychain
-    for key_pair in "secret-key:SECRET_KEY" "jwt-secret:JWT_SECRET" "postgres-password:POSTGRES_PASSWORD" "backup-passphrase:BACKUP_PASSPHRASE"; do
-        local kc_name="${key_pair%%:*}"
-        local env_name="${key_pair##*:}"
-        if [[ -z "${!env_name:-}" ]]; then
+    local pg_password_is_new=false
+    for kc_name in SECRET_KEY JWT_SECRET POSTGRES_PASSWORD BACKUP_PASSPHRASE; do
+        # Check directly in Keychain (don't trust env vars)
+        if security find-generic-password -s "noa" -a "$kc_name" -w &>/dev/null; then
+            ok "${kc_name} already in Keychain"
+        else
+            log "Generating ${kc_name}..."
             local generated
             generated=$(openssl rand -base64 32)
-            ./tools/keychain_store.sh set "$kc_name" "$generated"
-            export "$env_name=$generated"
-            ok "Generated ${kc_name} → Keychain"
-        else
-            ok "${kc_name} already in Keychain"
+            if ./tools/keychain_store.sh set "$kc_name" "$generated"; then
+                export "$kc_name=$generated"
+                ok "Generated ${kc_name} → Keychain"
+                [[ "$kc_name" == "POSTGRES_PASSWORD" ]] && pg_password_is_new=true
+            else
+                err "Failed to store ${kc_name} in Keychain"
+                warn "You may need to allow Keychain access in the macOS dialog"
+            fi
         fi
     done
+
+    # If we just generated a new Postgres password but an existing DB volume
+    # has the OLD password, Postgres will reject connections.
+    # The check in cmd_up() handles this automatically via ALTER USER,
+    # so no special action is needed here.
 
     # Remove stale .env.secrets if it exists
     if [[ -f .env.secrets ]]; then
@@ -150,7 +172,7 @@ cmd_setup() {
     # Build images
     echo
     log "Building Docker images (this may take a few minutes)..."
-    docker compose build
+    docker compose build --no-cache
     ok "Docker images built"
 
     echo
@@ -166,6 +188,42 @@ cmd_up() {
         exit 1
     fi
     echo
+
+    # ── Postgres password sync ───────────────────────────────────
+    # Postgres only reads POSTGRES_PASSWORD during initial volume
+    # creation (initdb). If the Keychain password changes afterwards,
+    # the DB still has the old one.
+    #
+    # Fix: ALWAYS set the password to the Keychain value via ALTER USER.
+    # We connect from 127.0.0.1 inside the postgres container, which
+    # uses "trust" auth (no password needed). This is idempotent —
+    # if the password already matches, it's a harmless no-op.
+    log "Syncing Postgres password with Keychain..."
+    docker compose up -d postgres &>/dev/null
+    # Wait for postgres to accept connections (max 15s)
+    local pg_ready=false
+    for i in $(seq 1 15); do
+        if docker compose exec -T postgres pg_isready -U noa &>/dev/null; then
+            pg_ready=true
+            break
+        fi
+        sleep 1
+    done
+    if [[ "$pg_ready" == "true" ]]; then
+        local escaped_pw
+        escaped_pw=$(printf '%s' "$POSTGRES_PASSWORD" | sed "s/'/''/g")
+        if docker compose exec -T postgres \
+                psql -h 127.0.0.1 -U noa -d noa -c "ALTER USER noa PASSWORD '${escaped_pw}'" &>/dev/null; then
+            ok "Postgres password synced"
+        else
+            err "Failed to sync Postgres password"
+        fi
+        docker compose down &>/dev/null || true
+    else
+        warn "Postgres didn't start in time — continuing anyway"
+        docker compose down &>/dev/null || true
+    fi
+
     log "Starting Noa..."
     docker compose up -d
     echo
@@ -176,6 +234,15 @@ cmd_up() {
         if curl -sf http://localhost:8000/health &>/dev/null; then
             echo
             ok "Noa is running at ${BOLD}http://localhost:8000${NC}"
+
+            # Auto-run migrations to ensure DB schema is up to date
+            log "Running database migrations..."
+            if docker compose exec -T noa-api alembic upgrade head &>/dev/null; then
+                ok "Database migrations up to date"
+            else
+                warn "Migrations failed — run 'noa db migrate' manually"
+            fi
+
             cmd_status_short
             return 0
         fi
@@ -189,13 +256,12 @@ cmd_up() {
 
 cmd_down() {
     log "Stopping Noa..."
-    docker compose down
+    docker compose down "$@"
     ok "All services stopped"
 }
 
 cmd_restart() {
     local service="${1:-}"
-    load_keychain 2>/dev/null || true
     if [[ -n "$service" ]]; then
         log "Restarting ${service}..."
         docker compose restart "$service"
@@ -269,7 +335,6 @@ cmd_health() {
 }
 
 cmd_backup() {
-    load_keychain 2>/dev/null || true
     log "Triggering manual backup..."
     docker compose exec backup /scripts/backup.sh
     ok "Backup complete"
@@ -284,6 +349,158 @@ cmd_shell() {
     local service="${1:-noa-api}"
     log "Opening shell in ${service}..."
     docker compose exec "$service" /bin/sh
+}
+
+cmd_dev() {
+    log "Starting Noa in dev mode (backend + Vite UI)..."
+
+    # Pre-flight (loads Keychain secrets)
+    if ! preflight; then
+        err "Pre-flight failed. Run 'noa setup' first."
+        exit 1
+    fi
+    echo
+
+    # Check node/npm
+    if ! command -v npm &>/dev/null; then
+        err "npm not found — install Node.js first"
+        exit 1
+    fi
+
+    # Install web deps if needed
+    if [[ ! -d "$NOA_DIR/web/node_modules" ]]; then
+        log "Installing web dependencies..."
+        (cd "$NOA_DIR/web" && npm install)
+        ok "Web dependencies installed"
+    fi
+
+    # Start backend containers (without web — it runs on host)
+    log "Starting backend containers..."
+    docker compose up -d
+    echo
+
+    # Wait for API
+    log "Waiting for API..."
+    local retries=0
+    while [[ $retries -lt 30 ]]; do
+        if curl -sf http://localhost:8000/health &>/dev/null; then
+            ok "API is ready"
+            break
+        fi
+        printf "."
+        sleep 2
+        retries=$((retries + 1))
+    done
+    echo
+
+    # Run migrations
+    log "Running database migrations..."
+    if docker compose exec -T noa-api alembic upgrade head &>/dev/null; then
+        ok "Database migrations up to date"
+    else
+        warn "Migrations failed — run 'noa db migrate' manually"
+    fi
+
+    echo
+    ok "Backend running at ${BOLD}http://localhost:8000${NC}"
+    ok "Starting Vite dev server with hot reload..."
+    echo
+
+    # Start Vite in foreground (Ctrl+C stops it, backend keeps running)
+    # VITE_API_BASE_URL tells the frontend where the API is
+    export VITE_API_BASE_URL="http://localhost:8000"
+    (cd "$NOA_DIR/web" && npm run dev)
+
+    # When Vite exits (Ctrl+C), offer to stop backend too
+    echo
+    warn "Vite stopped. Backend containers are still running."
+    echo -e "  Stop everything: ${BOLD}noa down${NC}"
+}
+
+cmd_reset_password() {
+    local email="${1:-}"
+    if [[ -z "$email" ]]; then
+        echo "Usage: noa reset-password <email> [new-password]"
+        echo "  If no password given, one will be generated."
+        return 1
+    fi
+
+    local new_password="${2:-}"
+    if [[ -z "$new_password" ]]; then
+        new_password=$(openssl rand -base64 16)
+        log "Generated password: ${BOLD}${new_password}${NC}"
+    fi
+
+    log "Resetting password for ${email}..."
+
+    # Hash password and update DB via the API container's Python
+    local result
+    result=$(docker compose exec -T noa-api python3 -c "
+import asyncio, os
+from noa.auth.password import hash_password
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+
+async def reset():
+    url = os.environ['DATABASE_URL']
+    engine = create_async_engine(url)
+    factory = async_sessionmaker(engine, class_=AsyncSession)
+    async with factory() as session:
+        pw_hash = hash_password('$new_password')
+        result = await session.execute(
+            text('UPDATE users SET password_hash = :h WHERE email = :e'),
+            {'h': pw_hash, 'e': '$email'},
+        )
+        await session.commit()
+        print(f'ROWS:{result.rowcount}')
+    await engine.dispose()
+
+asyncio.run(reset())
+" 2>&1)
+
+    if echo "$result" | grep -q "ROWS:0"; then
+        err "No user found with email: ${email}"
+    elif echo "$result" | grep -q "ROWS:"; then
+        ok "Password reset for ${email}"
+    else
+        err "Failed: ${result}"
+    fi
+}
+
+cmd_claude() {
+    local subcmd="${1:-run}"
+    case "$subcmd" in
+        build)
+            log "Rebuilding dev container (updates Claude Code to latest)..."
+            docker compose -f docker-compose.dev.yml build --no-cache
+            ok "Dev container rebuilt with latest Claude Code"
+            # Show installed version
+            docker compose -f docker-compose.dev.yml run --rm dev cat /etc/claude-code-version 2>/dev/null || true
+            ;;
+        run|"")
+            log "Starting Claude Code in dev container..."
+            log "Policy: docs/DEV_CONTAINER_POLICY.md"
+            echo
+
+            # Pass ANTHROPIC_API_KEY from host Keychain to container
+            local api_key
+            api_key=$(security find-generic-password -s "noa" -a "ANTHROPIC_API_KEY" -w 2>/dev/null) || true
+            if [[ -z "$api_key" ]]; then
+                warn "ANTHROPIC_API_KEY not in Keychain — Claude Code may not authenticate"
+                warn "Set it with: ./tools/keychain_store.sh set ANTHROPIC_API_KEY <key>"
+            fi
+
+            ANTHROPIC_API_KEY="${api_key:-}" \
+                docker compose -f docker-compose.dev.yml run --rm \
+                --service-ports \
+                dev claude
+            ;;
+        *)
+            echo "Usage: noa claude [build|run]"
+            echo "  run    Start Claude Code in dev container (default)"
+            echo "  build  Rebuild dev container (updates Claude Code)"
+            ;;
+    esac
 }
 
 cmd_db() {
@@ -306,6 +523,10 @@ cmd_db() {
 
 # ── Main ─────────────────────────────────────────────────────────
 
+# Always load Keychain first — docker compose needs env vars even for
+# read-only commands like 'logs', 'ps', 'down' due to ${VAR:?} syntax
+load_keychain 2>/dev/null || true
+
 cmd="${1:-up}"
 shift 2>/dev/null || true
 
@@ -320,7 +541,10 @@ case "$cmd" in
     test)           cmd_test "$@" ;;
     preflight)      preflight ;;
     setup|init)     cmd_setup ;;
+    dev)            cmd_dev ;;
+    reset-password) cmd_reset_password "$@" ;;
     shell|exec)     cmd_shell "$@" ;;
+    claude)         cmd_claude "$@" ;;
     db)             cmd_db "$@" ;;
     help|-h|--help) usage ;;
     *)

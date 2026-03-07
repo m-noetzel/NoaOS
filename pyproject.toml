@@ -21,8 +21,10 @@ api = [
     "alembic>=1.14.0,<2.0",
     "python-jose[cryptography]>=3.3,<4.0",
     "passlib[bcrypt]>=1.7,<2.0",
+    "bcrypt>=4.0,<4.1",
     "structlog>=24.0,<26.0",
     "httpx>=0.28.0,<1.0",
+    "pydantic[email]>=2.10,<3.0",
 ]
 orchestrator = [
     "langgraph>=0.2,<1.0",
@@ -77,8 +79,13 @@ target-version = "py311"
 src = ["src"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "W", "UP", "S", "B", "A", "C4", "SIM"]
-ignore = ["S101"]  # allow assert in tests
+select = ["E", "F", "I", "N", "W", "UP", "S", "B", "A", "C4", "SIM", "BLE"]
+ignore = [
+    "S101",   # allow assert in tests
+]
+# E722: bare except — catches `except:` without exception type
+# BLE001: blind exception — catches `except Exception:` without re-raise/logging
+# Both are ERRORS, not warnings — enforced at merge time
 
 [tool.mypy]
 python_version = "3.11"

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import logging
 import uuid
+from decimal import Decimal
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
@@ -12,6 +14,8 @@ from pydantic import BaseModel
 
 from noa.api.middleware import trace_id_ctx
 from noa.auth.middleware import require_auth
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["chat"])
 
@@ -26,6 +30,7 @@ class ChatRequest(BaseModel):
     provider: str
     temperature: float | None = None
     max_tokens: int | None = None
+    system_prompt: str | None = None
 
 
 def get_runner() -> Any:
@@ -83,6 +88,8 @@ async def submit_chat(
         # (in production, this would use a real DB session)
         run_svc = _make_run_service(user_id, thread_id, run_id)
 
+        llm_usage: list[dict[str, Any]] = []
+
         try:
             async for event in runner.run(
                 message=body.message,
@@ -91,7 +98,11 @@ async def submit_chat(
                 privacy_mode=body.privacy_mode,
                 model=body.model,
                 provider=body.provider,
+                system_prompt=body.system_prompt,
             ):
+                # Capture llm_usage from result_ready for persistence
+                if event.get("event_type") == "result_ready":
+                    llm_usage = event.get("payload", {}).get("llm_usage", [])
                 yield f"data: {json.dumps(event)}\n\n"
         except Exception as exc:
             err_event = {
@@ -99,6 +110,10 @@ async def submit_chat(
                 "payload": {"error": str(exc)},
             }
             yield f"data: {json.dumps(err_event)}\n\n"
+
+        # Persist usage to DB (best-effort, after stream completes)
+        if llm_usage:
+            await _record_usage(user_id, run_id, llm_usage)
 
     return StreamingResponse(
         event_stream(),
@@ -159,3 +174,34 @@ class _NoOpRunService:
 
     def append_event(self, *args: Any, **kwargs: Any) -> None:
         pass
+
+
+async def _record_usage(
+    user_id: str,
+    run_id: str,
+    llm_usage: list[dict[str, Any]],
+) -> None:
+    """Persist LLM usage records to UsageStats (best-effort)."""
+    factory = get_session_factory()
+    if factory is None:
+        return
+
+    try:
+        from noa.db.models.usage import UsageStats
+
+        async with factory() as session:
+            for entry in llm_usage:
+                row = UsageStats(
+                    id=uuid.uuid4(),
+                    user_id=uuid.UUID(user_id),
+                    provider=entry.get("provider", ""),
+                    model_name=entry.get("model", ""),
+                    input_tokens=entry.get("input_tokens", 0),
+                    output_tokens=entry.get("output_tokens", 0),
+                    cost_usd=Decimal(str(entry.get("cost_usd", 0))),
+                    run_id=uuid.UUID(run_id),
+                )
+                session.add(row)
+            await session.commit()
+    except Exception:  # noqa: BLE001
+        logger.warning("Failed to persist usage stats for run %s", run_id)

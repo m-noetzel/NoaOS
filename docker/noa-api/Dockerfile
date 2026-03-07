@@ -3,14 +3,17 @@
 
 FROM python:3.11-slim AS base
 
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
 RUN groupadd -r noa && useradd -r -g noa -s /sbin/nologin noa
 
 WORKDIR /app
 
 COPY pyproject.toml ./
-RUN pip install --no-cache-dir . && rm -rf /root/.cache
-
 COPY src/ ./src/
+COPY alembic.ini ./
+COPY alembic/ ./alembic/
+
+RUN pip install --no-cache-dir ".[api,orchestrator]" && rm -rf /root/.cache
 
 USER noa
 

@@ -32,12 +32,24 @@ PRICING_TABLE: dict[tuple[str, str], ModelPricing] = {
         input_per_million=Decimal("0.15"),
         output_per_million=Decimal("0.60"),
     ),
+    ("openai", "gpt-4.1"): ModelPricing(
+        input_per_million=Decimal("2.00"),
+        output_per_million=Decimal("8.00"),
+    ),
+    ("openai", "gpt-4.1-mini"): ModelPricing(
+        input_per_million=Decimal("0.40"),
+        output_per_million=Decimal("1.60"),
+    ),
     ("openai", "gpt-4-turbo"): ModelPricing(
         input_per_million=Decimal("10.00"),
         output_per_million=Decimal("30.00"),
     ),
     # Anthropic
     ("anthropic", "claude-sonnet"): ModelPricing(
+        input_per_million=Decimal("3.00"),
+        output_per_million=Decimal("15.00"),
+    ),
+    ("anthropic", "claude-sonnet-4-20250514"): ModelPricing(
         input_per_million=Decimal("3.00"),
         output_per_million=Decimal("15.00"),
     ),

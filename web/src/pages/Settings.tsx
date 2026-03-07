@@ -26,13 +26,6 @@ export default function Settings() {
   const [dailyBudget, setDailyBudget] = useState(String(settings?.budget_daily_usd || 10));
   const [monthlyBudget, setMonthlyBudget] = useState(String(settings?.budget_monthly_usd || 200));
 
-  // Credential fields — never pre-filled with real keys (masked from API)
-  const [anthropicKey, setAnthropicKey] = useState("");
-  const [openaiKey, setOpenaiKey] = useState("");
-  const [googleClientId, setGoogleClientId] = useState("");
-  const [googleClientSecret, setGoogleClientSecret] = useState("");
-  const [notionToken, setNotionToken] = useState("");
-  const [tavilyKey, setTavilyKey] = useState("");
   const [ollamaUrl, setOllamaUrl] = useState(settings?.ollama_base_url || "http://private-worker:11434");
 
   useEffect(() => {
@@ -56,14 +49,6 @@ export default function Settings() {
         budget_monthly_usd: parseFloat(monthlyBudget),
         ollama_base_url: ollamaUrl,
       };
-      // Only send credential fields if user typed a new value
-      if (anthropicKey) body.anthropic_api_key = anthropicKey;
-      if (openaiKey) body.openai_api_key = openaiKey;
-      if (googleClientId) body.google_client_id = googleClientId;
-      if (googleClientSecret) body.google_client_secret = googleClientSecret;
-      if (notionToken) body.notion_token = notionToken;
-      if (tavilyKey) body.tavily_api_key = tavilyKey;
-
       return apiRequest<UserSettings>("/api/v1/settings", {
         method: "PUT",
         body: JSON.stringify(body),
@@ -71,13 +56,6 @@ export default function Settings() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["settings"] });
-      // Clear credential inputs after save
-      setAnthropicKey("");
-      setOpenaiKey("");
-      setGoogleClientId("");
-      setGoogleClientSecret("");
-      setNotionToken("");
-      setTavilyKey("");
       toast({ title: "Settings saved" });
     },
     onError: (err: Error) => {
@@ -120,11 +98,13 @@ export default function Settings() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="gpt-4.1">GPT-4.1</SelectItem>
+                <SelectItem value="gpt-4.1-mini">GPT-4.1 Mini</SelectItem>
+                <SelectItem value="gpt-4o">GPT-4o</SelectItem>
                 <SelectItem value="claude-sonnet-4-20250514">Claude Sonnet 4</SelectItem>
                 <SelectItem value="claude-opus-4-6">Claude Opus 4.6</SelectItem>
-                <SelectItem value="gpt-4o">GPT-4o</SelectItem>
                 <SelectItem value="gemini-2.0-flash">Gemini 2.0 Flash</SelectItem>
-                <SelectItem value="llama-3.1-70b">Llama 3.1 70B</SelectItem>
+                <SelectItem value="llama-3.1-70b">Llama 3.1 70B (Local)</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -165,83 +145,17 @@ export default function Settings() {
         <CardHeader>
           <CardTitle className="text-sm">API Credentials</CardTitle>
           <CardDescription>
-            API keys are stored securely and never displayed in full.
-            {settings?.anthropic_api_key && (
-              <span className="block mt-1 text-xs text-muted-foreground">
-                Anthropic: {settings.anthropic_api_key}
-              </span>
-            )}
-            {settings?.openai_api_key && (
-              <span className="block text-xs text-muted-foreground">
-                OpenAI: {settings.openai_api_key}
-              </span>
-            )}
-            {settings?.notion_token && (
-              <span className="block text-xs text-muted-foreground">
-                Notion: {settings.notion_token}
-              </span>
-            )}
-            {settings?.tavily_api_key && (
-              <span className="block text-xs text-muted-foreground">
-                Tavily: {settings.tavily_api_key}
-              </span>
-            )}
+            API keys are managed via macOS Keychain. Use the terminal to update them:
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-1.5">
-            <Label className="text-xs">Anthropic API Key</Label>
-            <Input
-              type="password"
-              placeholder="sk-ant-..."
-              value={anthropicKey}
-              onChange={(e) => setAnthropicKey(e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs">OpenAI API Key</Label>
-            <Input
-              type="password"
-              placeholder="sk-..."
-              value={openaiKey}
-              onChange={(e) => setOpenaiKey(e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs">Google OAuth Client ID</Label>
-            <Input
-              placeholder="123456.apps.googleusercontent.com"
-              value={googleClientId}
-              onChange={(e) => setGoogleClientId(e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs">Google OAuth Client Secret</Label>
-            <Input
-              type="password"
-              placeholder="GOCSPX-..."
-              value={googleClientSecret}
-              onChange={(e) => setGoogleClientSecret(e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs">Notion Integration Token</Label>
-            <Input
-              type="password"
-              placeholder="ntn_..."
-              value={notionToken}
-              onChange={(e) => setNotionToken(e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs">Tavily API Key</Label>
-            <Input
-              type="password"
-              placeholder="tvly-..."
-              value={tavilyKey}
-              onChange={(e) => setTavilyKey(e.target.value)}
-            />
-          </div>
+        <CardContent className="space-y-3">
+          <code className="block text-xs bg-muted p-3 rounded-lg font-mono">
+            ./tools/keychain_store.sh set ANTHROPIC_API_KEY "sk-ant-..."
+          </code>
+          <p className="text-xs text-muted-foreground">
+            Keys are loaded at startup and never stored on disk or in the browser.
+            Restart Noa after changing keys.
+          </p>
           <div className="space-y-1.5">
             <Label className="text-xs">Ollama Base URL</Label>
             <Input

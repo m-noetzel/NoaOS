@@ -122,6 +122,30 @@ def test_ingestion_stores_and_retrieves(self, db_session, vector_store):
     assert len(results) > 0
 ```
 
+### Integration test requirement (MANDATORY):
+At least **one test per phase** must call the real function/class **without mocking internal dependencies**. This test verifies the code actually works, not just that mocks return the right shape.
+
+```python
+# GOOD: Integration test — calls real code, only mocks external boundary
+def test_tool_dispatch_returns_dict(self):
+    """MASTER_PLAN: Tool dispatch must return a dict, not a Future."""
+    registry = ToolRegistry()
+    registry.register("memory", MemoryTool(storage=FakeStorage()))
+    result = registry.dispatch("memory", "recall", {"query": "test"})
+    assert isinstance(result, dict)  # NOT a Future, not a MagicMock
+```
+
+```python
+# GOOD: Async integration test — verifies real await behavior
+async def test_create_entry_returns_audit_entry(self, db_session):
+    """SPEC.md §11.1: create_entry must return a persisted AuditEntry."""
+    svc = AuditService(db_session)
+    entry = await svc.create_entry_async(action="test", user_id="u1")
+    assert entry.id is not None  # Actually persisted, not mocked
+```
+
+For async functions: always test with real `await`. A test that mocks the async function and checks the mock's return value proves nothing about the real function's behavior.
+
 ### FORBIDDEN test types (never write these):
 - **Constructor tests**: `assert obj is not None` — tests Python, not behavior
 - **Field-existence tests**: `assert "key" in dict` — tests data structure, not behavior
@@ -129,6 +153,7 @@ def test_ingestion_stores_and_retrieves(self, db_session, vector_store):
 - **Trivial empty-input tests**: `assert func("") == []` — unless emptiness is a spec requirement
 - **Pydantic round-trip tests**: `assert obj.field == value` after setting it to `value`
 - **Over-mocked tests**: mocking 3+ internal methods defeats the purpose of testing
+- **Mock-validating tests**: tests that only verify a mock was called, without checking real behavior
 
 ### Litmus test for every test:
 > "What user-visible behavior breaks if I delete this test?"

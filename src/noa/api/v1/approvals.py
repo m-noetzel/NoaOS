@@ -28,7 +28,7 @@ async def list_pending_approvals(
 ) -> dict[str, Any]:
     """List pending approvals for the authenticated user."""
     rid = trace_id_ctx.get("")
-    return success_envelope(data={"approvals": []}, trace_id=rid)
+    return success_envelope(data=[], trace_id=rid)
 
 
 @router.post("/{approval_id}/decide")

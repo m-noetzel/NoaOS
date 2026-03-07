@@ -30,15 +30,15 @@ async def list_threads(
     rid = trace_id_ctx.get("")
     # Stub: return mock threads
     return success_envelope(
-        data={
-            "threads": [
-                {
-                    "id": "00000000-0000-0000-0000-000000000001",
-                    "title": "Welcome thread",
-                    "created_at": "2026-03-05T00:00:00Z",
-                },
-            ],
-        },
+        data=[
+            {
+                "id": "00000000-0000-0000-0000-000000000001",
+                "title": "Welcome thread",
+                "created_at": "2026-03-05T00:00:00Z",
+                "updated_at": "2026-03-05T00:00:00Z",
+                "message_count": 0,
+            },
+        ],
         trace_id=rid,
     )
 
@@ -69,4 +69,4 @@ async def list_messages(
 ) -> dict[str, Any]:
     """List messages for a thread."""
     rid = trace_id_ctx.get("")
-    return success_envelope(data={"messages": []}, trace_id=rid)
+    return success_envelope(data=[], trace_id=rid)

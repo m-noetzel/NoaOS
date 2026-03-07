@@ -30,8 +30,6 @@ _classifier = PrivacyClassifier()
 def router_node(state: AgentState) -> dict[str, Any]:
     """Classify the request and select model. Returns state update dict."""
     # Pass only messages and requested_tools to the classifier.
-    # Do NOT pass the existing privacy_mode — the router is the one setting it.
-    # An explicit user override would come from the request, not from prior state.
     classify_state: dict[str, Any] = {
         "messages": state.get("messages", []),
     }
@@ -41,8 +39,25 @@ def router_node(state: AgentState) -> dict[str, Any]:
         classify_state["privacy_mode"] = state["user_privacy_override"]
     result = _classifier.classify(classify_state)
     privacy_mode = result.domain
-    selected_model = _LOCAL_MODEL if privacy_mode == "private" else _EXTERNAL_MODEL
+
+    # Respect user's explicit model/provider choice if provided.
+    user_model = state.get("user_model_override")
+    user_provider = state.get("user_provider_override")
+
+    if privacy_mode == "private":
+        # Private mode always uses local model, regardless of user choice.
+        selected_model = _LOCAL_MODEL
+    elif user_provider and user_model:
+        # User explicitly chose provider + model — use them.
+        selected_model = f"{user_provider}/{user_model}"
+    elif user_model:
+        selected_model = user_model
+    else:
+        selected_model = _EXTERNAL_MODEL
+
     model_config = ModelConfig.for_privacy_mode(privacy_mode)
+    # Override agent model to match the selected model.
+    model_config.agent = selected_model
     return {
         "privacy_mode": privacy_mode,
         "selected_model": selected_model,

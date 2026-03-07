@@ -61,6 +61,7 @@ class Settings(BaseSettings):
     # API keys — injected from keychain via env vars (SPEC.md §11.1)
     anthropic_api_key: str | None = None
     openai_api_key: str | None = None
+    google_ai_api_key: str | None = None
     google_client_id: str | None = None
     google_client_secret: str | None = None
     notion_token: str | None = None

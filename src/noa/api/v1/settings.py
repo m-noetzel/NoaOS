@@ -7,7 +7,9 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from noa.api.deps import get_db_session
 from noa.api.middleware import trace_id_ctx
 from noa.api.schemas.common import success_envelope
 from noa.auth.middleware import require_auth
@@ -34,25 +36,15 @@ class UpdateSettingsRequest(BaseModel):
     ollama_base_url: str | None = None
 
 
-def _get_service(request: Request) -> SettingsService:
-    """Build a SettingsService from the request's DB session."""
-    session = getattr(request.app.state, "db_session_factory", None)
-    if session is None:
-        # Fallback: return a service with a mock repo for stub mode
-        from unittest.mock import AsyncMock
-
-        return SettingsService(AsyncMock())
-    return SettingsService(SettingsRepository(session()))
-
-
 @router.get("")
 async def get_settings(
     request: Request,
     user: dict[str, Any] = Depends(require_auth),  # noqa: B008
+    session: AsyncSession = Depends(get_db_session),  # noqa: B008
 ) -> dict[str, Any]:
     """Get user settings with masked API keys."""
     rid = trace_id_ctx.get("")
-    service = _get_service(request)
+    service = SettingsService(SettingsRepository(session))
     user_id = uuid.UUID(user["sub"])
     data = await service.get_settings(user_id)
     return success_envelope(data=data, trace_id=rid)
@@ -63,10 +55,11 @@ async def update_settings(
     body: UpdateSettingsRequest,
     request: Request,
     user: dict[str, Any] = Depends(require_auth),  # noqa: B008
+    session: AsyncSession = Depends(get_db_session),  # noqa: B008
 ) -> dict[str, Any]:
     """Update user settings. Partial updates supported."""
     rid = trace_id_ctx.get("")
-    service = _get_service(request)
+    service = SettingsService(SettingsRepository(session))
     user_id = uuid.UUID(user["sub"])
     updates = body.model_dump(exclude_unset=True)
     data = await service.update_settings(user_id, updates)

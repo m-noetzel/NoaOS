@@ -31,6 +31,11 @@ export interface AuthTokens {
   refresh_token: string;
 }
 
+export interface RegisterRequest {
+  email: string;
+  password: string;
+}
+
 export interface RefreshRequest {
   refresh_token: string;
   device_id: string;
@@ -242,6 +247,7 @@ export interface ChatRequest {
   provider: Provider;
   temperature?: number;
   max_tokens?: number;
+  system_prompt?: string;
 }
 
 // --- Replay Request ---

@@ -25,9 +25,12 @@ class AgentState(TypedDict):
     messages: list[dict[str, Any]]
     privacy_mode: str
     selected_model: str
+    user_model_override: str | None
+    user_provider_override: str | None
     tool_calls: list[dict[str, Any]]
     tool_results: list[dict[str, Any]]
     response: str | None
     total_cost: float
     model_config: dict[str, str]
     tool_rounds: int
+    llm_usage: list[dict[str, Any]]

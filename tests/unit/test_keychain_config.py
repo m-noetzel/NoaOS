@@ -167,13 +167,16 @@ class TestKeychainBootstrapScript:
 # ---------------------------------------------------------------------------
 
 class TestDockerComposeSecrets:
-    """docker-compose.yml should reference .env.secrets."""
+    """docker-compose.yml injects secrets via shell env, not env_file."""
 
-    def test_env_file_referenced(self):
+    def test_secrets_via_env_vars_not_file(self):
         compose = Path(__file__).resolve().parents[2] / "docker-compose.yml"
         content = compose.read_text()
-        assert ".env.secrets" in content, (
-            "docker-compose.yml must reference .env.secrets"
+        assert "env_file" not in content, (
+            "docker-compose.yml must not use env_file — secrets come from Keychain"
+        )
+        assert "${SECRET_KEY" in content, (
+            "docker-compose.yml must reference SECRET_KEY via shell env"
         )
 
 

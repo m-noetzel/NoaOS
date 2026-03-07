@@ -12,7 +12,19 @@ from fastapi.responses import StreamingResponse
 from noa.api.middleware import trace_id_ctx
 from noa.auth.middleware import require_auth
 
+from noa.api.schemas.common import success_envelope
+
 router = APIRouter(prefix="/api/v1/runs", tags=["runs"])
+
+
+@router.get("")
+async def list_runs(
+    request: Request,
+    user: dict[str, Any] = Depends(require_auth),  # noqa: B008
+) -> dict[str, Any]:
+    """List runs for the authenticated user."""
+    rid = trace_id_ctx.get("")
+    return success_envelope(data=[], trace_id=rid)
 
 
 @router.get("/{run_id}/events")

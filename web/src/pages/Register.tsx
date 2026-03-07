@@ -1,32 +1,49 @@
 import { useState } from "react";
-import { useNavigate, useLocation, Link } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/auth/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { LogIn, Sparkles } from "lucide-react";
+import { UserPlus, Sparkles } from "lucide-react";
 
-export default function Login() {
+export default function Register() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const { login, isLoading } = useAuth();
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const { register, isLoading } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
   const { toast } = useToast();
-
-  const from = (location.state as { from?: { pathname: string } })?.from?.pathname || "/";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (password !== confirmPassword) {
+      toast({
+        title: "Passwords don't match",
+        description: "Please make sure both passwords are identical.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (password.length < 8) {
+      toast({
+        title: "Password too short",
+        description: "Password must be at least 8 characters.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
-      await login(email, password);
-      navigate(from, { replace: true });
+      await register(email, password);
+      navigate("/", { replace: true });
     } catch (err) {
       toast({
-        title: "Login failed",
-        description: err instanceof Error ? err.message : "Invalid credentials",
+        title: "Registration failed",
+        description: err instanceof Error ? err.message : "Could not create account",
         variant: "destructive",
       });
     }
@@ -44,10 +61,10 @@ export default function Login() {
             <Sparkles className="h-7 w-7 text-primary-foreground" />
           </div>
           <CardTitle className="text-2xl font-bold tracking-tight">
-            Welcome to <span className="text-gradient">Noa</span>
+            Create your <span className="text-gradient">Noa</span> account
           </CardTitle>
           <CardDescription className="text-muted-foreground">
-            Sign in to your agent console
+            Set up your personal AI agent
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -76,8 +93,24 @@ export default function Login() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
+                placeholder="Min. 8 characters"
                 required
+                minLength={8}
+                className="h-11 bg-muted/50 border-border/50 focus:border-primary/50 focus:glow-sm transition-all"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="confirm-password" className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                Confirm Password
+              </Label>
+              <Input
+                id="confirm-password"
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="Repeat password"
+                required
+                minLength={8}
                 className="h-11 bg-muted/50 border-border/50 focus:border-primary/50 focus:glow-sm transition-all"
               />
             </div>
@@ -89,19 +122,19 @@ export default function Login() {
               {isLoading ? (
                 <span className="flex items-center gap-2">
                   <span className="h-4 w-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
-                  Signing in…
+                  Creating account...
                 </span>
               ) : (
                 <span className="flex items-center gap-2">
-                  <LogIn className="h-4 w-4" />
-                  Sign in
+                  <UserPlus className="h-4 w-4" />
+                  Create account
                 </span>
               )}
             </Button>
             <p className="text-center text-sm text-muted-foreground">
-              Don't have an account?{" "}
-              <Link to="/register" className="text-primary hover:underline font-medium">
-                Create one
+              Already have an account?{" "}
+              <Link to="/login" className="text-primary hover:underline font-medium">
+                Sign in
               </Link>
             </p>
           </form>

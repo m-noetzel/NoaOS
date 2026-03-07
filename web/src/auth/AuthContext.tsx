@@ -1,12 +1,13 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
 import { apiRequest, WEB_DEVICE_ID } from "@/api/client";
-import type { AuthTokens, LoginRequest } from "@/api/types";
+import type { AuthTokens, LoginRequest, RegisterRequest } from "@/api/types";
 import { setTokens, clearTokens, hasTokens } from "./tokens";
 
 interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
+  register: (email: string, password: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -40,6 +41,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const register = useCallback(async (email: string, password: string) => {
+    setIsLoading(true);
+    try {
+      const body: RegisterRequest = { email, password };
+      const res = await apiRequest<{ user_id: string }>("/api/v1/auth/register", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok || res.error) {
+        throw new Error(res.error?.message || "Registration failed");
+      }
+
+      // Auto-login after successful registration
+      await login(email, password);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [login]);
+
   const logout = useCallback(() => {
     // Best-effort server logout
     apiRequest("/api/v1/auth/logout", { method: "POST" }).catch(() => {});
@@ -48,7 +69,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, isLoading, login, logout }}>
+    <AuthContext.Provider value={{ isAuthenticated, isLoading, login, register, logout }}>
       {children}
     </AuthContext.Provider>
   );

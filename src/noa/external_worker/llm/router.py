@@ -100,7 +100,7 @@ class ProviderRouter:
             )
 
         # Google AI
-        google_key = getattr(settings, "google_api_key", None)
+        google_key = getattr(settings, "google_ai_api_key", None)
         if google_key:
             from noa.external_worker.llm.google_ai import GoogleAIClient
 

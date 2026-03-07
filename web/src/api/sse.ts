@@ -93,7 +93,7 @@ export class SSEClient {
             currentEvent = line.slice(7).trim();
           } else if (line.startsWith("data: ")) {
             currentData += line.slice(6);
-          } else if (line === "" && currentEvent && currentData) {
+          } else if (line === "" && currentData) {
             try {
               const parsed = JSON.parse(currentData);
 
@@ -102,9 +102,15 @@ export class SSEClient {
                 this.runId = parsed.run_id;
               }
 
+              // Use explicit event: line if present, otherwise extract
+              // event_type from the JSON payload (backend sends data-only)
+              const eventName = currentEvent
+                || parsed.event_type
+                || "unknown";
+
               this.options.onEvent({
-                event: currentEvent as SSEEventType,
-                data: parsed,
+                event: eventName as SSEEventType,
+                data: parsed.payload ?? parsed,
               });
             } catch {
               // skip malformed events

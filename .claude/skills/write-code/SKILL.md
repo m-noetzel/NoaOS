@@ -124,7 +124,30 @@ Examples of decisions worth logging:
 
 ---
 
-## 5. Output Contract
+## 5. Mandatory Code Quality Rules
+
+### Wiring is NOT optional
+If you create any of the following, you MUST wire it into the running system:
+- **FastAPI router** → register it in `app.py` via `app.include_router()`
+- **Service class** → instantiate it during app startup or via dependency injection
+- **Worker endpoint handler** → connect it to a route in the worker's `app.py`
+- **Background task** → register it in the app's lifespan or scheduler
+
+A phase is NOT complete until its code is callable from the running application. "Tested in isolation" is insufficient.
+
+### No bare exception blocks
+- NEVER write `except Exception: pass` or `except: pass`
+- ALWAYS catch specific exception types
+- ALWAYS log the exception with `trace_id` or re-raise it
+- If you must catch broad `Exception`, you must log it and return a proper error response (never HTTP 200)
+
+### No unsafe security defaults
+- NEVER use fallback defaults for security values: `secret_key or ""`, `token or "dev"`
+- If a security-critical config value is missing, raise `RuntimeError` at startup
+
+---
+
+## 6. Output Contract (MANDATORY)
 
 - Write implementation code ONLY in `src/`
 - All tests for this phase MUST pass (green)
@@ -136,7 +159,7 @@ Examples of decisions worth logging:
 
 ---
 
-## 6. Before You Start
+## 7. Before You Start
 
 Confirm you understand the constraints:
 1. Tests are your contract — you implement to satisfy them, never modify them
@@ -144,5 +167,8 @@ Confirm you understand the constraints:
 3. You follow existing project patterns and conventions
 4. You escalate rather than hack around problematic tests
 5. Minimum viable implementation — no gold-plating
+6. **Wiring is mandatory** — code must be registered in the running app
+7. **No bare except blocks** — catch specific types, log or re-raise
+8. **No unsafe defaults** — security values must not have fallbacks
 
 Now proceed with Step 1: Read the tests for `$ARGUMENTS`.

@@ -148,9 +148,36 @@ From SPEC.md §4.1:
 
 ---
 
+## L9: Exception Handling
+
+1. **No bare `except:` blocks.** Always catch specific exception types.
+2. **No `except Exception: pass`.** If you catch a broad exception, you must log it (with `trace_id`) or re-raise.
+3. **No success responses on error.** An `except` block must never return HTTP 200 or an empty success envelope.
+4. **Enforced by ruff:** Rules `E722` (bare except) and `BLE001` (blind exception) are configured as errors in `pyproject.toml`.
+
+---
+
+## L10: Wiring Completeness
+
+1. **Every FastAPI router** must be registered via `app.include_router()` in `app.py`.
+2. **Every service class** must be instantiated during app startup or available via dependency injection.
+3. **Every worker handler** must be connected to a route in the worker's FastAPI app.
+4. **No orphaned code.** If code exists in `src/` but is not reachable from any running application entry point, it is dead code and must be either wired or removed.
+
+---
+
+## L11: Security Defaults
+
+1. **No fallback defaults on secrets.** `secret_key or ""` is forbidden. If a secret is missing, the app must refuse to start.
+2. **Default-deny on permissions.** Tool capabilities, API access, and feature flags default to deny. Explicit grant required.
+3. **No plaintext token storage.** Tokens in `localStorage` are forbidden. Use httpOnly, Secure, SameSite=Strict cookies.
+
+---
+
 ## Enforcement
 
 These invariants are checked:
-- **Manually** by QA review agent (Check 3: Code Quality references this file)
-- **Automatically** via import boundary tests (added in later phases as architecture stabilizes)
+- **Manually** by QA review agent (Checks 4, 6, 7 reference this file)
+- **Automatically** via ruff rules (`E722`, `BLE001`, `S101`) at lint time
+- **Automatically** via import boundary checks in QA anti-pattern scan
 - **At merge time** via `ruff check` + `mypy` static gates

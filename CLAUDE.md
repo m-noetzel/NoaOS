@@ -4,6 +4,19 @@
 
 Noa is a governed personal AI agent with dual-domain architecture (private + external) running on local hardware. It starts on a single machine with container-based domain isolation (Phase 1) and is designed to scale to physical machine isolation (Phase 2). See SPEC.md for the full technical specification.
 
+## Secret Hygiene
+
+**Never suggest commands that output secrets, passwords, API keys, or tokens in plaintext** — not in terminal output, logs, or file contents. This includes commands like `env | grep PASSWORD`, `cat .env`, or any command that would display credentials on screen.
+
+If inspecting a secret value is unavoidable for debugging:
+1. Tell the user **what** the command will reveal and **why** it's needed.
+2. Wait for explicit approval before suggesting it.
+3. Prefer masked alternatives (e.g., check if a variable is set without printing its value).
+
+Transparency is everything. When in doubt, ask first.
+
+---
+
 ## Protected Documents
 
 **STRATEGY.md** and **SPEC.md** are foundational documents that govern all design and implementation decisions across the Noa ecosystem.
@@ -28,30 +41,51 @@ Noa uses a multi-agent pipeline where specialized agents handle distinct roles. 
 
 ### Agent Roster
 
-| Skill | Role | Writes To | Context |
-|-------|------|-----------|---------|
-| `/phase-planning` | Plan phases with spec-traceability | `Plan/MASTER_PLAN.md` | fork |
-| `/write-tests` | Write failing tests from spec (red phase) | `tests/` | fork |
-| `/write-code` | Make tests pass with minimal code (green phase) | `src/` | fork |
-| `/qa-review` | Review spec compliance, coverage, security | `Plan/REVIEWS/` | fork |
-| `/retrospective` | Analyze patterns, propose skill improvements | `Plan/RETROS/` | fork |
+**Skills** (invoked via `/skill-name {args}`, run in forked context):
+
+| Skill | Role | Writes To |
+|-------|------|-----------|
+| `/phase-planning` | Plan phases with spec-traceability | `Plan/MASTER_PLAN.md` |
+| `/write-tests` | Write failing tests from spec (red phase) | `tests/` |
+| `/write-code` | Make tests pass with minimal code (green phase) | `src/` |
+| `/retrospective` | Wave-level retro, estimation accuracy, skill patches | `Plan/RETROS/` |
+
+**Agents** (invoked via Agent tool, have persistent memory):
+
+| Agent | Role | Writes To |
+|-------|------|-----------|
+| `qa-review` | Adversarial QA review — runs code, scans anti-patterns, verifies wiring | `Plan/REVIEWS/` |
+| `code-reviewer` | Code review for diffs/branches before merge | stdout (structured review) |
+| `continuous-improvement` | Cross-wave pattern analysis, improvement proposals, fix tracking | `Plan/CI/` |
 
 ### Phase Execution Pipeline
 
 Each phase follows this exact sequence:
 
 ```
-/phase-planning → /write-tests → verify red → /write-code → verify green → /qa-review → fix/iterate → mark complete
+/phase-planning → /write-tests → verify red → /write-code → verify green → verify integration → qa-review agent → fix/iterate → mark complete
 ```
 
 1. **Plan** (`/phase-planning {id}`): Create phase entry in MASTER_PLAN.md
-2. **Test** (`/write-tests {id}`): Write failing tests derived from spec
+2. **Test** (`/write-tests {id}`): Write failing tests derived from spec. Must include at least one non-mocked integration test.
 3. **Verify Red**: Run tests — at least one new test must FAIL with an assertion error (not ImportError/NotImplementedError). Tests for already-existing helpers/utilities may pass. Log which tests failed and why.
-4. **Implement** (`/write-code {id}`): Write code to make tests pass
+4. **Implement** (`/write-code {id}`): Write code to make tests pass. Code MUST be wired into the running system (registered routers, instantiated services). No bare `except` blocks.
 5. **Verify Green**: Run tests — all phase tests PASS. Also run `ruff check` + `mypy` (static gates must pass before merge).
-6. **Review** (`/qa-review {id}`): QA agent evaluates against `Plan/QA_CHECKLIST.md` and produces verdict
-7. **Iterate**: If FAIL, fix blocking issues and re-review (max 2 cycles). On 2nd FAIL, write `Plan/RCA/rca_{phase-id}.md` (cause, fix, prevention rule).
-8. **Complete**: Update MASTER_PLAN.md status, write changelog entry
+6. **Verify Integration**: Import the main modules and call key functions to verify they work beyond mocked tests. Check that new routers are registered, services are instantiated, and endpoints are reachable. If imports crash or functions return wrong types, fix before proceeding.
+7. **Review** (launch `qa-review` agent with phase ID): QA agent evaluates against `Plan/QA_CHECKLIST.md` (M1-M8, S1-S5) and produces verdict. QA is adversarial — it runs code, scans for anti-patterns, and verifies wiring. The agent has persistent memory and learns from past reviews. See `Plan/RETROS/retro_project_audit.md` for quality lessons.
+8. **Iterate**: If FAIL, fix blocking issues and re-review (max 2 cycles). On 2nd FAIL, write `Plan/RCA/rca_{phase-id}.md` (cause, fix, prevention rule).
+9. **Complete**: Update MASTER_PLAN.md status, write changelog entry
+
+### Cross-Cutting Verification (After Parallel Merge)
+
+When multiple phases execute in parallel and merge into main, the orchestrator MUST run a cross-cutting verification step:
+
+1. **Import all modified modules together** — catches import errors and circular dependencies
+2. **Call the highest-level function** that connects the parallel pieces (e.g., if 3 tool phases merged, dispatch all 3 through the registry)
+3. **Run the full test suite** — not just individual phase tests
+4. **Check domain isolation** — `grep -rn "from noa.private_worker" src/noa/external_worker/` (and vice versa)
+
+If cross-cutting verification fails, the merge is rolled back and the failing phase is fixed before re-merge. This gate exists because parallel agents optimize locally — each passes its own tests but nobody verifies the pieces work together.
 
 ### Human Gates
 
@@ -87,7 +121,8 @@ The topic is configured via `NTFY_TOPIC` env var (default: `noaos-by2lnbzr`). Ne
 | Agent returns unexpected result | Orchestrator investigates, logs to `Plan/ISSUES.md` |
 | Test agent can't derive tests from spec | STOP, ask human to clarify spec |
 | Code agent can't pass tests after 2 attempts | Orchestrator tries once, then escalates to human |
-| QA fails a phase twice | Write `Plan/RCA/rca_{phase-id}.md` (cause, fix, prevention rule), then escalate to human |
+| QA fails a phase once | Launch `continuous-improvement` agent to check for recurring pattern |
+| QA fails a phase twice | Write `Plan/RCA/rca_{phase-id}.md` (cause, fix, prevention rule), launch CI agent, then escalate to human |
 | Security concern raised by any agent | Immediate CRITICAL escalation to human |
 
 ### Status Transparency
@@ -99,15 +134,36 @@ The orchestrator maintains these documents at all times:
 - **`Plan/ISSUES.md`** — All problems and their resolutions.
 - **Phase changelog** — After each phase, orchestrator writes a 3-line status summary to MASTER_PLAN.md.
 
+### Wave-Level E2E Gate (After Wave 16)
+
+Once Wave 16 (Playwright E2E Testing) is complete, every subsequent wave must pass Playwright smoke tests before the wave is marked complete. Run:
+
+```bash
+cd web && npm run test:e2e
+```
+
+If E2E tests fail after a wave, the wave is not complete — fix the regressions first. This catches the "pieces don't connect" class of bugs that unit tests miss.
+
 ### Continuous Improvement Loop
 
 ```
-Execute wave → /retrospective → Propose skill patches → Human approves → Apply patches → Next wave
+Execute wave → /retrospective → continuous-improvement agent → Human approves proposals → Apply patches → Next wave
 ```
 
-- Retrospectives run after every **wave**, not every phase
-- Skill patches are PROPOSALS — human approves before application
-- Prior retros are checked for trend analysis (are old issues improving?)
+- **`/retrospective`** (skill): Runs after every wave. Analyzes estimation accuracy, what went well/poorly, proposes skill patches.
+- **`continuous-improvement`** (agent): Runs after retros, QA failures, or RCA reports. Analyzes cross-wave patterns, tracks fix effectiveness, maintains `Plan/CI/IMPROVEMENT_BACKLOG.md`.
+
+**Mandatory CI Agent Triggers — the orchestrator MUST launch the `continuous-improvement` agent in these situations:**
+
+1. **After every `/retrospective`** — the retro skill includes a trigger reminder; the orchestrator executes it immediately
+2. **After every QA FAIL verdict** — to check if the failure is a recurring pattern
+3. **After every RCA report** (`Plan/RCA/rca_*.md`) — to correlate with past failures and propose preventive measures
+4. **After `/insights` report** — to translate usage friction data into actionable CI proposals
+
+Skipping the CI agent trigger is a pipeline violation. The CI agent's proposals still require human approval — but the analysis must happen automatically.
+- Both produce PROPOSALS — human approves before application
+- The CI agent has persistent memory and tracks whether past fixes actually reduced problems
+- Prior retros and CI analyses are checked for trend analysis
 
 ### Planning Gates
 

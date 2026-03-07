@@ -68,10 +68,14 @@ async def login(
     rid = trace_id_ctx.get("")
     try:
         service = AuthService(session=session, settings=settings)
+        try:
+            did = uuid.UUID(body.device_id)
+        except (ValueError, AttributeError):
+            did = uuid.uuid5(uuid.NAMESPACE_DNS, body.device_id or "unknown")
         result = await service.login(
             email=body.email,
             password=body.password,
-            device_id=uuid.UUID(body.device_id),
+            device_id=did,
         )
     except AccountLockedError as exc:
         raise HTTPException(
@@ -97,9 +101,13 @@ async def refresh(
     rid = trace_id_ctx.get("")
     try:
         service = AuthService(session=session, settings=settings)
+        try:
+            did = uuid.UUID(body.device_id)
+        except (ValueError, AttributeError):
+            did = uuid.uuid5(uuid.NAMESPACE_DNS, body.device_id or "unknown")
         result = await service.refresh(
             refresh_token=body.refresh_token,
-            device_id=uuid.UUID(body.device_id),
+            device_id=did,
         )
     except (AuthError, TokenError) as exc:
         raise HTTPException(

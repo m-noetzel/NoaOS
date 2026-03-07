@@ -9,9 +9,6 @@ from typing import Any
 
 from noa.orchestrator.state import AgentState
 
-# Placeholder cost-per-invocation (will be model-aware in later phases).
-_ESTIMATED_COST_PER_CALL = 0.001
-
 
 def responder_node(state: AgentState) -> dict[str, Any]:
     """Format response and update cost. Pure function."""
@@ -29,9 +26,9 @@ def responder_node(state: AgentState) -> dict[str, Any]:
     if not response:
         response = "I'm sorry, I couldn't generate a response."
 
-    # Cost tracking (S2.1 — cost and iteration limits are fixed).
-    previous_cost: float = state.get("total_cost", 0.0)
-    total_cost = previous_cost + _ESTIMATED_COST_PER_CALL
+    # Sum real cost from accumulated llm_usage records.
+    llm_usage: list[dict[str, Any]] = state.get("llm_usage", [])
+    total_cost = sum(entry.get("cost_usd", 0.0) for entry in llm_usage)
 
     return {
         "response": response,

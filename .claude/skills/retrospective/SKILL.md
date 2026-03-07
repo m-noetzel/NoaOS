@@ -150,4 +150,18 @@ Confirm you understand the constraints:
 4. Evidence-based observations only — no speculation without data
 5. The goal is continuous improvement, not blame
 
+## 6. Trigger Continuous Improvement Agent
+
+After writing your retrospective report, instruct the orchestrator to launch the `continuous-improvement` agent. Include this exact text at the end of your report:
+
+```
+## CI Agent Trigger
+→ Orchestrator: Launch the `continuous-improvement` agent now.
+  Input: This retrospective (`Plan/RETROS/retro_{wave-id}.md`) plus any QA reviews and RCA reports from this wave.
+```
+
+This ensures the CI agent runs automatically after every retrospective, closing the feedback loop: retro findings → CI analysis → improvement proposals → human approval.
+
+---
+
 Now proceed: Read `Plan/MASTER_PLAN.md` and identify all phases in wave `$ARGUMENTS`.
