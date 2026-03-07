@@ -108,7 +108,18 @@ class OrchestratorRunner:
                 "tool_rounds": 0,
             }
 
+            # A4: Load checkpoint if available (resume support)
+            if self._checkpointer is not None:
+                saved = await self._checkpointer.load(run_id=run_id)
+                if saved is not None:
+                    initial_state.update(saved)
+                    logger.info("Resumed from checkpoint for run %s", run_id)
+
             result = await self._graph.ainvoke(initial_state)
+
+            # A4: Save checkpoint after successful execution
+            if self._checkpointer is not None:
+                await self._checkpointer.save(run_id=run_id, state=result)
 
             # 6. Emit tool events if any
             tool_calls = result.get("tool_calls", [])

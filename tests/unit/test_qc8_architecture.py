@@ -178,18 +178,19 @@ class TestA2ProviderRouterRefactor:
 class TestA4NoOpCheckpointer:
     """A4: NoOpCheckpointer raises NotImplementedError and emits warning."""
 
-    def test_noop_checkpointer_raises_not_implemented(self) -> None:
-        """Each checkpointer method raises NotImplementedError.
-        Phase QC8 / A4."""
+    def test_noop_checkpointer_is_silent_noop(self) -> None:
+        """NoOpCheckpointer save/load are silent no-ops (no raise).
+        HD fix: NoOp is now a graceful fallback, not a crash stub."""
         from noa.orchestrator.checkpointer import NoOpCheckpointer
 
         cp = NoOpCheckpointer()
 
-        with pytest.raises(NotImplementedError):
-            asyncio.run(cp.save(run_id="r1", state={"x": 1}))
+        # save should not raise
+        asyncio.run(cp.save(run_id="r1", state={"x": 1}))
 
-        with pytest.raises(NotImplementedError):
-            asyncio.run(cp.load(run_id="r1"))
+        # load should return None
+        result = asyncio.run(cp.load(run_id="r1"))
+        assert result is None
 
     def test_noop_checkpointer_emits_warning(self, caplog: pytest.LogCaptureFixture) -> None:
         """NoOpCheckpointer logs a warning at construction time.
@@ -428,44 +429,59 @@ class TestM5SSEReplay:
     @pytest.mark.asyncio
     async def test_replay_endpoint_returns_events_after_id(self) -> None:
         """GET /api/v1/runs/{run_id}/events/replay?after_event_id=1
-        returns events 2 and 3 when 3 events exist.  Phase QC8 / M5."""
+        returns events after the given ID.  Phase QC8 / M5 + HD."""
         from noa.api.v1.runs import replay_run_events
+        from noa.auth.middleware import AuthUser
 
         run_id = _uuid()
+        user_id = _uuid()
         mock_request = MagicMock()
-        mock_request.query_params = {"after_event_id": "1"}
-        mock_user = {"sub": str(_uuid())}
+        mock_user = AuthUser(user_id=user_id)
 
-        # replay_run_events must exist after QC8
+        # Mock DB session that returns empty result
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []
+        mock_db = AsyncMock()
+        mock_db.execute = AsyncMock(return_value=mock_result)
+
         result = await replay_run_events(
             run_id=run_id,
             request=mock_request,
             user=mock_user,
             after_event_id=1,
+            db=mock_db,
         )
 
-        # Result should be a list or envelope with events
         assert result is not None
+        assert result["data"]["events"] == []
 
     @pytest.mark.asyncio
     async def test_replay_endpoint_returns_empty_for_unknown_event(self) -> None:
-        """Replay with an event ID that doesn't exist returns empty list.
-        Phase QC8 / M5."""
+        """Replay with a high event ID returns empty list.
+        Phase QC8 / M5 + HD."""
         from noa.api.v1.runs import replay_run_events
+        from noa.auth.middleware import AuthUser
 
         run_id = _uuid()
+        user_id = _uuid()
         mock_request = MagicMock()
-        mock_user = {"sub": str(_uuid())}
+        mock_user = AuthUser(user_id=user_id)
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []
+        mock_db = AsyncMock()
+        mock_db.execute = AsyncMock(return_value=mock_result)
 
         result = await replay_run_events(
             run_id=run_id,
             request=mock_request,
             user=mock_user,
             after_event_id=999999,
+            db=mock_db,
         )
 
-        # Should return empty data, not error
         assert result is not None
+        assert result["data"]["events"] == []
 
     @pytest.mark.asyncio
     async def test_stream_endpoint_sends_event_id_field(self) -> None:

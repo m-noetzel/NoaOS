@@ -24,19 +24,19 @@
 | H5 | High | Bare `except Exception: pass` Throughout Codebase | **Resolved** | QC3 |
 | H6 | High | No Input Validation on Email Recipients | **Resolved** | QC2 |
 | H7 | High | Tool Capability Default is "Allow" | **Resolved** | QC2 |
-| H8 | High | Rate Limiting Is Process-Local and Per-Action | **Resolved** | QC8 + HD (per-user wired in GovernanceWrapper + ToolGateway) |
+| H8 | High | Rate Limiting Is Process-Local and Per-Action | **Resolved** | QC8 + HD (per-user in ToolGateway dispatch; GovernanceWrapper is unused dead code) |
 | H9 | High | Google AI Provider Missing Tool Call `id` Field | Open | QC4 (planned) |
 | H10 | High | Notion HTML Sanitization Is Regex-Based | **Resolved** | QC2 |
 | M1 | Medium | Idempotency Implementation Is Dead Code | **Resolved** | QC8 |
 | M2 | Medium | No CSRF Protection | **Resolved** | QC2 |
 | M3 | Medium | Retention Scheduler Never Actually Purges | Open | QC5 (planned) |
 | M4 | Medium | No Content-Security-Policy Headers | **Resolved** | QC2 |
-| M5 | Medium | SSE Reconnection Loses Events | **Resolved** | QC8 + HD (replay endpoint queries run_events table) |
+| M5 | Medium | SSE Reconnection Loses Events | **Resolved** | QC8 + HD (replay queries run_events with user_id auth filter) |
 | M6 | Medium | Approval Expiry Never Enforced | Open | QC5 (planned) |
 | M7 | Medium | Step-Up Auth Defined But Not Enforced | **Resolved** | QC8 |
 | M8 | Medium | Cost Endpoint Returns 200 on Database Error | **Resolved** | QC3 |
 | M9 | Medium | ContractViolationTracker Window Never Pruned | Open | QC5 (planned) |
-| M10 | Medium | Google Refresh Tokens Not Persisted | **Resolved** | QC8 + HD (google_credentials table + DB callback) |
+| M10 | Medium | Google Refresh Tokens Not Persisted | **Resolved** | QC8 + HD (Fernet-encrypted tokens in google_credentials table) |
 | M11 | Medium | Inconsistent User ID Extraction from JWT | **Resolved** | QC3 |
 | M12 | Medium | Mixed Sync/Async Service Layer | Open | QC5 (planned) |
 | M13 | Medium | Backup Script Errors Silently Ignored | **Resolved** | QC3 |
@@ -44,7 +44,7 @@
 | A1 | Arch | Global Mutable State Instead of DI | **Resolved** | QC8 + HD (app.state-backed DI with module fallback) |
 | A2 | Arch | ProviderRouter Is Both Router and Factory | **Resolved** | QC8 |
 | A3 | Arch | Orchestrator State Not Fully Initialized | **Resolved** | QC1 |
-| A4 | Arch | Checkpointer Is an Empty Stub | **Resolved** | QC8 + HD (PostgresCheckpointer with save/load) |
+| A4 | Arch | Checkpointer Is an Empty Stub | **Resolved** | QC8 + HD (PostgresCheckpointer with save/load called in runner.run()) |
 | A5 | Arch | No Transaction Abstraction | **Resolved** | QC8 |
 | UI-C1 | Critical | SSE BASE_URL Differs From API Client | **Resolved** | QC6 |
 | UI-C2 | Critical | Chat `currentRunId` Never Set From SSE | **Resolved** | QC6 |
@@ -65,7 +65,10 @@
 | UI-M9 | Medium | No Notification Badges on Sidebar | **Resolved** | QC7 |
 | UI-M10 | Medium | JS Bundle Is 965 KB (No Code Splitting) | **Resolved** | QC7 |
 
-**Open:** 0 | **Partially Resolved:** 0 | **Resolved:** 49 | **Total:** 49
+| H11 | High | Replay Endpoint Missing User Authorization Filter | **Resolved** | HD (user_id filter via Run join) |
+| M15 | Medium | HD Commit Breaks 3 Existing QC8 Tests | **Resolved** | HD (tests updated for new behavior) |
+
+**Open:** 0 | **Partially Resolved:** 0 | **Resolved:** 51 | **Total:** 51
 
 ---
 
@@ -303,6 +306,18 @@ Only `<script>` tags are stripped. Missing: `onerror`, `onload` event handlers, 
 
 ---
 
+### H11. Replay Endpoint Missing User Authorization Filter
+
+**File:** `src/noa/api/v1/runs.py:100-106`
+
+The `replay_run_events` endpoint requires authentication via `require_auth` but does not filter the query by `user_id`. The query `select(RunEvent).where(RunEvent.run_id == run_id)` returns all events for the given run regardless of who owns it. Any authenticated user can read any other user's run events by providing a valid (or guessed) `run_id`.
+
+**Impact:** Information disclosure — run event payloads may contain conversation content, tool call arguments, and tool results.
+
+**Fix:** Join through the `runs` table and add `.where(Run.user_id == user_id)` to verify the authenticated user owns the run.
+
+---
+
 ## 3. Medium
 
 ### M1. Idempotency Implementation Is Dead Code
@@ -428,6 +443,20 @@ This inconsistency makes it unclear whether the app is sync-first or async-first
 **File:** `web/src/api/client.ts`
 
 `fetch()` calls have no `AbortController` timeout. If the backend hangs, the UI freezes indefinitely.
+
+---
+
+### M15. HD Commit Breaks 3 Existing QC8 Tests
+
+**Commit:** 9c5a873
+
+Three pre-existing QC8 tests fail after the hardening commit:
+
+1. `TestA4NoOpCheckpointer::test_noop_checkpointer_raises_not_implemented` — NoOpCheckpointer was changed from raising `NotImplementedError` to silently returning (no-op), but the test was not updated.
+2. `TestM5SSEReplay::test_replay_endpoint_returns_events_after_id` — `replay_run_events` now requires a `db` parameter (Depends injection) that the test does not provide.
+3. `TestM5SSEReplay::test_replay_endpoint_returns_empty_for_unknown_event` — Same `db` parameter issue.
+
+**Fix:** Update the 3 tests to match the new behavior: mock the DB session for replay tests, and change the NoOpCheckpointer test to assert no-raise behavior.
 
 ---
 

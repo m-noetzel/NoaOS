@@ -10,11 +10,11 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 
+from noa.api.deps import get_db_session
 from noa.api.middleware import trace_id_ctx
 from noa.api.schemas.common import success_envelope
-from noa.auth.middleware import require_auth
-from noa.api.deps import get_db_session
-from noa.db.models.run import RunEvent
+from noa.auth.middleware import AuthUser, require_auth
+from noa.db.models.run import Run, RunEvent
 
 router = APIRouter(prefix="/api/v1/runs", tags=["runs"])
 
@@ -22,7 +22,7 @@ router = APIRouter(prefix="/api/v1/runs", tags=["runs"])
 @router.get("")
 async def list_runs(
     request: Request,
-    user: dict[str, Any] = Depends(require_auth),  # noqa: B008
+    user: AuthUser = Depends(require_auth),  # noqa: B008
 ) -> dict[str, Any]:
     """List runs for the authenticated user."""
     rid = trace_id_ctx.get("")
@@ -33,25 +33,20 @@ async def list_runs(
 async def stream_run_events(
     run_id: uuid.UUID,
     request: Request,
-    user: dict[str, Any] = Depends(require_auth),  # noqa: B008
+    user: AuthUser = Depends(require_auth),  # noqa: B008
 ) -> StreamingResponse:
     """SSE endpoint for streaming run events per §22.4.
 
-    Clients subscribe to real-time events via Server-Sent Events.
     Events include an ``id:`` field so clients can use ``Last-Event-ID``
-    for reconnection replay.  Phase QC8 / M5.
+    for reconnection replay.
     """
     rid = trace_id_ctx.get("")
 
     async def event_generator() -> Any:
-        """Generate SSE events with id: fields for Last-Event-ID tracking."""
         event_counter = 0
-
-        # Send an initial event with id field
         event_counter += 1
         yield f"id: {event_counter}\nevent: connected\ndata: connected\n\n"
 
-        # In production, this would poll or subscribe to new events
         try:
             while True:
                 await asyncio.sleep(30)
@@ -75,37 +70,28 @@ async def stream_run_events(
 async def replay_run_events(
     run_id: uuid.UUID,
     request: Request,
-    user: dict[str, Any] = Depends(require_auth),  # noqa: B008
+    user: AuthUser = Depends(require_auth),  # noqa: B008
     after_event_id: int = 0,
     db: Any = Depends(get_db_session),  # noqa: B008
 ) -> dict[str, Any]:
-    """Replay events after a given event ID for SSE reconnection.
+    """Replay events for SSE reconnection — resolves M5 + H11.
 
-    Queries the ``run_events`` table for events belonging to the run,
-    ordered by timestamp, enabling clients to catch up after a
-    disconnection using ``Last-Event-ID``.  Resolves M5.
-
-    Args:
-        run_id: The run UUID.
-        request: FastAPI request.
-        user: Authenticated user.
-        after_event_id: Return events after this sequence number (0 = all).
-        db: Database session.
-
-    Returns:
-        Envelope with list of events.
+    Joins through ``runs`` table to verify the authenticated user owns
+    the run before returning events.
     """
     rid = trace_id_ctx.get("")
 
+    # H11: filter by user_id to prevent cross-user access
     stmt = (
         select(RunEvent)
+        .join(Run, RunEvent.run_id == Run.id)
         .where(RunEvent.run_id == run_id)
+        .where(Run.user_id == user.user_id)
         .order_by(RunEvent.timestamp)
     )
     result = await db.execute(stmt)
     rows = result.scalars().all()
 
-    # Skip events up to after_event_id (1-based sequence index)
     events = [
         {
             "id": str(row.id),

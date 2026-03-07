@@ -66,12 +66,12 @@ def _register_google_tools(gateway: ToolGateway) -> None:
     def _persist_google_tokens(
         *, access_token: str, refresh_token: str
     ) -> None:
-        """Sync callback to persist Google refresh token to DB.  M10."""
+        """Sync callback to persist Google refresh token to DB (encrypted).  M10."""
         if not refresh_token:
             return
         # Always update env as fallback
         os.environ["GOOGLE_REFRESH_TOKEN"] = refresh_token
-        # Persist to DB (async, fire-and-forget from sync context)
+        # Persist encrypted to DB (async, fire-and-forget from sync context)
         try:
             import asyncio
 
@@ -81,37 +81,40 @@ def _register_google_tools(gateway: ToolGateway) -> None:
             if sf is None:
                 return
 
+            # Encrypt tokens using Fernet with JWT secret as key material
+            from noa.tools._token_crypto import encrypt_token
+
+            enc_access = encrypt_token(access_token or "")
+            enc_refresh = encrypt_token(refresh_token)
+
             async def _save() -> None:
                 from sqlalchemy import select
 
                 from noa.db.models.google_credential import GoogleCredential
 
                 async with sf() as session:
-                    # Upsert: find existing or create
                     stmt = select(GoogleCredential).limit(1)
                     result = await session.execute(stmt)
                     cred = result.scalar_one_or_none()
                     if cred is not None:
-                        cred.access_token_enc = access_token or ""
-                        cred.refresh_token_enc = refresh_token
+                        cred.access_token_enc = enc_access
+                        cred.refresh_token_enc = enc_refresh
                     else:
                         import uuid
                         cred = GoogleCredential(
                             user_id=uuid.UUID(int=0),  # single-user system
-                            access_token_enc=access_token or "",
-                            refresh_token_enc=refresh_token,
+                            access_token_enc=enc_access,
+                            refresh_token_enc=enc_refresh,
                         )
                         session.add(cred)
                     await session.commit()
 
-            # Schedule in running event loop if available
             try:
                 loop = asyncio.get_running_loop()
                 loop.create_task(_save())
             except RuntimeError:
-                # No running loop — skip DB persistence, env var is set
                 pass
-            logger.info("Google refresh token persisted (env + DB)")
+            logger.info("Google refresh token persisted (env + encrypted DB)")
         except Exception:  # noqa: BLE001
             logger.warning("Failed to persist Google refresh token to DB")
 
