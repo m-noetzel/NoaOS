@@ -69,11 +69,51 @@ def _register_google_tools(gateway: ToolGateway) -> None:
         """Sync callback to persist Google refresh token to DB.  M10."""
         if not refresh_token:
             return
+        # Always update env as fallback
+        os.environ["GOOGLE_REFRESH_TOKEN"] = refresh_token
+        # Persist to DB (async, fire-and-forget from sync context)
         try:
-            os.environ["GOOGLE_REFRESH_TOKEN"] = refresh_token
-            logger.info("Google refresh token persisted to env")
+            import asyncio
+
+            from noa.api.app_state import get_session_factory
+
+            sf = get_session_factory()
+            if sf is None:
+                return
+
+            async def _save() -> None:
+                from sqlalchemy import select
+
+                from noa.db.models.google_credential import GoogleCredential
+
+                async with sf() as session:
+                    # Upsert: find existing or create
+                    stmt = select(GoogleCredential).limit(1)
+                    result = await session.execute(stmt)
+                    cred = result.scalar_one_or_none()
+                    if cred is not None:
+                        cred.access_token_enc = access_token or ""
+                        cred.refresh_token_enc = refresh_token
+                    else:
+                        import uuid
+                        cred = GoogleCredential(
+                            user_id=uuid.UUID(int=0),  # single-user system
+                            access_token_enc=access_token or "",
+                            refresh_token_enc=refresh_token,
+                        )
+                        session.add(cred)
+                    await session.commit()
+
+            # Schedule in running event loop if available
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(_save())
+            except RuntimeError:
+                # No running loop — skip DB persistence, env var is set
+                pass
+            logger.info("Google refresh token persisted (env + DB)")
         except Exception:  # noqa: BLE001
-            logger.warning("Failed to persist Google refresh token")
+            logger.warning("Failed to persist Google refresh token to DB")
 
     auth = GoogleAuthClient(
         client_id=client_id,

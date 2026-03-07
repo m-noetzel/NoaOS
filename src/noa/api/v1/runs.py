@@ -8,10 +8,13 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
+from sqlalchemy import select
 
 from noa.api.middleware import trace_id_ctx
 from noa.api.schemas.common import success_envelope
 from noa.auth.middleware import require_auth
+from noa.api.deps import get_db_session
+from noa.db.models.run import RunEvent
 
 router = APIRouter(prefix="/api/v1/runs", tags=["runs"])
 
@@ -74,23 +77,44 @@ async def replay_run_events(
     request: Request,
     user: dict[str, Any] = Depends(require_auth),  # noqa: B008
     after_event_id: int = 0,
+    db: Any = Depends(get_db_session),  # noqa: B008
 ) -> dict[str, Any]:
     """Replay events after a given event ID for SSE reconnection.
 
-    Returns events that occurred after ``after_event_id``, enabling
-    clients to catch up after a disconnection using ``Last-Event-ID``.
-    Phase QC8 / M5.
+    Queries the ``run_events`` table for events belonging to the run,
+    ordered by timestamp, enabling clients to catch up after a
+    disconnection using ``Last-Event-ID``.  Resolves M5.
 
     Args:
         run_id: The run UUID.
         request: FastAPI request.
         user: Authenticated user.
-        after_event_id: Return events after this ID (0 = all).
+        after_event_id: Return events after this sequence number (0 = all).
+        db: Database session.
 
     Returns:
         Envelope with list of events.
     """
     rid = trace_id_ctx.get("")
-    # TODO: Query run_events table for events > after_event_id (M5 full implementation)
-    # Currently returns empty — SSE events are not yet persisted to the event store
-    return success_envelope(data={"events": []}, trace_id=rid)
+
+    stmt = (
+        select(RunEvent)
+        .where(RunEvent.run_id == run_id)
+        .order_by(RunEvent.timestamp)
+    )
+    result = await db.execute(stmt)
+    rows = result.scalars().all()
+
+    # Skip events up to after_event_id (1-based sequence index)
+    events = [
+        {
+            "id": str(row.id),
+            "event_type": row.event_type,
+            "timestamp": row.timestamp.isoformat(),
+            "payload": row.payload,
+        }
+        for idx, row in enumerate(rows, start=1)
+        if idx > after_event_id
+    ]
+
+    return success_envelope(data={"events": events}, trace_id=rid)

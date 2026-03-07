@@ -89,6 +89,7 @@ class GovernanceWrapper:
         function: str,
         args: dict[str, Any],
         idempotency_key: str | None = None,
+        user_id: str | None = None,
     ) -> dict[str, Any]:
         """Execute with governance checks.
 
@@ -103,8 +104,8 @@ class GovernanceWrapper:
             if cached is not None:
                 return cached
 
-        # 2. Rate limit check
-        if not self._rate_limiter.check(function):
+        # 2. Rate limit check (per-user isolation — H8)
+        if not self._rate_limiter.check(function, user_id=user_id):
             raise RateLimitError(
                 f"Rate limit exceeded for {function}"
             )

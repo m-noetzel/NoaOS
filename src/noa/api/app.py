@@ -124,12 +124,21 @@ def wire_llm_pipeline(settings: Any) -> None:
 
     # 3. Build OrchestratorRunner with compiled graph
     try:
-        from noa.orchestrator.checkpointer import NoOpCheckpointer
         from noa.orchestrator.graph import build_graph
         from noa.orchestrator.runner import OrchestratorRunner
 
         graph = build_graph().compile()
-        checkpointer = NoOpCheckpointer()
+
+        # A4: Use PostgresCheckpointer when DB is available
+        sf = get_session_factory()
+        if sf is not None:
+            from noa.orchestrator.checkpointer import PostgresCheckpointer
+            checkpointer = PostgresCheckpointer(session_factory=sf)
+            logger.info("PostgresCheckpointer wired for run state persistence")
+        else:
+            from noa.orchestrator.checkpointer import NoOpCheckpointer
+            checkpointer = NoOpCheckpointer()
+
         runner = OrchestratorRunner(graph=graph, checkpointer=checkpointer)
         set_runner(runner)
         logger.info("OrchestratorRunner wired and ready")
@@ -263,6 +272,10 @@ def create_app() -> FastAPI:
         version="0.1.0",
         lifespan=lifespan,
     )
+
+    # A1: Register app instance for app.state-backed DI
+    from noa.api.app_state import set_app
+    set_app(app)
 
     # Middleware (order matters — outermost first)
     # §29.4: LAN/VPN only — restrict CORS to known origins

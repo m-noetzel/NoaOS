@@ -1,4 +1,10 @@
-"""Application-level state shared across modules."""
+"""Application-level state — FastAPI app.state backed with module fallback.
+
+Resolves A1: services are stored on the FastAPI app.state instance during
+lifespan, eliminating module-level mutable globals as the primary store.
+The module-level variables remain only as a fallback for contexts where
+the app instance is not available (e.g., CLI scripts, early startup).
+"""
 
 from __future__ import annotations
 
@@ -8,6 +14,10 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from noa.queue.health import HealthChecker
 
+# The FastAPI app instance — set once at startup
+_app_instance: Any | None = None
+
+# Module-level fallbacks (used before app is created or in non-request contexts)
 _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
 _health_checker: HealthChecker | None = None
@@ -16,82 +26,93 @@ _runner: Any | None = None
 _gateway: Any | None = None
 
 
+def set_app(app: Any) -> None:
+    """Register the FastAPI app instance for state storage."""
+    global _app_instance  # noqa: PLW0603
+    _app_instance = app
+
+
+def _get_from_app(key: str) -> Any:
+    """Try to read from app.state first."""
+    if _app_instance is not None:
+        return getattr(_app_instance.state, key, None)
+    return None
+
+
+def _set_on_app(key: str, value: Any) -> None:
+    """Store on app.state if available."""
+    if _app_instance is not None:
+        setattr(_app_instance.state, key, value)
+
+
 def set_engine(engine: AsyncEngine) -> None:
-    """Store the engine globally for the app lifetime."""
     global _engine  # noqa: PLW0603
     _engine = engine
+    _set_on_app("engine", engine)
 
 
 def get_engine() -> AsyncEngine | None:
-    """Return the current engine (may be None before startup)."""
-    return _engine
+    return _get_from_app("engine") or _engine
 
 
 def set_session_factory(factory: async_sessionmaker[AsyncSession]) -> None:
-    """Store the session factory globally."""
     global _session_factory  # noqa: PLW0603
     _session_factory = factory
+    _set_on_app("session_factory", factory)
 
 
 def get_session_factory() -> async_sessionmaker[AsyncSession] | None:
-    """Return the session factory (None before startup)."""
-    return _session_factory
+    return _get_from_app("session_factory") or _session_factory
 
 
 def set_health_checker(checker: HealthChecker) -> None:
-    """Store the HealthChecker globally."""
     global _health_checker  # noqa: PLW0603
     _health_checker = checker
+    _set_on_app("health_checker", checker)
 
 
 def get_health_checker() -> HealthChecker | None:
-    """Return the current HealthChecker (may be None)."""
-    return _health_checker
+    return _get_from_app("health_checker") or _health_checker
 
 
 def set_provider_router(router: Any) -> None:
-    """Store the ProviderRouter globally."""
     global _provider_router  # noqa: PLW0603
     _provider_router = router
+    _set_on_app("provider_router", router)
 
 
 def get_provider_router() -> Any | None:
-    """Return the current ProviderRouter (may be None)."""
-    return _provider_router
+    return _get_from_app("provider_router") or _provider_router
 
 
 def set_runner(runner: Any) -> None:
-    """Store the OrchestratorRunner globally."""
     global _runner  # noqa: PLW0603
     _runner = runner
+    _set_on_app("runner", runner)
 
 
 def get_runner() -> Any | None:
-    """Return the current OrchestratorRunner (may be None)."""
-    return _runner
+    return _get_from_app("runner") or _runner
 
 
 def set_gateway(gateway: Any) -> None:
-    """Store the ToolGateway globally."""
     global _gateway  # noqa: PLW0603
     _gateway = gateway
+    _set_on_app("gateway", gateway)
 
 
 def get_gateway() -> Any | None:
-    """Return the current ToolGateway (may be None)."""
-    return _gateway
+    return _get_from_app("gateway") or _gateway
 
 
 def reset_all() -> None:
-    """Reset all global state to None.
-
-    Useful for testing and clean shutdown.  Phase QC8 / A1.
-    """
+    """Reset all state — for testing."""
     global _engine, _session_factory, _health_checker  # noqa: PLW0603
-    global _provider_router, _runner, _gateway  # noqa: PLW0603
+    global _provider_router, _runner, _gateway, _app_instance  # noqa: PLW0603
     _engine = None
     _session_factory = None
     _health_checker = None
     _provider_router = None
     _runner = None
     _gateway = None
+    _app_instance = None

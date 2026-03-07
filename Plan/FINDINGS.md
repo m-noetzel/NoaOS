@@ -24,27 +24,27 @@
 | H5 | High | Bare `except Exception: pass` Throughout Codebase | **Resolved** | QC3 |
 | H6 | High | No Input Validation on Email Recipients | **Resolved** | QC2 |
 | H7 | High | Tool Capability Default is "Allow" | **Resolved** | QC2 |
-| H8 | High | Rate Limiting Is Process-Local and Per-Action | **Partially Resolved** | QC8 (per-user in-memory, DB-backed deferred) |
+| H8 | High | Rate Limiting Is Process-Local and Per-Action | **Resolved** | QC8 + HD (per-user wired in GovernanceWrapper + ToolGateway) |
 | H9 | High | Google AI Provider Missing Tool Call `id` Field | Open | QC4 (planned) |
 | H10 | High | Notion HTML Sanitization Is Regex-Based | **Resolved** | QC2 |
 | M1 | Medium | Idempotency Implementation Is Dead Code | **Resolved** | QC8 |
 | M2 | Medium | No CSRF Protection | **Resolved** | QC2 |
 | M3 | Medium | Retention Scheduler Never Actually Purges | Open | QC5 (planned) |
 | M4 | Medium | No Content-Security-Policy Headers | **Resolved** | QC2 |
-| M5 | Medium | SSE Reconnection Loses Events | **Partially Resolved** | QC8 (Last-Event-ID tracked, replay endpoint stub) |
+| M5 | Medium | SSE Reconnection Loses Events | **Resolved** | QC8 + HD (replay endpoint queries run_events table) |
 | M6 | Medium | Approval Expiry Never Enforced | Open | QC5 (planned) |
 | M7 | Medium | Step-Up Auth Defined But Not Enforced | **Resolved** | QC8 |
 | M8 | Medium | Cost Endpoint Returns 200 on Database Error | **Resolved** | QC3 |
 | M9 | Medium | ContractViolationTracker Window Never Pruned | Open | QC5 (planned) |
-| M10 | Medium | Google Refresh Tokens Not Persisted | **Partially Resolved** | QC8 (env-var persistence, DB deferred) |
+| M10 | Medium | Google Refresh Tokens Not Persisted | **Resolved** | QC8 + HD (google_credentials table + DB callback) |
 | M11 | Medium | Inconsistent User ID Extraction from JWT | **Resolved** | QC3 |
 | M12 | Medium | Mixed Sync/Async Service Layer | Open | QC5 (planned) |
 | M13 | Medium | Backup Script Errors Silently Ignored | **Resolved** | QC3 |
 | M14 | Medium | No Frontend Request Timeouts | **Resolved** | QC8 |
-| A1 | Arch | Global Mutable State Instead of DI | **Partially Resolved** | QC8 (reset_all for tests, full DI deferred) |
+| A1 | Arch | Global Mutable State Instead of DI | **Resolved** | QC8 + HD (app.state-backed DI with module fallback) |
 | A2 | Arch | ProviderRouter Is Both Router and Factory | **Resolved** | QC8 |
 | A3 | Arch | Orchestrator State Not Fully Initialized | **Resolved** | QC1 |
-| A4 | Arch | Checkpointer Is an Empty Stub | **Partially Resolved** | QC8 (NoOpCheckpointer wired, real impl deferred) |
+| A4 | Arch | Checkpointer Is an Empty Stub | **Resolved** | QC8 + HD (PostgresCheckpointer with save/load) |
 | A5 | Arch | No Transaction Abstraction | **Resolved** | QC8 |
 | UI-C1 | Critical | SSE BASE_URL Differs From API Client | **Resolved** | QC6 |
 | UI-C2 | Critical | Chat `currentRunId` Never Set From SSE | **Resolved** | QC6 |
@@ -65,7 +65,7 @@
 | UI-M9 | Medium | No Notification Badges on Sidebar | **Resolved** | QC7 |
 | UI-M10 | Medium | JS Bundle Is 965 KB (No Code Splitting) | **Resolved** | QC7 |
 
-**Open:** 0 | **Partially Resolved:** 5 | **Resolved:** 44 | **Total:** 49
+**Open:** 0 | **Partially Resolved:** 0 | **Resolved:** 49 | **Total:** 49
 
 ---
 

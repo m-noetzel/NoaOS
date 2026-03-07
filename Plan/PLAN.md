@@ -10,7 +10,7 @@ The plan is organized into **waves** — groups of related phases that deliver a
 
 ## Key Documents
 
-- **[FINDINGS.md](FINDINGS.md)** — 49 audit findings (44 resolved, 0 open, 5 partially resolved). Updated inline when findings are resolved.
+- **[FINDINGS.md](FINDINGS.md)** — 49 audit findings (49 resolved, 0 open, 0 partially resolved). Updated inline when findings are resolved.
 - **[PHASE_DETAILS.md](PHASE_DETAILS.md)** — Detailed phase descriptions (search by phase ID).
 - **[QA_CHECKLIST.md](QA_CHECKLIST.md)** — QA criteria (M1-M8 must-haves, S1-S5 should-haves).
 
