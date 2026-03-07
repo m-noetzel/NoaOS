@@ -2,7 +2,7 @@
 name: write-code
 description: Implementation agent. Makes failing tests pass with minimal, spec-compliant code. Reads tests as contracts, writes only to src/. Never modifies tests.
 argument-hint: [phase-id]
-disable-model-invocation: true
+disable-model-invocation: false
 context: fork
 allowed-tools: Read, Grep, Glob, Write, Edit, Bash
 ---

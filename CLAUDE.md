@@ -54,7 +54,7 @@ Noa uses a multi-agent pipeline where specialized agents handle distinct roles. 
 
 | Agent | Role | Writes To |
 |-------|------|-----------|
-| `qa-review` | Adversarial QA review — runs code, scans anti-patterns, verifies wiring | `Plan/REVIEWS/` |
+| `qa-review` | Adversarial QA — two modes: (1) test planning before implementation, (2) final review after implementation | `Plan/REVIEWS/` |
 | `code-reviewer` | Code review for diffs/branches before merge | stdout (structured review) |
 | `continuous-improvement` | Cross-wave pattern analysis, improvement proposals, fix tracking | `Plan/CI/` |
 
@@ -63,18 +63,19 @@ Noa uses a multi-agent pipeline where specialized agents handle distinct roles. 
 Each phase follows this exact sequence:
 
 ```
-/phase-planning → /write-tests → verify red → /write-code → verify green → verify integration → qa-review agent → fix/iterate → mark complete
+/phase-planning → qa-review (test plan) → /write-tests (from plan) → verify red → /write-code → verify green → verify integration → qa-review (final review) → fix/iterate → mark complete
 ```
 
 1. **Plan** (`/phase-planning {id}`): Create phase entry in MASTER_PLAN.md
-2. **Test** (`/write-tests {id}`): Write failing tests derived from spec. Must include at least one non-mocked integration test.
-3. **Verify Red**: Run tests — at least one new test must FAIL with an assertion error (not ImportError/NotImplementedError). Tests for already-existing helpers/utilities may pass. Log which tests failed and why.
-4. **Implement** (`/write-code {id}`): Write code to make tests pass. Code MUST be wired into the running system (registered routers, instantiated services). No bare `except` blocks.
-5. **Verify Green**: Run tests — all phase tests PASS. Also run `ruff check` + `mypy` (static gates must pass before merge).
-6. **Verify Integration**: Import the main modules and call key functions to verify they work beyond mocked tests. Check that new routers are registered, services are instantiated, and endpoints are reachable. If imports crash or functions return wrong types, fix before proceeding.
-7. **Review** (launch `qa-review` agent with phase ID): QA agent evaluates against `Plan/QA_CHECKLIST.md` (M1-M8, S1-S5) and produces verdict. QA is adversarial — it runs code, scans for anti-patterns, and verifies wiring. The agent has persistent memory and learns from past reviews. See `Plan/RETROS/retro_project_audit.md` for quality lessons.
-8. **Iterate**: If FAIL, fix blocking issues and re-review (max 2 cycles). On 2nd FAIL, write `Plan/RCA/rca_{phase-id}.md` (cause, fix, prevention rule).
-9. **Complete**: Update MASTER_PLAN.md status, write changelog entry
+2. **Test Plan** (launch `qa-review` agent in `test-plan` mode): QA agent reads the spec and phase plan, then produces an independent test plan defining behaviors to test, edge cases, security scenarios, and expected error paths. Written to `Plan/REVIEWS/test-plan_{phase-id}.md`. The orchestrator and `/write-tests` skill use this plan as input.
+3. **Test** (`/write-tests {id}`): Write failing tests derived from the QA test plan. Must include at least one non-mocked integration test. Tests must cover the behaviors specified in the test plan.
+4. **Verify Red**: Run tests — at least one new test must FAIL with an assertion error (not ImportError/NotImplementedError). Tests for already-existing helpers/utilities may pass. Log which tests failed and why.
+5. **Implement** (`/write-code {id}`): Write code to make tests pass. Code MUST be wired into the running system (registered routers, instantiated services). No bare `except` blocks.
+6. **Verify Green**: Run tests — all phase tests PASS. Also run `ruff check` + `mypy` (static gates must pass before merge).
+7. **Verify Integration**: Import the main modules and call key functions to verify they work beyond mocked tests. Check that new routers are registered, services are instantiated, and endpoints are reachable. If imports crash or functions return wrong types, fix before proceeding.
+8. **Review** (launch `qa-review` agent in `review` mode): QA agent evaluates against `Plan/QA_CHECKLIST.md` (M1-M8, S1-S5) and produces verdict. This is an adversarial review — NOT limited to checking against its own test plan. The agent runs code, scans for anti-patterns, verifies wiring, and tries to find issues the test plan missed. See `Plan/RETROS/retro_project_audit.md` for quality lessons.
+9. **Iterate**: If FAIL, fix blocking issues and re-review (max 2 cycles). On 2nd FAIL, write `Plan/RCA/rca_{phase-id}.md` (cause, fix, prevention rule).
+10. **Complete**: Update MASTER_PLAN.md status, write changelog entry
 
 ### Cross-Cutting Verification (After Parallel Merge)
 

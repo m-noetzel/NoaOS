@@ -2,7 +2,7 @@
 name: write-tests
 description: Write behavioral tests before implementation. Derives tests from SPEC.md and phase plans — never from implementation code. Enforces spec-traceability and test-first workflow.
 argument-hint: [phase-id-or-feature-description]
-disable-model-invocation: true
+disable-model-invocation: false
 context: fork
 allowed-tools: Read, Grep, Glob, Write
 ---
