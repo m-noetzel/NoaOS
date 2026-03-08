@@ -112,10 +112,10 @@ The plan is organized into **waves** — groups of related phases that deliver a
 | **QC7** | Frontend Polish & UX | **Complete** | 36 | main | ~45 min | ~30 min | UI-M1–M10: pagination, SSE validation, optimistic append, thread titles, Tools page, Cost states, settings freshness, sidebar badges, code splitting |
 | **QC8** | Architecture & Robustness | **Complete** | 33 | main | ~60 min | ~60 min | QA PASS_WITH_NOTES (cycle 2): A1 reset_all, A2 injected clients, A4 NoOpCheckpointer, A5 transactional, H8 per-user rate limit, M1 idempotency wiring, M5 SSE reconnect, M7 step-up auth, M10 token persist (env), M14 timeouts |
 | — | — **WAVE 15A: BACKEND EXTENSIONS (iOS)** — | — | — | — | — | — | — |
-| **iOS1** | APNs Push Notification Backend | Planned | — | — | ~45 min | — | Device token registration, HTTP/2 APNs service, approval batching |
-| **iOS2** | Voice Upload Endpoint | Planned | — | — | ~30 min | — | Multipart audio upload, Whisper transcription, chat pipe |
+| **iOS1** | APNs Push Notification Backend | **Complete** | 20 | main | ~45 min | ~20 min | QA PASS_WITH_NOTES 2026-03-08: APNs service, batcher, device tokens, push hooks, migration 008 |
+| **iOS2** | Voice Upload Endpoint | **Complete** | 17 | main | ~30 min | ~15 min | QA PASS_WITH_NOTES 2026-03-08: Whisper transcription, audio validation, chat mode, voice router |
 | — | — **WAVE 15B: iOS FOUNDATION** — | — | — | — | — | — | — |
-| **iOS3** | Xcode Project Scaffold & Networking Layer | Planned | — | — | ~60 min | — | SwiftUI app, APIClient, SSEClient, shared models |
+| **iOS3** | Xcode Project Scaffold & Networking Layer | **Complete** | 40+41 | main | ~60 min | ~90 min | QA PASS_WITH_NOTES 2026-03-08: SPM package, APIClient actor, SSEClient actor, Swift 6 strict concurrency |
 | **iOS4** | Keychain Storage & Auth Flow | Planned | — | — | ~45 min | — | KeychainService, AuthService, LoginView, auto-refresh |
 | **iOS5** | Chat UI with SSE Streaming | Planned | — | — | ~60 min | — | ChatView, token streaming, threads, NavigationSplitView |
 | — | — **WAVE 15C: iOS FEATURES** — | — | — | — | — | — | — |

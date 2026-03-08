@@ -9,8 +9,11 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 # Valid event types per §22.2
+# "meta" is the first SSE frame emitted by /api/v1/chat (run_id, thread_id);
+# iOS3 SSEClient must parse it, so it belongs in the validated set.
 VALID_EVENT_TYPES = frozenset(
     [
+        "meta",
         "message_received",
         "classification_done",
         "step_started",

@@ -1,0 +1,3 @@
+module Noa {
+    header "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/include/Noa-Swift.h"
+}

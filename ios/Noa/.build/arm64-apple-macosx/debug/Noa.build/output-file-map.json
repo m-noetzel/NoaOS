@@ -1,0 +1,75 @@
+{
+  "": {
+    "swift-dependencies": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/master.swiftdeps"
+  },
+  "/Users/martin2020/Projekte/NoaOS/ios/Noa/Sources/Noa/Configuration/Environment.swift": {
+    "dependencies": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/Environment.d",
+    "object": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/Environment.swift.o",
+    "swiftmodule": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/Environment~partial.swiftmodule",
+    "swift-dependencies": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/Environment.swiftdeps",
+    "diagnostics": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/Environment.dia"
+  },
+  "/Users/martin2020/Projekte/NoaOS/ios/Noa/Sources/Noa/Models/ApiResponse.swift": {
+    "dependencies": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/ApiResponse.d",
+    "object": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/ApiResponse.swift.o",
+    "swiftmodule": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/ApiResponse~partial.swiftmodule",
+    "swift-dependencies": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/ApiResponse.swiftdeps",
+    "diagnostics": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/ApiResponse.dia"
+  },
+  "/Users/martin2020/Projekte/NoaOS/ios/Noa/Sources/Noa/Models/ApprovalModels.swift": {
+    "dependencies": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/ApprovalModels.d",
+    "object": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/ApprovalModels.swift.o",
+    "swiftmodule": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/ApprovalModels~partial.swiftmodule",
+    "swift-dependencies": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/ApprovalModels.swiftdeps",
+    "diagnostics": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/ApprovalModels.dia"
+  },
+  "/Users/martin2020/Projekte/NoaOS/ios/Noa/Sources/Noa/Models/AuthModels.swift": {
+    "dependencies": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/AuthModels.d",
+    "object": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/AuthModels.swift.o",
+    "swiftmodule": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/AuthModels~partial.swiftmodule",
+    "swift-dependencies": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/AuthModels.swiftdeps",
+    "diagnostics": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/AuthModels.dia"
+  },
+  "/Users/martin2020/Projekte/NoaOS/ios/Noa/Sources/Noa/Models/ChatModels.swift": {
+    "dependencies": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/ChatModels.d",
+    "object": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/ChatModels.swift.o",
+    "swiftmodule": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/ChatModels~partial.swiftmodule",
+    "swift-dependencies": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/ChatModels.swiftdeps",
+    "diagnostics": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/ChatModels.dia"
+  },
+  "/Users/martin2020/Projekte/NoaOS/ios/Noa/Sources/Noa/Models/RunModels.swift": {
+    "dependencies": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/RunModels.d",
+    "object": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/RunModels.swift.o",
+    "swiftmodule": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/RunModels~partial.swiftmodule",
+    "swift-dependencies": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/RunModels.swiftdeps",
+    "diagnostics": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/RunModels.dia"
+  },
+  "/Users/martin2020/Projekte/NoaOS/ios/Noa/Sources/Noa/Services/APIClient.swift": {
+    "dependencies": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/APIClient.d",
+    "object": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/APIClient.swift.o",
+    "swiftmodule": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/APIClient~partial.swiftmodule",
+    "swift-dependencies": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/APIClient.swiftdeps",
+    "diagnostics": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/APIClient.dia"
+  },
+  "/Users/martin2020/Projekte/NoaOS/ios/Noa/Sources/Noa/Services/Protocols/APIClientProtocol.swift": {
+    "dependencies": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/APIClientProtocol.d",
+    "object": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/APIClientProtocol.swift.o",
+    "swiftmodule": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/APIClientProtocol~partial.swiftmodule",
+    "swift-dependencies": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/APIClientProtocol.swiftdeps",
+    "diagnostics": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/APIClientProtocol.dia"
+  },
+  "/Users/martin2020/Projekte/NoaOS/ios/Noa/Sources/Noa/Services/SSEClient.swift": {
+    "dependencies": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/SSEClient.d",
+    "object": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/SSEClient.swift.o",
+    "swiftmodule": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/SSEClient~partial.swiftmodule",
+    "swift-dependencies": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/SSEClient.swiftdeps",
+    "diagnostics": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/SSEClient.dia"
+  },
+  "/Users/martin2020/Projekte/NoaOS/ios/Noa/Sources/Noa/Utilities/DeviceID.swift": {
+    "dependencies": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/DeviceID.d",
+    "object": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/DeviceID.swift.o",
+    "swiftmodule": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/DeviceID~partial.swiftmodule",
+    "swift-dependencies": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/DeviceID.swiftdeps",
+    "diagnostics": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/Noa.build/DeviceID.dia"
+  }
+}

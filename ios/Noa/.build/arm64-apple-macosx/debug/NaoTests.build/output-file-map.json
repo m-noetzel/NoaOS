@@ -1,0 +1,33 @@
+{
+  "": {
+    "swift-dependencies": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/NaoTests.build/master.swiftdeps"
+  },
+  "/Users/martin2020/Projekte/NoaOS/ios/Noa/Tests/NaoTests/APIClientTests.swift": {
+    "dependencies": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/NaoTests.build/APIClientTests.d",
+    "object": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/NaoTests.build/APIClientTests.swift.o",
+    "swiftmodule": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/NaoTests.build/APIClientTests~partial.swiftmodule",
+    "swift-dependencies": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/NaoTests.build/APIClientTests.swiftdeps",
+    "diagnostics": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/NaoTests.build/APIClientTests.dia"
+  },
+  "/Users/martin2020/Projekte/NoaOS/ios/Noa/Tests/NaoTests/DeviceIDTests.swift": {
+    "dependencies": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/NaoTests.build/DeviceIDTests.d",
+    "object": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/NaoTests.build/DeviceIDTests.swift.o",
+    "swiftmodule": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/NaoTests.build/DeviceIDTests~partial.swiftmodule",
+    "swift-dependencies": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/NaoTests.build/DeviceIDTests.swiftdeps",
+    "diagnostics": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/NaoTests.build/DeviceIDTests.dia"
+  },
+  "/Users/martin2020/Projekte/NoaOS/ios/Noa/Tests/NaoTests/ModelTests.swift": {
+    "dependencies": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/NaoTests.build/ModelTests.d",
+    "object": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/NaoTests.build/ModelTests.swift.o",
+    "swiftmodule": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/NaoTests.build/ModelTests~partial.swiftmodule",
+    "swift-dependencies": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/NaoTests.build/ModelTests.swiftdeps",
+    "diagnostics": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/NaoTests.build/ModelTests.dia"
+  },
+  "/Users/martin2020/Projekte/NoaOS/ios/Noa/Tests/NaoTests/SSEClientTests.swift": {
+    "dependencies": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/NaoTests.build/SSEClientTests.d",
+    "object": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/NaoTests.build/SSEClientTests.swift.o",
+    "swiftmodule": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/NaoTests.build/SSEClientTests~partial.swiftmodule",
+    "swift-dependencies": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/NaoTests.build/SSEClientTests.swiftdeps",
+    "diagnostics": "/Users/martin2020/Projekte/NoaOS/ios/Noa/.build/arm64-apple-macosx/debug/NaoTests.build/SSEClientTests.dia"
+  }
+}
