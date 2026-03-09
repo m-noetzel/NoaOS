@@ -80,6 +80,9 @@ class Settings(BaseSettings):
     # Voice / Whisper (SPEC.md §29.3)
     whisper_model: str = "whisper-1"
     max_audio_size_mb: int = 25
+    # iOS8: dual-provider transcription
+    transcription_provider: str = "openai"
+    whisper_cpp_url: str = "http://host.docker.internal:8001"
 
     model_config = {
         "env_prefix": "",

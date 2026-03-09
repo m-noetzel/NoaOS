@@ -3543,38 +3543,71 @@ xcodebuild test -project ios/Noa/Noa.xcodeproj -scheme Noa -destination 'platfor
 
 ---
 
-### Phase iOS8: Voice Recording & Playback (~45 min)
+### Phase iOS8: Voice Recording & Playback (~60 min)
 
-**Goal:** Add voice recording via AVFoundation, upload to backend voice endpoint, display transcription.
+**Goal:** Add voice recording via AVFoundation, upload to backend voice endpoint, display transcription. Backend supports two transcription providers selectable in Settings: OpenAI Whisper API and local whisper.cpp (host-side service via Metal/Apple Silicon).
 
 **Spec refs:** SPEC.md §29.3 item 3, §36.3 item 3
 
 **Depends on:** iOS2 (backend), iOS5 (chat)
 **Blocks:** None
 
+**Architecture — Dual Transcription Provider:**
+```
+iOS → POST /api/v1/voice/transcribe (Docker) → TranscriptionService
+                                                  ├─ OpenAIWhisperProvider  → api.openai.com/v1/audio/transcriptions
+                                                  └─ WhisperCppProvider     → http://host.docker.internal:8001/transcribe
+```
+
+Settings: `transcription_provider` = `openai` | `whisper_cpp` (stored in DB user settings)
+- OpenAI: uses `OPENAI_API_KEY` env var
+- whisper.cpp: uses `WHISPER_CPP_URL` env var (default: `http://host.docker.internal:8001`); runs large-v3 Q5 with Metal on Mac host
+
 **Deliverables:**
-1. `AudioRecorderService` using AVAudioRecorder for m4a recording
-2. `AudioPlayerService` using AVAudioPlayer for playback
-3. Microphone permission handling (NSMicrophoneUsageDescription)
-4. Voice button in ComposerBar: tap-and-hold or toggle recording
-5. Recording waveform/timer visualization
-6. Upload to `POST /api/v1/voice/transcribe`, auto-send to chat option
-7. Max 10 min recording duration
+
+*Backend:*
+1. `TranscriptionProvider` ABC with `transcribe(audio_data, filename, mime_type)` contract
+2. `OpenAIWhisperProvider` — existing logic extracted from `TranscriptionService`
+3. `WhisperCppProvider` — POSTs audio to `WHISPER_CPP_URL/transcribe`, parses `{"text": "..."}` response
+4. `TranscriptionService` updated to dispatch to selected provider based on user setting
+5. `voice.py` updated: reads provider from user settings, no longer hard-requires `OPENAI_API_KEY`
+6. `tools/whisper-service/` — standalone Python FastAPI host service wrapping whisper.cpp binary
+   - `server.py`: accepts multipart audio, calls `whisper` CLI, returns `{"text": "..."}`
+   - `README.md`: setup instructions (model: large-v3 Q5, Metal acceleration)
+7. Settings: `transcription_provider` field added to user settings schema + API
+
+*iOS:*
+8. `AudioRecorderService` using AVAudioRecorder for m4a recording
+9. `AudioPlayerService` using AVAudioPlayer for playback
+10. Microphone permission handling (NSMicrophoneUsageDescription)
+11. Voice button in ComposerBar: tap-and-hold or toggle recording
+12. Recording waveform/timer visualization
+13. Upload to `POST /api/v1/voice/transcribe`, auto-send to chat option
+14. Max 10 min recording duration
+15. Settings UI: transcription provider picker (OpenAI / Local whisper.cpp)
 
 **Files:**
 
 | File | Action | Description |
 |------|--------|-------------|
-| `ios/Noa/Noa/Services/AudioRecorderService.swift` | **CREATE** | AVAudioRecorder wrapper |
-| `ios/Noa/Noa/Services/AudioPlayerService.swift` | **CREATE** | AVAudioPlayer wrapper |
-| `ios/Noa/Noa/Services/VoiceService.swift` | **CREATE** | Upload to /voice/transcribe |
-| `ios/Noa/Noa/ViewModels/VoiceViewModel.swift` | **CREATE** | Recording state, upload, transcription |
-| `ios/Noa/Noa/Views/Chat/VoiceRecordButton.swift` | **CREATE** | Record button with waveform |
-| `ios/Noa/Noa/Views/Chat/ComposerBar.swift` | **MODIFY** | Add voice button |
+| `src/noa/voice/transcription.py` | **MODIFY** | Extract provider ABC, add WhisperCppProvider, dispatch by setting |
+| `src/noa/api/v1/voice.py` | **MODIFY** | Read provider setting, remove hard OPENAI_API_KEY check |
+| `tools/whisper-service/server.py` | **CREATE** | Host-side FastAPI wrapper for whisper.cpp binary |
+| `tools/whisper-service/README.md` | **CREATE** | Setup: install whisper.cpp, large-v3 Q5, Metal |
+| `ios/Noa/Sources/Noa/Services/AudioRecorderService.swift` | **CREATE** | AVAudioRecorder wrapper |
+| `ios/Noa/Sources/Noa/Services/AudioPlayerService.swift` | **CREATE** | AVAudioPlayer wrapper |
+| `ios/Noa/Sources/Noa/Services/VoiceService.swift` | **CREATE** | Upload to /voice/transcribe (multipart, no envelope) |
+| `ios/Noa/Sources/Noa/ViewModels/VoiceViewModel.swift` | **CREATE** | Recording state, upload, transcription |
+| `ios/Noa/Sources/Noa/Views/Chat/VoiceRecordButton.swift` | **CREATE** | Record button with waveform |
+| `ios/Noa/Sources/Noa/Views/Chat/ComposerBar.swift` | **MODIFY** | Add voice button |
+| `ios/Noa/Sources/Noa/Views/Settings/TranscriptionProviderView.swift` | **CREATE** | Provider picker in Settings |
 | `ios/Noa/Noa/Info.plist` | **MODIFY** | NSMicrophoneUsageDescription |
 
-**Tests (~12):**
-- Recording start/stop, permission handling, upload multipart, transcription receipt, auto-send mode, cancel discard, max duration
+**Note:** `voice.py` returns a flat JSON response (not `{ok, data, error}` envelope). `VoiceService` must use a raw URLSession decode path, not `APIClient.request<T>()`.
+
+**Tests (~15):**
+- Recording start/stop, permission handling, upload multipart, transcription receipt (both providers), provider switching, auto-send mode, cancel/discard, max duration
+- Python: `WhisperCppProvider` HTTP call, provider dispatch by setting
 
 **Test gate:**
 ```bash

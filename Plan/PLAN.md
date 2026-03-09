@@ -120,8 +120,8 @@ The plan is organized into **waves** — groups of related phases that deliver a
 | **iOS5** | Chat UI with SSE Streaming | **Complete** | 32+72 | main | ~60 min | ~90 min | QA PASS_WITH_NOTES 2026-03-09: ChatView, ChatViewModel, ThreadListView, MainTabView, NavigationSplitView |
 | — | — **WAVE 15C: iOS FEATURES** — | — | — | — | — | — | — |
 | **iOS6** | Push Notifications (APNs Client) | **Complete** | 23 | main | ~45 min | ~60 min | QA PASS_WITH_NOTES 2026-03-09: PushNotificationService, DeviceService, DeepLinkRouter, APNs entitlement |
-| **iOS7** | Biometric Step-Up Auth & Approval Flow | Planned | — | — | ~45 min | — | Face ID/Touch ID, approval UI, batch approve/deny |
-| **iOS8** | Voice Recording & Playback | Planned | — | — | ~45 min | — | AVAudioRecorder, upload to /voice/transcribe, auto-send |
+| **iOS7** | Biometric Step-Up Auth & Approval Flow | **Complete** | 14 | main | ~45 min | ~60 min | QA PASS_WITH_NOTES 2026-03-09: BiometricService, ApprovalService, ApprovalListViewModel, ApprovalDetailViewModel, views, Approvals tab |
+| **iOS8** | Voice Recording & Playback | **Complete** | 21+15 | main | ~60 min | ~90 min | QA PASS_WITH_NOTES 2026-03-09: AudioRecorderService, AudioPlayerService, VoiceService, dual-provider transcription (OpenAI/whisper.cpp), TranscriptionProviderView |
 | **iOS9** | Offline Request Queue with Idempotency | Planned | — | — | ~45 min | — | File-based FIFO queue, NWPathMonitor, auto-drain |
 | **iOS10** | VPN Auto-Connect & Certificate Pinning | Planned | — | — | ~30 min | — | SPKI pinning, NEVPNManager, Tailscale/WireGuard URL scheme |
 | **iOS11** | Integration Tests & Polish | Planned | — | — | ~45 min | — | E2E tests, accessibility, dark mode, error states |

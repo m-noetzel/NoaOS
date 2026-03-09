@@ -27,8 +27,10 @@ python scripts/preflight.py
 | Variable | Purpose |
 |----------|---------|
 | `ANTHROPIC_API_KEY` | External LLM (Anthropic) |
-| `OPENAI_API_KEY` | External LLM (OpenAI) |
+| `OPENAI_API_KEY` | External LLM (OpenAI) or OpenAI Whisper transcription |
 | `GOOGLE_AI_API_KEY` | External LLM (Google) |
+| `TRANSCRIPTION_PROVIDER` | Voice transcription backend: `openai` (default) or `whisper_cpp` |
+| `WHISPER_CPP_URL` | whisper.cpp service URL (default: `http://host.docker.internal:8001`) |
 
 ### Docker Requirements
 
@@ -298,7 +300,58 @@ docker inspect --format '{{.HostConfig.SecurityOpt}}' $(docker compose ps -q)
 
 ---
 
-## 8. Troubleshooting
+## 8. Voice Transcription (whisper.cpp)
+
+Voice transcription runs on the Mac host (not inside Docker) so it can use Metal acceleration on Apple Silicon.
+
+### Setup
+
+See `tools/whisper-service/README.md` for full installation instructions. Quick reference:
+
+```bash
+# 1. Install whisper.cpp
+brew install whisper-cpp
+
+# 2. Download model (large-v3 Q5_0, ~1.1 GB)
+mkdir -p ~/whisper-models
+curl -L -o ~/whisper-models/ggml-large-v3-q5_0.bin \
+  "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-q5_0.bin"
+
+# 3. Install Python dependencies
+pip install fastapi uvicorn python-multipart
+
+# 4. Start the service
+cd tools/whisper-service
+uvicorn server:app --host 0.0.0.0 --port 8001
+```
+
+### Configure Noa backend
+
+Add to your `.env` file:
+
+```
+TRANSCRIPTION_PROVIDER=whisper_cpp
+WHISPER_CPP_URL=http://host.docker.internal:8001
+```
+
+### Health check
+
+```bash
+curl http://localhost:8001/health
+```
+
+### Troubleshooting
+
+| Problem | Check | Fix |
+|---------|-------|-----|
+| `503 model_missing` | `/health` response | Re-download model to `~/whisper-models/` |
+| `502 binary not found` | `which whisper-cpp` | Install via `brew install whisper-cpp` |
+| `504 timeout` | Recording >5 min, slow CPU | Use smaller model or Metal-enabled build |
+| Noa backend returns 503 | `TRANSCRIPTION_PROVIDER` env | Set to `openai` or start whisper-service |
+
+---
+
+## 9. Troubleshooting
 
 | Problem | Check | Fix |
 |---------|-------|-----|
