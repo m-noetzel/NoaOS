@@ -122,8 +122,8 @@ The plan is organized into **waves** — groups of related phases that deliver a
 | **iOS6** | Push Notifications (APNs Client) | **Complete** | 23 | main | ~45 min | ~60 min | QA PASS_WITH_NOTES 2026-03-09: PushNotificationService, DeviceService, DeepLinkRouter, APNs entitlement |
 | **iOS7** | Biometric Step-Up Auth & Approval Flow | **Complete** | 14 | main | ~45 min | ~60 min | QA PASS_WITH_NOTES 2026-03-09: BiometricService, ApprovalService, ApprovalListViewModel, ApprovalDetailViewModel, views, Approvals tab |
 | **iOS8** | Voice Recording & Playback | **Complete** | 21+15 | main | ~60 min | ~90 min | QA PASS_WITH_NOTES 2026-03-09: AudioRecorderService, AudioPlayerService, VoiceService, dual-provider transcription (OpenAI/whisper.cpp), TranscriptionProviderView |
-| **iOS9** | Offline Request Queue with Idempotency | Planned | — | — | ~45 min | — | File-based FIFO queue, NWPathMonitor, auto-drain |
-| **iOS10** | VPN Auto-Connect & Certificate Pinning | Planned | — | — | ~30 min | — | SPKI pinning, NEVPNManager, Tailscale/WireGuard URL scheme |
+| **iOS9** | Offline Request Queue with Idempotency | **Complete** | 14 | main | ~45 min | ~30 min | QA pending: OfflineQueueService, NetworkMonitorService, APIClient offline intercept, OfflineIndicator |
+| **iOS10** | VPN Auto-Connect & Certificate Pinning | **Complete** | 13 | main | ~30 min | ~45 min | QA PASS_WITH_NOTES 2026-03-09: CertificatePinningDelegate (SPKI), VPNService, VPNStatusBanner; wiring deferred to iOS11 |
 | **iOS11** | Integration Tests & Polish | Planned | — | — | ~45 min | — | E2E tests, accessibility, dark mode, error states |
 | — | — **WAVE 16: PLAYWRIGHT E2E TESTING** — | — | — | — | — | — | — |
 | **PW1** | Playwright Setup & Auth Tests | **Complete** | 6 | main | ~30 min | ~10 min | QA PASS_WITH_NOTES 2026-03-07 |
