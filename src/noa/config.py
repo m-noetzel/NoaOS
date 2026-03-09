@@ -38,6 +38,9 @@ class Settings(BaseSettings):
 
     # Environment
     noa_env: Environment = Environment.DEVELOPMENT
+    # iOS4: explicit `environment` field for client-facing environment selection
+    # (iOS4 Environment.swift selects API base URL based on this — SPEC.md §29.4)
+    environment: Environment = Environment.DEVELOPMENT
 
     # API
     api_host: str = "127.0.0.1"
@@ -67,6 +70,16 @@ class Settings(BaseSettings):
     notion_token: str | None = None
     tavily_api_key: str | None = None
     ollama_base_url: str | None = None
+
+    # APNs Push Notifications (SPEC.md §29.5)
+    apns_key_id: str | None = None
+    apns_team_id: str | None = None
+    apns_key_path: str | None = None
+    apns_bundle_id: str | None = None
+
+    # Voice / Whisper (SPEC.md §29.3)
+    whisper_model: str = "whisper-1"
+    max_audio_size_mb: int = 25
 
     model_config = {
         "env_prefix": "",

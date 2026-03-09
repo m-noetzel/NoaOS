@@ -5,12 +5,22 @@ import Foundation
 
 /// Request body for POST /api/v1/auth/login.
 public struct LoginRequest: Codable, Sendable {
-    public let username: String
+    /// The user's email address.
+    public let email: String
     public let password: String
+    /// Stable device identifier (from `DeviceID.current`).
+    public let deviceId: String
 
-    public init(username: String, password: String) {
-        self.username = username
+    enum CodingKeys: String, CodingKey {
+        case email
+        case password
+        case deviceId = "device_id"
+    }
+
+    public init(email: String, password: String, deviceId: String) {
+        self.email = email
         self.password = password
+        self.deviceId = deviceId
     }
 }
 
@@ -48,12 +58,15 @@ public struct AuthTokens: Codable, Sendable {
 /// Request body for POST /api/v1/auth/refresh.
 public struct RefreshRequest: Codable, Sendable {
     public let refreshToken: String
+    public let deviceId: String
 
     enum CodingKeys: String, CodingKey {
         case refreshToken = "refresh_token"
+        case deviceId = "device_id"
     }
 
-    public init(refreshToken: String) {
+    public init(refreshToken: String, deviceId: String) {
         self.refreshToken = refreshToken
+        self.deviceId = deviceId
     }
 }

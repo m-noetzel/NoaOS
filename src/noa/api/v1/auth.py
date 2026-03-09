@@ -46,6 +46,24 @@ class RegisterRequest(BaseModel):
     password: str
 
 
+class AuthTokenResponse(BaseModel):
+    """Auth token response — SPEC.md §5.3.
+
+    For web clients: tokens are set as httpOnly cookies (C6); only metadata
+    is returned in the body.
+    For native iOS clients: access_token and refresh_token are also included
+    in the body so the iOS Keychain can store them securely (SPEC.md §29.3).
+    expires_in (seconds) is returned for AuthViewModel auto-refresh scheduling.
+    """
+
+    token_type: str = "bearer"  # noqa: S105
+    expires_in: int = 1800  # default 30 min; actual value computed from settings
+    authenticated: bool = True
+    # Native client token delivery — None for web, populated for iOS (SPEC.md §29.3)
+    access_token: str | None = None  # noqa: S105
+    refresh_token: str | None = None  # noqa: S105
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -82,15 +100,18 @@ def _set_auth_cookies(
 # Endpoints
 # ---------------------------------------------------------------------------
 
-@router.post("/login")
+@router.post("/login", response_model=AuthTokenResponse)
 async def login(
     body: LoginRequest,
     response: Response,
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
     settings: Settings = Depends(_get_settings),  # noqa: B008
-) -> dict[str, Any]:
-    """Authenticate user and return access + refresh tokens."""
-    rid = trace_id_ctx.get("")
+) -> AuthTokenResponse:
+    """Authenticate user and return access + refresh tokens.
+
+    iOS4: tokens are set as httpOnly cookies (C6); expires_in is returned
+    in the body so AuthViewModel can schedule automatic token refresh.
+    """
     try:
         service = AuthService(session=session, settings=settings)
         try:
@@ -114,13 +135,16 @@ async def login(
         ) from exc
 
     _set_auth_cookies(response, result)
-    # C6: Don't expose raw tokens in JSON body — they're in httpOnly cookies
-    safe_result = {
-        k: v for k, v in result.items()
-        if k not in ("access_token", "refresh_token")
-    }
-    safe_result["authenticated"] = True
-    return success_envelope(data=safe_result, trace_id=rid)
+    # C6: Tokens are set as httpOnly cookies for web clients.
+    # For native iOS clients, tokens are also returned in the body so they
+    # can be stored securely in the iOS Keychain (SPEC.md §29.3).
+    return AuthTokenResponse(
+        token_type="bearer",  # noqa: S106
+        expires_in=settings.access_token_expire_minutes * 60,
+        authenticated=True,
+        access_token=result.get("access_token"),  # noqa: S106
+        refresh_token=result.get("refresh_token"),  # noqa: S106
+    )
 
 
 @router.post("/refresh")
@@ -155,12 +179,18 @@ async def refresh(
         ) from exc
 
     _set_auth_cookies(response, result)
-    safe_result = {
-        k: v for k, v in result.items()
-        if k not in ("access_token", "refresh_token")
-    }
-    safe_result["authenticated"] = True
-    return success_envelope(data=safe_result, trace_id=rid)
+    # Return tokens in body for native iOS clients (SPEC.md §29.3);
+    # httpOnly cookies serve web clients.
+    return success_envelope(
+        data={
+            "authenticated": True,
+            "token_type": "bearer",
+            "expires_in": settings.access_token_expire_minutes * 60,
+            "access_token": result.get("access_token"),  # noqa: S106
+            "refresh_token": result.get("refresh_token"),  # noqa: S106
+        },
+        trace_id=rid,
+    )
 
 
 @router.post("/logout")

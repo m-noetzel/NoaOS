@@ -116,7 +116,7 @@ The plan is organized into **waves** — groups of related phases that deliver a
 | **iOS2** | Voice Upload Endpoint | **Complete** | 17 | main | ~30 min | ~15 min | QA PASS_WITH_NOTES 2026-03-08: Whisper transcription, audio validation, chat mode, voice router |
 | — | — **WAVE 15B: iOS FOUNDATION** — | — | — | — | — | — | — |
 | **iOS3** | Xcode Project Scaffold & Networking Layer | **Complete** | 40+41 | main | ~60 min | ~90 min | QA PASS_WITH_NOTES 2026-03-08: SPM package, APIClient actor, SSEClient actor, Swift 6 strict concurrency |
-| **iOS4** | Keychain Storage & Auth Flow | Planned | — | — | ~45 min | — | KeychainService, AuthService, LoginView, auto-refresh |
+| **iOS4** | Keychain Storage & Auth Flow | **Complete** | 20+16 | main | ~45 min | ~60 min | QA PASS_WITH_NOTES 2026-03-09: KeychainService, AuthService, AuthViewModel, LoginView, AuthGuard, auto-refresh |
 | **iOS5** | Chat UI with SSE Streaming | Planned | — | — | ~60 min | — | ChatView, token streaming, threads, NavigationSplitView |
 | — | — **WAVE 15C: iOS FEATURES** — | — | — | — | — | — | — |
 | **iOS6** | Push Notifications (APNs Client) | Planned | — | — | ~45 min | — | UNUserNotificationCenter, deep linking, inline actions |

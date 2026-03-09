@@ -74,6 +74,10 @@ markers = [
     "ab5: Phase AB5 — Coding Task Contract & Worker",
     "mr9: Phase MR9 — Conditional Graph Edges",
     "qc2: Phase QC2 — Security Hardening",
+    "ios1: Phase iOS1 — APNs Push Notification Backend",
+    "ios2: Phase iOS2 — Voice Upload & Processing",
+    "ios3: Phase iOS3 — Xcode Scaffold & Networking Layer",
+    "ios4: Phase iOS4 — Keychain Storage & Auth Flow",
 ]
 asyncio_mode = "auto"
 
