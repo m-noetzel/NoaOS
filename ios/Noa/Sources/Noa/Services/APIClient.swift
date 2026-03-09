@@ -36,15 +36,22 @@ public actor APIClient: APIClientProtocol {
     /// HTTP methods that require an Idempotency-Key header per §25.4.
     private static let writeMethods: Set<String> = ["POST", "PUT", "PATCH"]
 
+    private let networkMonitor: (any NetworkMonitoring)?
+    private let offlineQueue: (any OfflineQueuing)?
+
     // MARK: - Init
 
     public init(
         environment: NoaEnvironment = .current,
         tokenProvider: any TokenProviding,
-        session: URLSession? = nil
+        session: URLSession? = nil,
+        networkMonitor: (any NetworkMonitoring)? = nil,
+        offlineQueue: (any OfflineQueuing)? = nil
     ) {
         self.baseURL = environment.baseURL
         self.tokenProvider = tokenProvider
+        self.networkMonitor = networkMonitor
+        self.offlineQueue = offlineQueue
         if let session {
             self.session = session
         } else {
@@ -77,6 +84,26 @@ public actor APIClient: APIClientProtocol {
         method: String,
         body: (any Encodable & Sendable)?
     ) async throws -> T {
+        // Offline guard: if a write request arrives while disconnected, queue it.
+        // Spec ref: SPEC.md §29.3 item 6
+        if let monitor = networkMonitor, let queue = offlineQueue {
+            let connected = await monitor.isConnected
+            let isWrite = Self.writeMethods.contains(method.uppercased())
+            if !connected && isWrite {
+                let bodyData = body.flatMap { try? Self.encoder.encode(AnyEncodable($0)) }
+                // Allocate a stable idempotency key for this queued entry
+                let key = UUID().uuidString
+                let queued = QueuedRequest(
+                    endpoint: endpoint,
+                    method: method,
+                    bodyData: bodyData,
+                    idempotencyKey: key
+                )
+                await queue.enqueue(queued)
+                throw APIError.queued(id: key)
+            }
+        }
+
         let token = await tokenProvider.accessToken()
         let request = try buildRequest(endpoint: endpoint, method: method, body: body, token: token)
 

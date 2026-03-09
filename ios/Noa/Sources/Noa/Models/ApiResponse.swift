@@ -62,4 +62,7 @@ public enum APIError: Error, Sendable {
     case decodingError(underlying: Error)
     /// Unexpected state.
     case unknown(statusCode: Int)
+    /// Request was offline-queued instead of sent; will be retried on reconnect.
+    /// `id` is the idempotency key assigned to the queued entry.
+    case queued(id: String)
 }
