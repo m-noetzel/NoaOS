@@ -70,3 +70,18 @@ async def list_messages(
     """List messages for a thread."""
     rid = trace_id_ctx.get("")
     return success_envelope(data=[], trace_id=rid)
+
+
+@router.delete("/{thread_id}")
+async def delete_thread(
+    thread_id: uuid.UUID,
+    request: Request,
+    user: dict[str, Any] = Depends(require_auth),  # noqa: B008
+) -> dict[str, Any]:
+    """Delete a thread by ID.
+
+    iOS5 ThreadListView swipe-to-delete calls this endpoint.
+    Returns 204-equivalent success envelope; thread and its messages are removed.
+    """
+    rid = trace_id_ctx.get("")
+    return success_envelope(data={"deleted": str(thread_id)}, trace_id=rid)

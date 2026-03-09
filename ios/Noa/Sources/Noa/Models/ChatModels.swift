@@ -66,19 +66,38 @@ public struct Message: Codable, Sendable, Identifiable {
 // MARK: - ChatRequest
 
 /// Request body for POST /api/v1/chat.
+/// Spec ref: SPEC.md §22.2, §6.2 — privacy_mode and provider are required by the backend.
 public struct ChatRequest: Codable, Sendable {
     public let message: String
     /// Optional existing thread to continue; nil creates a new thread.
     public let threadId: UUID?
+    /// Domain routing: "private" (Ollama, stays on-device) or "external" (cloud LLM).
+    public let privacyMode: String
+    /// LLM provider to use (e.g. "anthropic", "openai", "google_ai", "ollama").
+    public let provider: String?
+    /// Specific model override (optional; backend uses defaults if nil).
+    public let model: String?
 
     enum CodingKeys: String, CodingKey {
         case message
         case threadId = "thread_id"
+        case privacyMode = "privacy_mode"
+        case provider
+        case model
     }
 
-    public init(message: String, threadId: UUID? = nil) {
+    public init(
+        message: String,
+        threadId: UUID? = nil,
+        privacyMode: String = "private",
+        provider: String? = nil,
+        model: String? = nil
+    ) {
         self.message = message
         self.threadId = threadId
+        self.privacyMode = privacyMode
+        self.provider = provider
+        self.model = model
     }
 }
 
