@@ -21,6 +21,11 @@ public protocol APIClientProtocol: Sendable {
         method: String,
         body: (any Encodable & Sendable)?
     ) async throws -> T
+
+    /// Returns `true` if the client has a valid (non-nil) access token available.
+    /// Used to guard API calls that must not be made when the user is unauthenticated.
+    /// Default implementation returns `false`; override in concrete clients.
+    func isAuthenticated() async -> Bool
 }
 
 public extension APIClientProtocol {
@@ -38,4 +43,7 @@ public extension APIClientProtocol {
     func post<T: Decodable & Sendable>(_ endpoint: String) async throws -> T {
         try await request(endpoint, method: "POST", body: nil as String?)
     }
+
+    /// Default: unauthenticated. Concrete clients (e.g. APIClient) override this.
+    func isAuthenticated() async -> Bool { return false }
 }

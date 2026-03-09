@@ -119,7 +119,7 @@ The plan is organized into **waves** — groups of related phases that deliver a
 | **iOS4** | Keychain Storage & Auth Flow | **Complete** | 20+16 | main | ~45 min | ~60 min | QA PASS_WITH_NOTES 2026-03-09: KeychainService, AuthService, AuthViewModel, LoginView, AuthGuard, auto-refresh |
 | **iOS5** | Chat UI with SSE Streaming | **Complete** | 32+72 | main | ~60 min | ~90 min | QA PASS_WITH_NOTES 2026-03-09: ChatView, ChatViewModel, ThreadListView, MainTabView, NavigationSplitView |
 | — | — **WAVE 15C: iOS FEATURES** — | — | — | — | — | — | — |
-| **iOS6** | Push Notifications (APNs Client) | Planned | — | — | ~45 min | — | UNUserNotificationCenter, deep linking, inline actions |
+| **iOS6** | Push Notifications (APNs Client) | **Complete** | 23 | main | ~45 min | ~60 min | QA PASS_WITH_NOTES 2026-03-09: PushNotificationService, DeviceService, DeepLinkRouter, APNs entitlement |
 | **iOS7** | Biometric Step-Up Auth & Approval Flow | Planned | — | — | ~45 min | — | Face ID/Touch ID, approval UI, batch approve/deny |
 | **iOS8** | Voice Recording & Playback | Planned | — | — | ~45 min | — | AVAudioRecorder, upload to /voice/transcribe, auto-send |
 | **iOS9** | Offline Request Queue with Idempotency | Planned | — | — | ~45 min | — | File-based FIFO queue, NWPathMonitor, auto-drain |

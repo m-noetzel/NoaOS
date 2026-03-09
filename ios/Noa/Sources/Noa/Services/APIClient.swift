@@ -57,6 +57,13 @@ public actor APIClient: APIClientProtocol {
 
     // MARK: - APIClientProtocol
 
+    /// Returns true if the current token provider has a non-nil access token.
+    /// Used by DeviceService (and similar) to guard API calls when unauthenticated.
+    public func isAuthenticated() async -> Bool {
+        let token = await tokenProvider.accessToken()
+        return token != nil
+    }
+
     /// Performs an HTTP request and decodes the `ApiResponse<T>` envelope.
     ///
     /// - Parameters:
