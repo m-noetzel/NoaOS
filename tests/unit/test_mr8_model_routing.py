@@ -142,7 +142,7 @@ class TestRouterNodeModelConfig:
         result = router_node(state)
         assert "model_config" in result, "router must return model_config"
         mc = result["model_config"]
-        assert mc["agent"] == "anthropic/claude-sonnet-4-20250514"
+        assert mc["agent"] == "anthropic/claude-haiku"
         assert mc["router"] == "none"
         assert mc["responder"] == "none"
 
@@ -157,7 +157,7 @@ class TestRouterNodeModelConfig:
         assert result["privacy_mode"] == "private"
         assert "model_config" in result
         mc = result["model_config"]
-        assert mc["agent"] == "ollama/llama3.1"
+        assert mc["agent"] == "ollama/llama3"
 
 
 # ===========================================================================

@@ -46,12 +46,15 @@ def _make_agent_state(
         "messages": messages or [_make_user_message()],
         "privacy_mode": privacy_mode,
         "selected_model": selected_model,
+        "user_model_override": None,
+        "user_provider_override": None,
         "tool_calls": tool_calls or [],
         "tool_results": tool_results or [],
         "response": response,
         "total_cost": total_cost,
         "tool_rounds": tool_rounds,
         "model_config": model_config or {},
+        "llm_usage": [],
     }
 
 

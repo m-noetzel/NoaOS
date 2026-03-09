@@ -129,8 +129,8 @@ class TestThreadsRoutes:
         assert ("get", "/{thread_id}/messages") in self.routes
 
     def test_route_count(self):
-        """Exactly 3 routes defined in threads.py."""
-        assert len(self.routes) == 3
+        """Routes defined in threads.py (GET list, POST create, GET messages, DELETE thread)."""
+        assert len(self.routes) == 4
 
     def test_create_thread_request_model_defined(self):
         """CreateThreadRequest Pydantic model is defined."""
@@ -463,8 +463,8 @@ class TestArtifactsRoutes:
         assert ("get", "/{artifact_id}/download") in self.routes
 
     def test_route_count(self):
-        """Exactly 1 route defined in artifacts.py."""
-        assert len(self.routes) == 1
+        """Routes defined in artifacts.py (GET list + GET download)."""
+        assert len(self.routes) == 2
 
 
 # ---------------------------------------------------------------------------

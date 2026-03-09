@@ -26,6 +26,7 @@ api = [
     "httpx>=0.28.0,<1.0",
     "pydantic[email]>=2.10,<3.0",
     "nh3>=0.2,<1.0",
+    "python-multipart>=0.0.9,<1.0",
 ]
 orchestrator = [
     "langgraph>=0.2,<1.0",

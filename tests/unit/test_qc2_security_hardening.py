@@ -70,26 +70,34 @@ class TestAuditHashChainLocking:
 class TestCookieAuth:
     """C6: Tokens must be in httpOnly cookies, not in JSON response or localStorage."""
 
-    def test_login_does_not_return_raw_tokens(self):
-        """Login response must not include access_token or refresh_token."""
+    def test_login_sets_httponly_cookies(self):
+        """Login must always set httpOnly cookies (C6).
+
+        iOS4 also returns tokens in the response body for Keychain storage on iOS
+        (SPEC.md §29.3). The security requirement is that httpOnly cookies are set
+        for web clients — not that tokens are absent from the body.
+        """
         import inspect
 
         from noa.api.v1.auth import login
 
         source = inspect.getsource(login)
-        assert "safe_result" in source, (
-            "Login must strip tokens from response body"
+        assert "_set_auth_cookies" in source, (
+            "Login must call _set_auth_cookies to set httpOnly cookies"
         )
 
-    def test_refresh_does_not_return_raw_tokens(self):
-        """Refresh response must not include access_token or refresh_token."""
+    def test_refresh_sets_httponly_cookies(self):
+        """Refresh must always set httpOnly cookies (C6).
+
+        iOS4 also returns tokens in the response body for Keychain storage on iOS.
+        """
         import inspect
 
         from noa.api.v1.auth import refresh
 
         source = inspect.getsource(refresh)
-        assert "safe_result" in source, (
-            "Refresh must strip tokens from response body"
+        assert "_set_auth_cookies" in source, (
+            "Refresh must call _set_auth_cookies to set httpOnly cookies"
         )
 
     def test_auth_middleware_reads_cookie(self):
@@ -113,7 +121,11 @@ class TestCookieAuth:
 
     def test_tokens_ts_no_localstorage_tokens(self):
         """Frontend tokens.ts must not store actual tokens in localStorage."""
-        tokens_path = "/Users/martin2020/Projekte/NoaOS/web/src/auth/tokens.ts"
+        import os
+
+        # Resolve from workspace root — works inside Docker (/workspace) and on host
+        workspace = os.environ.get("WORKSPACE_ROOT", "/workspace")
+        tokens_path = os.path.join(workspace, "web/src/auth/tokens.ts")
         with open(tokens_path) as f:
             content = f.read()
         # Should not have localStorage.setItem with actual token values
