@@ -127,11 +127,11 @@ The plan is organized into **waves** — groups of related phases that deliver a
 | **iOS11** | Integration Tests & Polish | **Complete** | 35+13 | main | ~45 min | ~90 min | QA PASS_WITH_NOTES 2026-03-10: LoginFlowTests (IT1-4), ChatFlowTests (IT5-7), ApprovalFlowTests (IT8-10), OfflineQueueFlowTests (IT11-13), ErrorView, EmptyStateView; Literal["approved","denied"] fix |
 | — | — **WAVE 16: PLAYWRIGHT E2E TESTING** — | — | — | — | — | — | — |
 | — | — **WAVE 17: MVP STUB ELIMINATION** — | — | — | — | — | — | — |
-| **MV1** | Threads & Messages Real DB | Planned | — | — | ~35 min | — | list_threads, create_thread, list_messages, delete_thread |
-| **MV2** | Approvals List + Memory Facts | Planned | — | — | ~40 min | — | list_pending_approvals, MemoryStore CRUD |
-| **MV3** | Usage, Queue & Artifacts | Planned | — | — | ~40 min | — | real usage aggregation, task_queue, artifact list+download |
-| **MV4** | iOS Certificate Pinning Wiring | Planned | — | — | ~35 min | — | ServiceFactory, pinned URLSession for APIClient/SSEClient/VoiceService |
-| **MV5** | Integration Smoke & Verification | Planned | — | — | ~30 min | — | non-mocked E2E, wiring completeness gate |
+| **MV1** | Threads & Messages Real DB | **Complete** | 13 | main | ~35 min | ~30 min | All thread/message stubs replaced with real AsyncSession queries |
+| **MV2** | Approvals List + Memory Facts | **Complete** | 16 | main | ~40 min | ~25 min | list_pending_approvals + MemoryStore CRUD wired via app_state |
+| **MV3** | Usage, Queue & Artifacts | **Complete** | 16 | main | ~40 min | ~20 min | TaskQueue rows, Artifact+Run join, FileResponse download |
+| **MV4** | iOS Certificate Pinning Wiring | **Complete** | 7 | main | ~35 min | ~20 min | ServiceFactory.swift composition root, #if DEBUG pinned URLSession |
+| **MV5** | Integration Smoke & Verification | **Complete** | 14 | main | ~30 min | ~15 min | AST stub detector + wiring completeness gate; all stubs eliminated |
 | — | — **WAVE 16: PLAYWRIGHT E2E TESTING** — | — | — | — | — | — | — |
 | **PW1** | Playwright Setup & Auth Tests | **Complete** | 6 | main | ~30 min | ~10 min | QA PASS_WITH_NOTES 2026-03-07 |
 | **PW2** | Chat E2E with SSE Simulation | **Complete** | 6 | main | ~30 min | ~15 min | QA PASS_WITH_NOTES 2026-03-07 |
