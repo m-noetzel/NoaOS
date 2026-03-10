@@ -125,7 +125,6 @@ The plan is organized into **waves** — groups of related phases that deliver a
 | **iOS9** | Offline Request Queue with Idempotency | **Complete** | 14 | main | ~45 min | ~30 min | QA pending: OfflineQueueService, NetworkMonitorService, APIClient offline intercept, OfflineIndicator |
 | **iOS10** | VPN Auto-Connect & Certificate Pinning | **Complete** | 13 | main | ~30 min | ~45 min | QA PASS_WITH_NOTES 2026-03-09: CertificatePinningDelegate (SPKI), VPNService, VPNStatusBanner; wiring deferred to iOS11 |
 | **iOS11** | Integration Tests & Polish | **Complete** | 35+13 | main | ~45 min | ~90 min | QA PASS_WITH_NOTES 2026-03-10: LoginFlowTests (IT1-4), ChatFlowTests (IT5-7), ApprovalFlowTests (IT8-10), OfflineQueueFlowTests (IT11-13), ErrorView, EmptyStateView; Literal["approved","denied"] fix |
-| — | — **WAVE 16: PLAYWRIGHT E2E TESTING** — | — | — | — | — | — | — |
 | — | — **WAVE 17: MVP STUB ELIMINATION** — | — | — | — | — | — | — |
 | **MV1** | Threads & Messages Real DB | **Complete** | 13 | main | ~35 min | ~30 min | All thread/message stubs replaced with real AsyncSession queries |
 | **MV2** | Approvals List + Memory Facts | **Complete** | 16 | main | ~40 min | ~25 min | list_pending_approvals + MemoryStore CRUD wired via app_state |
