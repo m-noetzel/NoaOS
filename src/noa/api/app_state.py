@@ -105,10 +105,37 @@ def get_gateway() -> Any | None:
     return _get_from_app("gateway") or _gateway
 
 
+_apns_service: Any | None = None
+
+
+def set_apns_service(service: Any) -> None:
+    global _apns_service  # noqa: PLW0603
+    _apns_service = service
+    _set_on_app("apns_service", service)
+
+
+def get_apns_service() -> Any | None:
+    return _get_from_app("apns_service") or _apns_service
+
+
+_memory_store: Any | None = None
+
+
+def set_memory_store(store: Any) -> None:
+    global _memory_store  # noqa: PLW0603
+    _memory_store = store
+    _set_on_app("memory_store", store)
+
+
+def get_memory_store() -> Any | None:
+    return _get_from_app("memory_store") or _memory_store
+
+
 def reset_all() -> None:
     """Reset all state — for testing."""
     global _engine, _session_factory, _health_checker  # noqa: PLW0603
     global _provider_router, _runner, _gateway, _app_instance  # noqa: PLW0603
+    global _apns_service, _memory_store  # noqa: PLW0603
     _engine = None
     _session_factory = None
     _health_checker = None
@@ -116,3 +143,5 @@ def reset_all() -> None:
     _runner = None
     _gateway = None
     _app_instance = None
+    _apns_service = None
+    _memory_store = None

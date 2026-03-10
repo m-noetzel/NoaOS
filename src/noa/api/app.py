@@ -19,6 +19,7 @@ from noa.api.v1.audit import router as audit_router
 from noa.api.v1.auth import router as auth_router
 from noa.api.v1.chat import router as chat_router
 from noa.api.v1.cost import router as cost_router
+from noa.api.v1.devices import router as devices_router
 from noa.api.v1.health import router as health_router
 from noa.api.v1.memory import router as memory_router
 from noa.api.v1.queue import router as queue_router
@@ -28,6 +29,7 @@ from noa.api.v1.tasks import router as tasks_router
 from noa.api.v1.threads import router as threads_router
 from noa.api.v1.tools import router as tools_router
 from noa.api.v1.usage import router as usage_router
+from noa.api.v1.voice import router as voice_router
 from noa.db.engine import async_session_factory, create_async_engine_from_config
 
 logger = logging.getLogger(__name__)
@@ -203,6 +205,30 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if settings is not None:
         wire_llm_pipeline(settings)
 
+    # Wire APNs push notification service (§29.5)
+    if settings is not None and settings.apns_key_id:
+        from noa.api.app_state import set_apns_service
+        from noa.push.apns import APNsService
+
+        apns = APNsService(
+            key_id=settings.apns_key_id,
+            team_id=settings.apns_team_id or "",
+            key_path=settings.apns_key_path or "",
+            bundle_id=settings.apns_bundle_id or "",
+        )
+        set_apns_service(apns)
+        logger.info("APNs push notification service initialised")
+
+    # Wire MemoryStore from private worker (shared in-process in dev, §13.2)
+    try:
+        from noa.api.app_state import set_memory_store
+        from noa.private_worker.handlers import _memory_store as _ms  # noqa: PLC2701
+
+        set_memory_store(_ms)
+        logger.info("MemoryStore wired to API")
+    except Exception:  # noqa: BLE001
+        logger.warning("MemoryStore not available — memory endpoints will return empty")
+
     # Start retention scheduler for audit log purge (§28.7)
     from noa.maintenance.retention import RetentionScheduler
 
@@ -338,6 +364,8 @@ def create_app() -> FastAPI:
     app.include_router(tools_router)
     app.include_router(queue_router)
     app.include_router(cost_router)
+    app.include_router(devices_router)
+    app.include_router(voice_router, prefix="/api/v1/voice")
 
     return app
 

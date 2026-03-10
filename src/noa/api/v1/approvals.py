@@ -30,10 +30,29 @@ class ApprovalDecision(BaseModel):
 async def list_pending_approvals(
     request: Request,
     user: dict[str, Any] = Depends(require_auth),  # noqa: B008
+    session: AsyncSession = Depends(get_db_session),  # noqa: B008
 ) -> dict[str, Any]:
     """List pending approvals for the authenticated user."""
     rid = trace_id_ctx.get("")
-    return success_envelope(data=[], trace_id=rid)
+    user_id = user.user_id if hasattr(user, "user_id") else uuid.UUID(user["sub"])  # type: ignore[union-attr]
+    result = await session.execute(
+        select(Approval)
+        .where(Approval.user_id == user_id, Approval.decision == "pending")
+        .order_by(Approval.requested_at.desc())
+    )
+    approvals = result.scalars().all()
+    data = [
+        {
+            "id": str(a.id),
+            "run_id": str(a.run_id),
+            "risk_tier": a.risk_tier,
+            "preview_text": a.preview_text,
+            "domain": a.domain,
+            "requested_at": a.requested_at.isoformat(),
+        }
+        for a in approvals
+    ]
+    return success_envelope(data=data, trace_id=rid)
 
 
 @router.post("/{approval_id}/decide")
@@ -69,7 +88,7 @@ async def decide_approval(
             detail=f"Approval already decided: {approval.decision}",
         )
 
-    user_id = uuid.UUID(user["sub"])
+    user_id = user.user_id if hasattr(user, "user_id") else uuid.UUID(user["sub"])  # type: ignore[union-attr]
     approval.decision = body.decision
     approval.decided_at = datetime.now(UTC)
     approval.decided_by_user_id = user_id
