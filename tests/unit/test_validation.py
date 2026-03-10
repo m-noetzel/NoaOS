@@ -276,13 +276,18 @@ class TestToolOutputChecks:
 
     def test_valid_tool_response_accepted(self, pipeline, tool_context):
         """Tool response matching schema passes tool checks."""
+        from datetime import UTC, datetime, timedelta
+
+        tomorrow = datetime.now(UTC) + timedelta(days=1)
+        start = tomorrow.replace(hour=9, minute=0, second=0, microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
+        end = tomorrow.replace(hour=9, minute=30, second=0, microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
         output = {
             "status": "success",
             "data": {
                 "event_id": "evt-123",
                 "title": "Team Standup",
-                "start": "2026-03-10T09:00:00Z",
-                "end": "2026-03-10T09:30:00Z",
+                "start": start,
+                "end": end,
             },
         }
         result = pipeline.validate(output, tool_context)
