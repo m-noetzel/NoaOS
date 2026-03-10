@@ -527,6 +527,31 @@ cmd_db() {
 # read-only commands like 'logs', 'ps', 'down' due to ${VAR:?} syntax
 load_keychain 2>/dev/null || true
 
+cmd_keys() {
+    echo "Keychain secrets for Noa:"
+    for pair in "${KEYCHAIN_MAP[@]}"; do
+        local kc_name="${pair%%:*}"
+        local val
+        val=$(security find-generic-password -s "noa" -a "$kc_name" -w 2>/dev/null) || true
+        if [[ -n "$val" ]]; then
+            echo -e "  ${GREEN}✓${NC} $kc_name = ${val:0:6}…"
+        else
+            echo -e "  ${RED}✗${NC} $kc_name (not set)"
+        fi
+    done
+}
+
+cmd_set() {
+    local key="${1:-}"
+    local value="${2:-}"
+    if [[ -z "$key" || -z "$value" ]]; then
+        echo "Usage: ./noa set <KEY_NAME> <value>" >&2
+        exit 1
+    fi
+    ./tools/keychain_store.sh set "$key" "$value"
+    ok "Stored $key in Keychain"
+}
+
 cmd="${1:-up}"
 shift 2>/dev/null || true
 
@@ -542,6 +567,8 @@ case "$cmd" in
     preflight)      preflight ;;
     setup|init)     cmd_setup ;;
     dev)            cmd_dev ;;
+    keys)           cmd_keys ;;
+    set)            cmd_set "$@" ;;
     reset-password) cmd_reset_password "$@" ;;
     shell|exec)     cmd_shell "$@" ;;
     claude)         cmd_claude "$@" ;;

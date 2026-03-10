@@ -2,6 +2,9 @@
 
 Your personal AI agent — web UI + native iOS app.
 
+**Security model:** All secrets stay in your macOS Keychain and are injected
+directly into memory at runtime. Nothing is ever written to disk.
+
 ---
 
 ## Part 1 — Backend (Mac + Docker)
@@ -10,38 +13,46 @@ Your personal AI agent — web UI + native iOS app.
 
 - macOS 13+ with Docker Desktop running
 - At least one LLM API key (Anthropic recommended)
+- FileVault enabled (System Settings → Privacy & Security → FileVault)
 
-### Step 1 — Store your API keys in the Keychain
+### Step 1 — First-time setup
 
-Noa reads secrets from your macOS Keychain. Nothing is stored in files.
+Run `./noa setup`. This stores required system secrets in your Keychain
+(auto-generated), builds Docker images, and verifies everything is ready.
 
 ```bash
-# Required: at least one LLM provider
-./scripts/keychain_store.sh ANTHROPIC_API_KEY "sk-ant-your-key-here"
+./noa setup
+```
+
+### Step 2 — Store your API keys
+
+```bash
+# At least one LLM provider is required
+./noa set ANTHROPIC_API_KEY "sk-ant-your-key-here"
 # or OpenAI:
-./scripts/keychain_store.sh OPENAI_API_KEY "sk-your-key-here"
-
-# Required: system secrets (generate once)
-./scripts/keychain_store.sh SECRET_KEY "$(openssl rand -hex 32)"
-./scripts/keychain_store.sh JWT_SECRET "$(openssl rand -hex 32)"
-./scripts/keychain_store.sh POSTGRES_PASSWORD "$(openssl rand -hex 16)"
-./scripts/keychain_store.sh BACKUP_PASSPHRASE "$(openssl rand -hex 16)"
+./noa set OPENAI_API_KEY "sk-your-key-here"
 ```
 
-### Step 2 — Generate the secrets file and start
+Verify what's stored at any time:
 
 ```bash
-# Generate .env.secrets from Keychain (run this every time you add a key)
-./tools/keychain_bootstrap.sh
-
-# Start everything
-docker compose up -d
-
-# Apply database schema
-make migrate
+./noa keys
+# ✓ ANTHROPIC_API_KEY = sk-ant-…
+# ✗ OPENAI_API_KEY (not set)
+# ✓ SECRET_KEY = 3f9a12…
+# ...
 ```
 
-### Step 3 — Create your account
+### Step 3 — Start
+
+```bash
+./noa up
+```
+
+This reads all secrets from Keychain into RAM, starts all services, runs
+database migrations, and waits for a healthy API — all in one command.
+
+### Step 4 — Create your account
 
 ```bash
 curl -s -X POST http://localhost:8000/api/v1/auth/register \
@@ -49,7 +60,7 @@ curl -s -X POST http://localhost:8000/api/v1/auth/register \
   -d '{"email":"you@example.com","password":"yourpassword"}' | python3 -m json.tool
 ```
 
-### Step 4 — Open the web UI
+### Step 5 — Open the web UI
 
 Navigate to **http://localhost:5173** and log in.
 
@@ -60,7 +71,7 @@ Navigate to **http://localhost:5173** and log in.
 ### What you need
 
 - Xcode 16+ (from the Mac App Store)
-- An Apple Developer account (free account works for personal use, 7-day install; paid $99/yr for longer)
+- An Apple Developer account (free works for personal use — 7-day install window; paid $99/yr removes that limit)
 - Your iPhone plugged in via USB
 
 ### Step 1 — Open the project in Xcode
@@ -69,18 +80,18 @@ Navigate to **http://localhost:5173** and log in.
 File → Open → navigate to ios/Noa/Package.swift → Open
 ```
 
-Xcode will resolve the Swift Package dependencies automatically.
+Xcode resolves Swift Package dependencies automatically.
 
-### Step 2 — Configure your Team & Bundle ID
+### Step 2 — Set your Team & Bundle ID
 
-1. In the Project Navigator, click the **Noa** package
+1. Click the **Noa** package in the Project Navigator
 2. Select the **Noa** target → **Signing & Capabilities**
 3. Set **Team** to your Apple Developer account
 4. Change **Bundle Identifier** to something unique, e.g. `com.yourname.noa`
 
-### Step 3 — Set your backend URL
+### Step 3 — Point the app at your Mac's backend
 
-For running against your Mac's backend, your iPhone and Mac must be on the same Wi-Fi network.
+Your iPhone and Mac must be on the same Wi-Fi network.
 
 Find your Mac's local IP:
 ```bash
@@ -88,100 +99,92 @@ ipconfig getifaddr en0
 # e.g. 192.168.1.42
 ```
 
-Edit `ios/Noa/Sources/Noa/Configuration/Environment.swift`, change the development URL:
+Edit `ios/Noa/Sources/Noa/Configuration/Environment.swift`:
 ```swift
 case .development:
     return URL(string: "http://192.168.1.42:8000")!
 ```
 
-You also need to expose the backend on your local network (it currently binds to `127.0.0.1` only). Add this to `docker-compose.yml` under the `noa-api` ports section:
+Expose the backend on your LAN — in `docker-compose.yml` under `noa-api → ports`, add:
 ```yaml
 ports:
-  - "127.0.0.1:8000:8000"   # existing (web)
-  - "192.168.1.42:8000:8000" # add: LAN access for iOS
+  - "127.0.0.1:8000:8000"    # existing (web browser)
+  - "192.168.1.42:8000:8000"  # add this line (iPhone on LAN)
 ```
 
-Then restart: `docker compose up -d`.
+Restart: `./noa restart noa-api`
 
-### Step 4 — Trust the app on your iPhone
+### Step 4 — Build and install
 
-1. In Xcode: select your iPhone from the device picker at the top
-2. Press **⌘R** (Run) — Xcode builds and installs the app
-3. On your iPhone: **Settings → General → VPN & Device Management → Developer App → Trust**
+1. Select your iPhone from the device picker at the top of Xcode
+2. Press **⌘R** — Xcode builds and installs
+3. On iPhone: **Settings → General → VPN & Device Management → Developer App → Trust**
 
-The app is now installed and trusted. It will re-install automatically when you build from Xcode.
+Done. The app reinstalls automatically each time you build from Xcode.
 
-### Push Notifications (optional)
+### Push Notifications (optional, requires paid developer account)
 
-Push notifications require a paid Apple Developer account and an APNs key:
-
-1. In [developer.apple.com](https://developer.apple.com) → **Certificates, IDs & Profiles** → **Keys** → create a key with **Apple Push Notifications service (APNs)** enabled
-2. Download the `.p8` file and store it at `/etc/noa/apns.p8` on your Mac (or adjust the path)
+1. In [developer.apple.com](https://developer.apple.com) → **Certificates, IDs & Profiles → Keys** → new key with **Apple Push Notifications service (APNs)** enabled
+2. Download the `.p8` file, save it to `/etc/noa/apns.p8`
 3. Store the credentials:
 ```bash
-./scripts/keychain_store.sh APNS_KEY_ID "your-key-id"
-./scripts/keychain_store.sh APNS_TEAM_ID "your-team-id"
-./scripts/keychain_store.sh APNS_BUNDLE_ID "com.yourname.noa"
-# APNS_KEY_PATH is set in docker-compose.yml, default: /etc/noa/apns.p8
+./noa set APNS_KEY_ID   "your-key-id"
+./noa set APNS_TEAM_ID  "your-team-id"
+./noa set APNS_BUNDLE_ID "com.yourname.noa"
 ```
-4. Re-run `./tools/keychain_bootstrap.sh && docker compose up -d`
+4. Restart: `./noa restart noa-api`
 
 ---
 
 ## Part 3 — Connecting Tools
 
-Tools are enabled automatically when their credentials are present. Add a key → re-bootstrap → restart.
+Add a key with `./noa set`, then restart — the tool activates automatically.
 
 ### Web Search (Tavily)
 
 1. Sign up at [tavily.com](https://tavily.com) → Dashboard → copy your API key
-2. Store it:
+2. Store and restart:
 ```bash
-./scripts/keychain_store.sh TAVILY_API_KEY "tvly-your-key"
-./tools/keychain_bootstrap.sh && docker compose up -d
+./noa set TAVILY_API_KEY "tvly-your-key"
+./noa restart noa-api
 ```
 3. In the Noa web UI → **Tools** → enable **web_search**
 
 ### Google Calendar & Gmail
 
-This requires a Google Cloud project with the Calendar and Gmail APIs enabled.
+Requires a Google Cloud project with the Calendar and Gmail APIs enabled.
 
 #### One-time Google Cloud setup
 
-1. Go to [console.cloud.google.com](https://console.cloud.google.com) → create a new project (e.g. "Noa")
+1. Go to [console.cloud.google.com](https://console.cloud.google.com) → create project "Noa"
 2. **APIs & Services → Enable APIs** → enable **Google Calendar API** and **Gmail API**
-3. **APIs & Services → Credentials → Create Credentials → OAuth 2.0 Client ID**
+3. **Credentials → Create → OAuth 2.0 Client ID**
    - Application type: **Web application**
    - Authorized redirect URI: `http://localhost:8000/auth/google/callback`
-4. Download the JSON — copy the **Client ID** and **Client Secret**
+4. Copy the **Client ID** and **Client Secret**
 
-#### Store credentials
-
-```bash
-./scripts/keychain_store.sh GOOGLE_CLIENT_ID "your-client-id.apps.googleusercontent.com"
-./scripts/keychain_store.sh GOOGLE_CLIENT_SECRET "your-client-secret"
-```
-
-#### Authorize (get a refresh token)
+#### Store and authorize
 
 ```bash
-./tools/keychain_bootstrap.sh && docker compose up -d
+./noa set GOOGLE_CLIENT_ID     "your-id.apps.googleusercontent.com"
+./noa set GOOGLE_CLIENT_SECRET "your-secret"
+./noa restart noa-api
 
-# Open this URL in your browser — log in with your Google account
+# Open in browser — sign in with your Google account
 open "http://localhost:8000/auth/google/authorize"
 ```
 
-After authorizing, the refresh token is stored automatically in the database. Calendar and Gmail tools are now active.
+The refresh token is stored encrypted in the database automatically. Calendar and Gmail are now active.
 
 ### Notion
 
 1. Go to [notion.so/my-integrations](https://www.notion.so/my-integrations) → **New Integration**
 2. Name it "Noa", select your workspace, copy the **Internal Integration Token**
-3. Share each Notion page/database you want Noa to access: open the page → **Share → Invite → Noa**
-4. Store the token:
+3. Share pages with the integration: open any page → **Share → Invite → Noa**
+4. Store and restart:
 ```bash
-./scripts/keychain_store.sh NOTION_TOKEN "ntn_your-token"
-./tools/keychain_bootstrap.sh && docker compose up -d
+./noa set NOTION_TOKEN "ntn_your-token"
+./noa restart noa-api
 ```
 5. In the Noa web UI → **Tools** → enable **notion**
 
@@ -189,67 +192,52 @@ After authorizing, the refresh token is stored automatically in the database. Ca
 
 ## Part 4 — Switching the AI Provider
 
-By default, Noa uses **Claude Sonnet** (Anthropic) if that key is present, otherwise falls back to OpenAI, then Google AI.
+By default, Noa uses Claude Sonnet (Anthropic) if that key is present, otherwise falls back to OpenAI, then Google AI.
 
-### Switch to GPT-4.1 mini (OpenAI)
+### Switch to GPT-4.1 mini permanently
 
-**Option A — Make OpenAI the default provider** (affects all conversations):
+Add `DEFAULT_PROVIDER` and `DEFAULT_MODEL` to Keychain, then add them to the `KEYCHAIN_MAP` in the `noa` script so they get exported on startup.
 
-Add `DEFAULT_PROVIDER=openai` to your `.env.secrets` file, or store it in Keychain and add it to `keychain_bootstrap.sh`.
+**Quickest approach** — edit `docker-compose.yml` to hard-code the default:
 
-Quickest way:
-```bash
-# Append to .env.secrets (re-run keychain_bootstrap.sh will overwrite this, so add permanently):
-echo "DEFAULT_PROVIDER=openai" >> .env.secrets
-echo "DEFAULT_MODEL=gpt-4.1-mini" >> .env.secrets
-docker compose up -d
-```
-
-To make it permanent, edit `tools/keychain_bootstrap.sh` and add:
-```bash
-echo "DEFAULT_PROVIDER=openai" >> "$OUTPUT"
-echo "DEFAULT_MODEL=gpt-4.1-mini" >> "$OUTPUT"
-```
-
-Then update `docker-compose.yml` to pass those vars through:
 ```yaml
-environment:
-  - DEFAULT_PROVIDER=${DEFAULT_PROVIDER:-anthropic}
-  - DEFAULT_MODEL=${DEFAULT_MODEL:-}
+# under noa-api → environment:
+- DEFAULT_PROVIDER=openai
+- DEFAULT_MODEL=gpt-4.1-mini
 ```
 
-**Option B — Switch per conversation** (from the UI):
+Then restart: `./noa restart noa-api`
 
-In the web UI → chat composer → model picker (bottom-right) → select **OpenAI → gpt-4.1-mini**.
+### Switch per conversation (from the UI)
 
-**Available models:**
+Web UI → chat composer → model picker (bottom-right) → select **OpenAI → gpt-4.1-mini**.
 
-| Provider | Key in Keychain | Models |
-|----------|----------------|--------|
+### Available models
+
+| Provider | Key name | Models |
+|----------|----------|--------|
 | Anthropic | `ANTHROPIC_API_KEY` | `claude-sonnet-4-20250514`, `claude-opus-4-5` |
 | OpenAI | `OPENAI_API_KEY` | `gpt-4.1`, `gpt-4.1-mini`, `gpt-4o` |
 | Google AI | `GOOGLE_AI_API_KEY` | `gemini-2.0-flash`, `gemini-pro` |
-| Ollama (local) | — | `llama3.1`, `mistral` (runs on your Mac, no key needed) |
+| Ollama (local, free) | — | `llama3.1`, `mistral` — runs on your Mac, no key needed |
 
 ---
 
 ## Quick Reference
 
 ```bash
-# Start everything
-./tools/keychain_bootstrap.sh && docker compose up -d && make migrate
-
-# View logs
-docker compose logs -f noa-api
-
-# Stop
-docker compose down
-
-# Full reset (DELETES ALL DATA)
-docker compose down -v && make migrate
-
-# Re-run all tests
-docker exec noa-dev bash -c "cd /workspace && python -m pytest tests/unit/ -q"
+./noa setup          # first-time setup (generates system secrets, builds images)
+./noa up             # start everything (reads Keychain → RAM, no disk writes)
+./noa down           # stop all services
+./noa restart        # restart all services
+./noa logs           # stream all logs
+./noa logs noa-api   # stream API logs only
+./noa status         # show container health
+./noa keys           # show which Keychain secrets are present
+./noa set KEY value  # store a secret in Keychain
+./noa db migrate     # run database migrations manually
+./noa db console     # open a psql shell
+./noa reset-password you@example.com   # reset account password
 ```
 
 **Web UI:** http://localhost:5173
