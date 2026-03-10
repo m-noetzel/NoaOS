@@ -18,15 +18,21 @@ def create_async_engine_from_config(
     """Create an async SQLAlchemy engine from app settings."""
     if settings is None:
         settings = Settings()
-    return create_async_engine(
-        settings.database_url,
-        echo=(settings.noa_env.value == "development"),
-        pool_pre_ping=True,
-        pool_size=10,
-        max_overflow=20,
-        pool_recycle=1800,
-        pool_timeout=30,
-    )
+    url = settings.database_url
+    # SQLite (used in tests) does not support connection pool parameters.
+    is_sqlite = url.startswith("sqlite")
+    kwargs: dict = {
+        "echo": settings.noa_env.value == "development",
+        "pool_pre_ping": not is_sqlite,
+    }
+    if not is_sqlite:
+        kwargs.update(
+            pool_size=10,
+            max_overflow=20,
+            pool_recycle=1800,
+            pool_timeout=30,
+        )
+    return create_async_engine(url, **kwargs)
 
 
 def async_session_factory(

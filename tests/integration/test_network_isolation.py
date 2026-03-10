@@ -40,7 +40,12 @@ VERIFY_SCRIPT_PATH = REPO_ROOT / "scripts" / "verify_isolation.sh"
 EXPECTED_EGRESS_DOMAINS: set[str] = {
     "api.anthropic.com",
     "api.openai.com",
-    "*.googleapis.com",
+    # Google: explicit subdomains (more restrictive than *.googleapis.com wildcard)
+    "generativelanguage.googleapis.com",
+    "gmail.googleapis.com",
+    "www.googleapis.com",
+    "accounts.google.com",
+    "oauth2.googleapis.com",
     "api.notion.com",
     "api.tavily.com",
     "registry.npmjs.org",

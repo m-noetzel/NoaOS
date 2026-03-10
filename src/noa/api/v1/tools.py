@@ -24,7 +24,7 @@ router = APIRouter(prefix="/api/v1/tools", tags=["tools"])
 @router.post("/{name}/enable")
 async def enable_tool(
     name: str,
-    payload: dict[str, Any] = Depends(require_auth),  # noqa: B008
+    payload: Any = Depends(require_auth),  # noqa: B008
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
 ) -> dict[str, Any]:
     """Grant the calling user the capability for the named tool."""
@@ -35,7 +35,9 @@ async def enable_tool(
         )
 
     rid = trace_id_ctx.get("")
-    user_id = uuid.UUID(payload["sub"])
+    user_id = (
+        payload.user_id if hasattr(payload, "user_id") else uuid.UUID(payload["sub"])
+    )
     checker = DbCapabilityChecker(session)
     await checker.grant(user_id=user_id, tool_name=name, granted_by=user_id)
 
@@ -49,12 +51,14 @@ async def enable_tool(
 @router.delete("/{name}")
 async def disable_tool(
     name: str,
-    payload: dict[str, Any] = Depends(require_auth),  # noqa: B008
+    payload: Any = Depends(require_auth),  # noqa: B008
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
 ) -> dict[str, Any]:
     """Revoke the calling user's capability for the named tool."""
     rid = trace_id_ctx.get("")
-    user_id = uuid.UUID(payload["sub"])
+    user_id = (
+        payload.user_id if hasattr(payload, "user_id") else uuid.UUID(payload["sub"])
+    )
     checker = DbCapabilityChecker(session)
     count = await checker.revoke(user_id=user_id, tool_name=name)
 

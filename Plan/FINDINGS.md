@@ -68,7 +68,10 @@
 | H11 | High | Replay Endpoint Missing User Authorization Filter | **Resolved** | HD (user_id filter via Run join) |
 | M15 | Medium | HD Commit Breaks 3 Existing QC8 Tests | **Resolved** | HD (tests updated for new behavior) |
 
-**Open:** 0 | **Partially Resolved:** 0 | **Resolved:** 51 | **Total:** 51
+| iOS11-M1 | Medium | Approval Decide Endpoint Is a Stub (No DB Persistence) | **Resolved** | iOS11-fix |
+| iOS11-M2 | Medium | Approval Decide Returns Hardcoded risk_tier="high" | **Resolved** | iOS11-fix |
+
+**Open:** 0 | **Partially Resolved:** 0 | **Resolved:** 53 | **Total:** 53
 
 ---
 

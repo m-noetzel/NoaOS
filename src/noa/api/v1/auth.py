@@ -12,6 +12,7 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -103,15 +104,19 @@ def _set_auth_cookies(
 @router.post("/login", response_model=AuthTokenResponse)
 async def login(
     body: LoginRequest,
-    response: Response,
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
     settings: Settings = Depends(_get_settings),  # noqa: B008
-) -> AuthTokenResponse:
+) -> Any:
     """Authenticate user and return access + refresh tokens.
 
     iOS4: tokens are set as httpOnly cookies (C6); expires_in is returned
     in the body so AuthViewModel can schedule automatic token refresh.
+    Response uses the standard success_envelope so both web and iOS clients
+    can decode via ApiResponse<AuthTokens>.  Returns JSONResponse directly
+    so FastAPI skips response_model serialization while keeping the model
+    for OpenAPI docs.
     """
+    rid = trace_id_ctx.get("")
     try:
         service = AuthService(session=session, settings=settings)
         try:
@@ -134,17 +139,23 @@ async def login(
             detail=str(exc),
         ) from exc
 
-    _set_auth_cookies(response, result)
-    # C6: Tokens are set as httpOnly cookies for web clients.
-    # For native iOS clients, tokens are also returned in the body so they
-    # can be stored securely in the iOS Keychain (SPEC.md §29.3).
-    return AuthTokenResponse(
-        token_type="bearer",  # noqa: S106
-        expires_in=settings.access_token_expire_minutes * 60,
-        authenticated=True,
-        access_token=result.get("access_token"),  # noqa: S106
-        refresh_token=result.get("refresh_token"),  # noqa: S106
+    expires_in = settings.access_token_expire_minutes * 60
+    envelope = success_envelope(
+        data={
+            "authenticated": True,
+            "token_type": "bearer",  # noqa: S106
+            "expires_in": expires_in,
+            "access_token": result.get("access_token"),  # noqa: S106
+            "refresh_token": result.get("refresh_token"),  # noqa: S106
+        },
+        trace_id=rid,
     )
+    # Return JSONResponse so FastAPI skips response_model serialization,
+    # preserving the envelope. JSONResponse subclasses Response so _set_auth_cookies
+    # works identically — both expose set_cookie() (C6).
+    resp = JSONResponse(content=envelope)
+    _set_auth_cookies(resp, result)  # type: ignore[arg-type]
+    return resp
 
 
 @router.post("/refresh")
