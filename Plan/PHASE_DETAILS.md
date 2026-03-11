@@ -3922,6 +3922,181 @@ Browser-level end-to-end tests for the web frontend using Playwright. Covers aut
 
 ---
 
+## Wave 18: Tool Management & Credentials
+
+**Goal:** Transform the basic tool toggle page into a full tool management dashboard with health checks, credential setup via UI (stored in Keychain), per-function permissions, and the ability to add custom tools. Bridges to MCP in the final phase.
+
+**Architecture decisions:**
+- Credentials stored in **macOS Keychain** (consistent with existing secret management), never in DB
+- DB stores only metadata: tool name, configured=true/false, last health check timestamp
+- Per-function permissions extend the existing `ToolCapability` model
+- MCP adapter wires into existing `ToolGateway` → `ToolAdapter` protocol chain
+
+**Dependencies:** Builds on Wave 4 (tool implementations), Wave 8 (credential management), Wave 11-12 (tool gateway + adapters), Wave 13/MR5 (capability permissions).
+
+---
+
+### TM1: Tool Health-Check Endpoint & Credential Status (~45 min)
+
+**Goal:** Backend knows which tools have credentials configured and can probe each tool's API to verify they work.
+
+**Changes:**
+
+| Component | File(s) | Change |
+|-----------|---------|--------|
+| Credential status | `src/noa/tools/registration.py` | Check Keychain for each tool's required secrets, return configured/missing status |
+| Health probe | `src/noa/tools/health.py` (NEW) | Lightweight probe per tool: Tavily → search "test", Calendar → list 0 events, Gmail → list 1 email, Notion → search empty. Timeout 5s. |
+| Credential store endpoint | `src/noa/api/v1/tools.py` | `POST /api/v1/tools/{name}/credentials` — accepts API key/token, stores in Keychain, returns masked value. `GET` returns only masked. |
+| Health endpoint | `src/noa/api/v1/tools.py` | `POST /api/v1/tools/{name}/health` — triggers probe, returns green/red + error message |
+| Tool list enrichment | `src/noa/api/v1/tools.py` | `GET /api/v1/tools` now includes `credential_status: "configured" | "missing"` and `health: "ok" | "error" | "unchecked"` |
+
+**Tests:** ~15 tests — health probe mocking, credential masking, Keychain read/write, endpoint responses.
+
+---
+
+### TM2: Tools API Enrichment — Functions, Permissions, Metadata (~45 min)
+
+**Goal:** The API exposes the full structure of each tool: its functions, descriptions, parameter schemas, risk tier per function, domain assignment, and per-function capability grants.
+
+**Changes:**
+
+| Component | File(s) | Change |
+|-----------|---------|--------|
+| Rich tool schema | `src/noa/tools/definitions.py` | Add `risk_tier` and `domain` per function (e.g. `gmail.send_email` = high, `gmail.search_emails` = medium) |
+| Per-function capabilities | `src/noa/tools/capabilities.py` | Extend `TOOL_CAPABILITIES` to function-level: `gmail__send_email`, `gmail__read_email` etc. |
+| DB model | `src/noa/db/models/tool_capability.py` | Add `function_name` column (nullable for backward compat, NULL = all functions) |
+| API response | `src/noa/api/v1/tools.py` | `GET /api/v1/tools` returns nested `functions[]` with name, description, parameters, risk_tier, enabled, domain |
+| Grant/revoke per function | `src/noa/api/v1/tools.py` | `POST /api/v1/tools/{name}/{function}/enable`, `DELETE /api/v1/tools/{name}/{function}` |
+
+**Tests:** ~15 tests — per-function grant/revoke, backward compat (NULL function = all), risk tier exposure.
+
+---
+
+### TM3: Tools UI Redesign — Dashboard & Health (~60 min)
+
+**Goal:** Replace the flat toggle table with an interactive tool management dashboard.
+
+**UI design:**
+
+Each tool is an **expandable card** showing:
+- **Header row:** Tool name, domain badge (private/external), overall status (green/red/unconfigured), master toggle
+- **Expanded section:**
+  - **Credentials:** Status indicator + "Configure" button → modal with API key input or "Connect with Google" OAuth button. Shows masked value if configured.
+  - **Health:** Last check timestamp, "Test Connection" button → spinner → green checkmark or red X with error
+  - **Functions table:** Name, description, risk tier badge (low/medium/high), individual enable/disable toggle
+  - **Info:** Tool description, parameter schemas (collapsible)
+
+**Changes:**
+
+| Component | File(s) | Change |
+|-----------|---------|--------|
+| Tool card component | `web/src/pages/Tools.tsx` | Full rewrite: expandable cards, health indicators, credential setup |
+| Credential modal | `web/src/components/tools/CredentialModal.tsx` (NEW) | API key input, OAuth redirect trigger, masked display |
+| Health probe trigger | `web/src/pages/Tools.tsx` | "Test Connection" button calls `POST /tools/{name}/health` |
+| Function toggles | `web/src/pages/Tools.tsx` | Per-function enable/disable via new endpoints |
+
+**Tests:** ~12 tests — card expand/collapse, credential modal, health check states, function toggles.
+
+---
+
+### TM4: Per-Task Tool Permissions & Context Scoping (~45 min)
+
+**Goal:** When the orchestrator runs a task, it only gets the tools relevant to that task's context — not everything the user has enabled globally.
+
+**Changes:**
+
+| Component | File(s) | Change |
+|-----------|---------|--------|
+| Task tool allowlist | `src/noa/policy/approval.py` | Approval rules can specify `allowed_tools: ["gmail__read_email", "gmail__draft_email"]` |
+| Orchestrator filter | `src/noa/orchestrator/nodes/tools.py` | Before building tool list for LLM, intersect: user capabilities ∩ task allowlist |
+| Default scopes | `src/noa/tools/scopes.py` (NEW) | Predefined scopes: `email_draft` (gmail read + draft), `research` (web_search + notion read), `scheduling` (calendar + gmail read) |
+| UI display | `web/src/pages/Tools.tsx` | Show which tasks/scopes use each function (informational) |
+
+**Tests:** ~12 tests — scope filtering, intersection logic, approval rule with tool allowlist.
+
+---
+
+### TM5: Tool Registry — Add Custom Tools via UI (~45 min)
+
+**Goal:** Users can register new tools without code changes. Tool definitions stored in DB alongside the code-defined ones.
+
+**Changes:**
+
+| Component | File(s) | Change |
+|-----------|---------|--------|
+| DB model | `src/noa/db/models/custom_tool.py` (NEW) | CustomTool: name, description, base_url, auth_type, functions (JSONB), domain, created_by |
+| Registration API | `src/noa/api/v1/tools.py` | `POST /api/v1/tools` — register new tool with JSON schema functions |
+| Runtime registration | `src/noa/tools/registration.py` | On startup + on creation: load custom tools from DB, register adapters |
+| Custom adapter | `src/noa/tools/adapters/http_tool.py` (NEW) | Generic HTTP adapter: calls `base_url/{function}` with JSON body, configurable auth header |
+| UI form | `web/src/components/tools/AddToolModal.tsx` (NEW) | Name, base URL, auth type (API key/bearer/none), function schema editor |
+
+**Tests:** ~15 tests — custom tool CRUD, runtime registration, HTTP adapter dispatch, schema validation.
+
+---
+
+### TM6: MCP Server Connector — Phase 2 Bridge (~60 min)
+
+**Goal:** Wire the existing `McpRemoteAdapter` stub with real MCP protocol support. Connect to MCP servers, auto-discover their tools/functions, and route calls through the existing gateway.
+
+**Changes:**
+
+| Component | File(s) | Change |
+|-----------|---------|--------|
+| MCP client | `src/noa/tools/adapters/mcp_remote.py` | Replace NotImplementedError with real HTTP+SSE MCP client (using `mcp` package) |
+| Auto-discovery | `src/noa/tools/mcp_discovery.py` (NEW) | Connect to MCP server, call `tools/list`, convert to internal `ToolInterface` registrations |
+| MCP server config | `src/noa/api/v1/tools.py` | `POST /api/v1/tools/mcp-servers` — register MCP server URL + auth |
+| Domain routing | `src/noa/tools/registration.py` | MCP servers assigned to private/external domain; calls routed to correct container network |
+| UI | `web/src/components/tools/McpServerModal.tsx` (NEW) | Add MCP server: URL, auth token, domain assignment. Auto-discovers functions on connect. |
+| pyproject.toml | `pyproject.toml` | Add `mcp` package dependency |
+
+**Tests:** ~15 tests — MCP client connect/disconnect, tool discovery, domain routing, gateway integration.
+
+---
+
+## Wave 19: Production Readiness Cleanup
+
+---
+
+### Phase PR1: Backend Critical Fixes — Data Integrity (~60 min)
+
+**Goal:** Three critical/high backend defects prevent the app from functioning correctly in production: (1) the runs list/detail endpoints return hardcoded zeros for cost, tokens, and model instead of joining UsageStats; (2) memory fact endpoints call `store.list_all()` with no user scoping, leaking facts across users; (3) RunService uses the legacy sync `.query()` ORM API on an async session, causing silent failures.
+
+**Spec refs:** SPEC.md §22.1, §22.2, §13.2
+
+**Depends on:** TM6
+**Blocks:** PR6
+
+**Deliverables:**
+1. `list_runs` and `get_run` endpoints join `usage_stats` table and return real cost/token/model data
+2. All memory fact endpoints filter by `user_id` from the authenticated user
+3. `RunService` async rewrite — all methods use `await db.execute(select(...))` pattern
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/noa/api/v1/runs.py` | **EDIT** | Join `UsageStats` in list_runs and get_run; populate model, provider, tokens_in/out, cost_usd |
+| `src/noa/api/v1/memory.py` | **EDIT** | Pass `user_id` to all MemoryStore calls; fix `_persist()` → public `persist()` usage |
+| `src/noa/private_worker/memory_store.py` | **EDIT** | Add `user_id` parameter support to `list_all`, `get_by_id`, `update_status`, `delete`; add public `persist()` method |
+| `src/noa/runs/service.py` | **EDIT** | Rewrite all methods as async using `await db.execute(select(...))` |
+| `tests/unit/test_pr1_backend_fixes.py` | **CREATE** | Tests for real cost data in runs response, user-scoped memory, async RunService |
+
+**Tests (~18):**
+- Runs data: list_runs returns real cost/token/model from joined UsageStats
+- Runs data: get_run returns real data, returns zeros when no UsageStats row
+- Memory scoping: list_facts filters by user_id (no cross-user leak)
+- Memory scoping: approve/update/delete only affects facts owned by that user
+- RunService async: create_run, get_run, list_runs, update_status, append_event all work with async session
+- RunService async: update_status rejects invalid transitions
+- RunService async: list_runs with thread_id, user_id, status filters
+
+**Test gate:**
+```bash
+pytest tests/unit/test_pr1_backend_fixes.py -v
+```
+
+---
+
 _Entries added after each phase completion._
 
 | Date | Phase | Summary |

@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import os
 import uuid
-from typing import Any, Literal
+from typing import Literal
 
 import httpx
 from fastapi import (
@@ -27,7 +27,7 @@ from fastapi import (
 )
 
 from noa.api.middleware import trace_id_ctx
-from noa.auth.middleware import require_auth
+from noa.auth.middleware import AuthUser, require_auth
 from noa.config import Settings
 from noa.voice.schemas import VoiceUploadResponse
 from noa.voice.transcription import (
@@ -51,7 +51,7 @@ def _get_settings() -> Settings:
 async def transcribe_audio(
     file: UploadFile = File(...),  # noqa: B008
     mode: Literal["transcribe", "chat"] = Form("transcribe"),  # noqa: B008
-    payload: dict[str, Any] = Depends(require_auth),  # noqa: B008
+    user: AuthUser = Depends(require_auth),  # noqa: B008
     settings: Settings = Depends(_get_settings),  # noqa: B008
 ) -> VoiceUploadResponse:
     """Upload an audio file and receive transcription.
@@ -64,7 +64,7 @@ async def transcribe_audio(
     When provider=whisper_cpp, OPENAI_API_KEY is not required.
     """
     rid = trace_id_ctx.get("")
-    user_id = uuid.UUID(payload["sub"])
+    user_id = user.user_id
 
     # Read audio data
     audio_data = await file.read()
@@ -79,7 +79,7 @@ async def transcribe_audio(
             detail=str(exc),
         ) from exc
 
-    # Determine provider from Settings (reads TRANSCRIPTION_PROVIDER / WHISPER_CPP_URL env vars)
+    # Determine provider from Settings (TRANSCRIPTION_PROVIDER / WHISPER_CPP_URL)
     provider_name = settings.transcription_provider
     whisper_cpp_url = settings.whisper_cpp_url
 

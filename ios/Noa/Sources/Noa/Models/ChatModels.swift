@@ -8,23 +8,26 @@ import Foundation
 /// A conversation thread. Mirrors backend Conversation schema.
 public struct Thread: Codable, Sendable, Identifiable {
     public let id: UUID
-    public let userId: UUID
+    public let userId: UUID?
     /// Optional title; may be null until the backend derives one from the first message.
     public let title: String?
-    public let createdAt: Date
+    public let createdAt: Date?
+    public let updatedAt: Date?
 
     enum CodingKeys: String, CodingKey {
         case id
         case userId = "user_id"
         case title
         case createdAt = "created_at"
+        case updatedAt = "updated_at"
     }
 
-    public init(id: UUID, userId: UUID, title: String?, createdAt: Date) {
+    public init(id: UUID, userId: UUID? = nil, title: String?, createdAt: Date? = nil, updatedAt: Date? = nil) {
         self.id = id
         self.userId = userId
         self.title = title
         self.createdAt = createdAt
+        self.updatedAt = updatedAt
     }
 }
 

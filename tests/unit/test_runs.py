@@ -6,6 +6,8 @@ Phase plan: MASTER_PLAN.md Phase OC2
 Tests cover: Run CRUD service (create, status transitions, query),
 Event append service (ordered, append-only), SSE endpoint,
 Artifact metadata, and authentication requirements.
+
+Updated to async RunService (BE-H2 / PR1).
 """
 
 from __future__ import annotations
@@ -13,8 +15,8 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.orm import sessionmaker
 
 pytestmark = pytest.mark.oc2
 
@@ -46,29 +48,35 @@ VALID_STATUSES = [
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(scope="module")
-def engine():
-    """In-memory SQLite engine for run tests."""
+async def engine():
+    """In-memory async SQLite engine for run tests."""
+    from sqlalchemy.pool import StaticPool
+
     from noa.db.models import Base
 
-    eng = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(eng)
-    return eng
+    eng = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    async with eng.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    yield eng
+    await eng.dispose()
 
 
 @pytest.fixture()
-def db(engine):
-    """Transactional session that rolls back after each test."""
-    conn = engine.connect()
-    trans = conn.begin()
-    session = Session(bind=conn)
-    yield session
-    session.close()
-    trans.rollback()
-    conn.close()
+async def db(engine):
+    """Async session that rolls back after each test."""
+    async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with async_session() as session:
+        async with session.begin():
+            yield session
+            await session.rollback()
 
 
 @pytest.fixture()
-def user_id(db):
+async def user_id(db):
     """Create a test user and return its ID."""
     from noa.db.models.user import User
 
@@ -79,18 +87,18 @@ def user_id(db):
         display_name="Run Tester",
     )
     db.add(user)
-    db.flush()
+    await db.flush()
     return user.id
 
 
 @pytest.fixture()
-def thread_id(db, user_id):
+async def thread_id(db, user_id):
     """Create a test conversation and return its ID."""
     from noa.db.models.conversation import Conversation
 
     conv = Conversation(id=uuid.uuid4(), user_id=user_id, title="Test Thread")
     db.add(conv)
-    db.flush()
+    await db.flush()
     return conv.id
 
 
@@ -109,9 +117,9 @@ def run_service(db):
 class TestRunCreation:
     """Run service creates runs with correct initial state per §22.1."""
 
-    def test_create_run_returns_complete_record(self, run_service, user_id, thread_id):
+    async def test_create_run_returns_complete_record(self, run_service, user_id, thread_id):
         """Service creates a run with all §22.1 fields populated."""
-        run = run_service.create_run(
+        run = await run_service.create_run(
             user_id=user_id,
             thread_id=thread_id,
             summary="Test run",
@@ -127,30 +135,28 @@ class TestRunCreation:
         assert run.created_at is not None
         assert run.updated_at is not None
 
-    def test_create_run_with_custom_risk_tier(self, run_service, user_id, thread_id):
+    async def test_create_run_with_custom_risk_tier(self, run_service, user_id, thread_id):
         """Run can be created with a specified risk_tier."""
-        run = run_service.create_run(
+        run = await run_service.create_run(
             user_id=user_id,
             thread_id=thread_id,
             risk_tier="high",
         )
         assert run.risk_tier == "high"
 
-    def test_create_run_with_external_privacy(self, run_service, user_id, thread_id):
+    async def test_create_run_with_external_privacy(self, run_service, user_id, thread_id):
         """Run can be created with external privacy mode."""
-        run = run_service.create_run(
+        run = await run_service.create_run(
             user_id=user_id,
             thread_id=thread_id,
             privacy_mode="external",
         )
         assert run.privacy_mode == "external"
 
-    def test_create_run_persists_to_db(self, run_service, user_id, thread_id, db):
+    async def test_create_run_persists_to_db(self, run_service, user_id, thread_id):
         """Run is flushed and queryable from the session."""
-        from noa.db.models.run import Run
-
-        run = run_service.create_run(user_id=user_id, thread_id=thread_id)
-        found = db.query(Run).filter(Run.id == run.id).first()
+        run = await run_service.create_run(user_id=user_id, thread_id=thread_id)
+        found = await run_service.get_run(run.id)
         assert found is not None
         assert found.status == "pending"
 
@@ -162,52 +168,52 @@ class TestRunCreation:
 class TestStatusTransitions:
     """Run status transitions follow the valid state machine."""
 
-    def test_pending_to_running(self, run_service, user_id, thread_id):
+    async def test_pending_to_running(self, run_service, user_id, thread_id):
         """pending -> running is a valid transition."""
-        run = run_service.create_run(user_id=user_id, thread_id=thread_id)
-        updated = run_service.update_status(run.id, "running")
+        run = await run_service.create_run(user_id=user_id, thread_id=thread_id)
+        updated = await run_service.update_status(run.id, "running")
         assert updated.status == "running"
 
-    def test_running_to_completed(self, run_service, user_id, thread_id):
+    async def test_running_to_completed(self, run_service, user_id, thread_id):
         """running -> completed is a valid transition."""
-        run = run_service.create_run(user_id=user_id, thread_id=thread_id)
-        run_service.update_status(run.id, "running")
-        updated = run_service.update_status(run.id, "completed")
+        run = await run_service.create_run(user_id=user_id, thread_id=thread_id)
+        await run_service.update_status(run.id, "running")
+        updated = await run_service.update_status(run.id, "completed")
         assert updated.status == "completed"
 
-    def test_running_to_failed(self, run_service, user_id, thread_id):
+    async def test_running_to_failed(self, run_service, user_id, thread_id):
         """running -> failed is a valid transition."""
-        run = run_service.create_run(user_id=user_id, thread_id=thread_id)
-        run_service.update_status(run.id, "running")
-        updated = run_service.update_status(run.id, "failed")
+        run = await run_service.create_run(user_id=user_id, thread_id=thread_id)
+        await run_service.update_status(run.id, "running")
+        updated = await run_service.update_status(run.id, "failed")
         assert updated.status == "failed"
 
-    def test_running_to_awaiting_approval(self, run_service, user_id, thread_id):
+    async def test_running_to_awaiting_approval(self, run_service, user_id, thread_id):
         """running -> awaiting_approval is valid."""
-        run = run_service.create_run(user_id=user_id, thread_id=thread_id)
-        run_service.update_status(run.id, "running")
-        updated = run_service.update_status(run.id, "awaiting_approval")
+        run = await run_service.create_run(user_id=user_id, thread_id=thread_id)
+        await run_service.update_status(run.id, "running")
+        updated = await run_service.update_status(run.id, "awaiting_approval")
         assert updated.status == "awaiting_approval"
 
-    def test_invalid_transition_rejected(self, run_service, user_id, thread_id):
+    async def test_invalid_transition_rejected(self, run_service, user_id, thread_id):
         """completed -> running is invalid and raises ValueError."""
-        run = run_service.create_run(user_id=user_id, thread_id=thread_id)
-        run_service.update_status(run.id, "running")
-        run_service.update_status(run.id, "completed")
+        run = await run_service.create_run(user_id=user_id, thread_id=thread_id)
+        await run_service.update_status(run.id, "running")
+        await run_service.update_status(run.id, "completed")
         with pytest.raises(ValueError, match="Invalid.*transition"):
-            run_service.update_status(run.id, "running")
+            await run_service.update_status(run.id, "running")
 
-    def test_cancel_from_pending(self, run_service, user_id, thread_id):
+    async def test_cancel_from_pending(self, run_service, user_id, thread_id):
         """pending -> cancelled is valid."""
-        run = run_service.create_run(user_id=user_id, thread_id=thread_id)
-        updated = run_service.update_status(run.id, "cancelled")
+        run = await run_service.create_run(user_id=user_id, thread_id=thread_id)
+        updated = await run_service.update_status(run.id, "cancelled")
         assert updated.status == "cancelled"
 
-    def test_cancel_from_running(self, run_service, user_id, thread_id):
+    async def test_cancel_from_running(self, run_service, user_id, thread_id):
         """running -> cancelled is valid."""
-        run = run_service.create_run(user_id=user_id, thread_id=thread_id)
-        run_service.update_status(run.id, "running")
-        updated = run_service.update_status(run.id, "cancelled")
+        run = await run_service.create_run(user_id=user_id, thread_id=thread_id)
+        await run_service.update_status(run.id, "running")
+        updated = await run_service.update_status(run.id, "cancelled")
         assert updated.status == "cancelled"
 
 
@@ -218,10 +224,10 @@ class TestStatusTransitions:
 class TestEventAppending:
     """Events are ordered and append-only per §22.2."""
 
-    def test_append_event_returns_event(self, run_service, user_id, thread_id):
+    async def test_append_event_returns_event(self, run_service, user_id, thread_id):
         """Appending an event returns the created RunEvent."""
-        run = run_service.create_run(user_id=user_id, thread_id=thread_id)
-        event = run_service.append_event(
+        run = await run_service.create_run(user_id=user_id, thread_id=thread_id)
+        event = await run_service.append_event(
             run_id=run.id,
             event_type="message_received",
             payload={"text": "hello"},
@@ -232,16 +238,16 @@ class TestEventAppending:
         assert event.payload == {"text": "hello"}
         assert event.timestamp is not None
 
-    def test_events_ordered_by_timestamp(self, run_service, user_id, thread_id):
+    async def test_events_ordered_by_timestamp(self, run_service, user_id, thread_id):
         """Events for a run come back ordered by timestamp."""
-        run = run_service.create_run(user_id=user_id, thread_id=thread_id)
-        run_service.append_event(run.id, "message_received", {"text": "hi"})
-        run_service.append_event(
+        run = await run_service.create_run(user_id=user_id, thread_id=thread_id)
+        await run_service.append_event(run.id, "message_received", {"text": "hi"})
+        await run_service.append_event(
             run.id, "classification_done", {"privacy_mode": "private"},
         )
-        run_service.append_event(run.id, "result_ready", {"response_text": "Hello!"})
+        await run_service.append_event(run.id, "result_ready", {"response_text": "Hello!"})
 
-        events = run_service.list_events(run.id)
+        events = await run_service.list_events(run.id)
         assert len(events) == 3
         assert events[0].event_type == "message_received"
         assert events[1].event_type == "classification_done"
@@ -250,14 +256,19 @@ class TestEventAppending:
         for i in range(len(events) - 1):
             assert events[i].timestamp <= events[i + 1].timestamp
 
-    def test_events_persist_to_db(self, run_service, user_id, thread_id, db):
+    async def test_events_persist_to_db(self, run_service, user_id, thread_id):
         """Events are persisted and queryable."""
+        from sqlalchemy import select
+
         from noa.db.models.run import RunEvent
 
-        run = run_service.create_run(user_id=user_id, thread_id=thread_id)
-        run_service.append_event(run.id, "message_received", {"text": "hi"})
+        run = await run_service.create_run(user_id=user_id, thread_id=thread_id)
+        await run_service.append_event(run.id, "message_received", {"text": "hi"})
 
-        found = db.query(RunEvent).filter(RunEvent.run_id == run.id).all()
+        result = await run_service._session.execute(
+            select(RunEvent).where(RunEvent.run_id == run.id)
+        )
+        found = result.scalars().all()
         assert len(found) == 1
 
 
@@ -269,19 +280,19 @@ class TestEventTypes:
     """All event types from §22.2 table are accepted."""
 
     @pytest.mark.parametrize("event_type", VALID_EVENT_TYPES)
-    def test_valid_event_type_accepted(
+    async def test_valid_event_type_accepted(
         self, run_service, user_id, thread_id, event_type,
     ):
         """Each §22.2 event type can be appended."""
-        run = run_service.create_run(user_id=user_id, thread_id=thread_id)
-        event = run_service.append_event(run.id, event_type, {})
+        run = await run_service.create_run(user_id=user_id, thread_id=thread_id)
+        event = await run_service.append_event(run.id, event_type, {})
         assert event.event_type == event_type
 
-    def test_invalid_event_type_rejected(self, run_service, user_id, thread_id):
+    async def test_invalid_event_type_rejected(self, run_service, user_id, thread_id):
         """Unknown event types are rejected."""
-        run = run_service.create_run(user_id=user_id, thread_id=thread_id)
+        run = await run_service.create_run(user_id=user_id, thread_id=thread_id)
         with pytest.raises(ValueError, match="Invalid event type"):
-            run_service.append_event(run.id, "not_a_real_event", {})
+            await run_service.append_event(run.id, "not_a_real_event", {})
 
 
 # ---------------------------------------------------------------------------
@@ -291,10 +302,10 @@ class TestEventTypes:
 class TestArtifactMetadata:
     """Artifact metadata service links artifacts to runs per §22.3."""
 
-    def test_create_artifact(self, run_service, user_id, thread_id):
+    async def test_create_artifact(self, run_service, user_id, thread_id):
         """Artifact can be created and linked to a run."""
-        run = run_service.create_run(user_id=user_id, thread_id=thread_id)
-        artifact = run_service.create_artifact(
+        run = await run_service.create_run(user_id=user_id, thread_id=thread_id)
+        artifact = await run_service.create_artifact(
             run_id=run.id,
             artifact_type="file",
             name="output.txt",
@@ -311,20 +322,20 @@ class TestArtifactMetadata:
         assert artifact.storage_ref == "/artifacts/output.txt"
         assert artifact.created_at is not None
 
-    def test_list_artifacts_for_run(self, run_service, user_id, thread_id):
+    async def test_list_artifacts_for_run(self, run_service, user_id, thread_id):
         """Artifacts can be listed by run_id."""
-        run = run_service.create_run(user_id=user_id, thread_id=thread_id)
-        run_service.create_artifact(
+        run = await run_service.create_run(user_id=user_id, thread_id=thread_id)
+        await run_service.create_artifact(
             run_id=run.id, artifact_type="file",
             name="a.txt", mime_type="text/plain",
             size_bytes=100, storage_ref="/artifacts/a.txt",
         )
-        run_service.create_artifact(
+        await run_service.create_artifact(
             run_id=run.id, artifact_type="diff",
             name="b.diff", mime_type="text/x-diff",
             size_bytes=200, storage_ref="/artifacts/b.diff",
         )
-        artifacts = run_service.list_artifacts(run.id)
+        artifacts = await run_service.list_artifacts(run.id)
         assert len(artifacts) == 2
 
 
@@ -335,41 +346,41 @@ class TestArtifactMetadata:
 class TestRunQuery:
     """Runs are queryable by various filters per §22.5."""
 
-    def test_query_by_thread(self, run_service, user_id, thread_id):
+    async def test_query_by_thread(self, run_service, user_id, thread_id):
         """Runs can be filtered by thread_id."""
-        run_service.create_run(user_id=user_id, thread_id=thread_id)
-        results = run_service.list_runs(thread_id=thread_id)
+        await run_service.create_run(user_id=user_id, thread_id=thread_id)
+        results = await run_service.list_runs(thread_id=thread_id)
         assert len(results) >= 1
         assert all(r.thread_id == thread_id for r in results)
 
-    def test_query_by_user(self, run_service, user_id, thread_id):
+    async def test_query_by_user(self, run_service, user_id, thread_id):
         """Runs can be filtered by user_id."""
-        run_service.create_run(user_id=user_id, thread_id=thread_id)
-        results = run_service.list_runs(user_id=user_id)
+        await run_service.create_run(user_id=user_id, thread_id=thread_id)
+        results = await run_service.list_runs(user_id=user_id)
         assert len(results) >= 1
         assert all(r.user_id == user_id for r in results)
 
-    def test_query_by_status(self, run_service, user_id, thread_id):
+    async def test_query_by_status(self, run_service, user_id, thread_id):
         """Runs can be filtered by status."""
-        run = run_service.create_run(user_id=user_id, thread_id=thread_id)
-        run_service.update_status(run.id, "running")
+        run = await run_service.create_run(user_id=user_id, thread_id=thread_id)
+        await run_service.update_status(run.id, "running")
 
-        pending = run_service.list_runs(status="pending")
-        running = run_service.list_runs(status="running")
+        pending = await run_service.list_runs(status="pending")
+        running = await run_service.list_runs(status="running")
 
         assert all(r.status == "pending" for r in pending)
         assert any(r.status == "running" for r in running)
 
-    def test_get_run_by_id(self, run_service, user_id, thread_id):
+    async def test_get_run_by_id(self, run_service, user_id, thread_id):
         """A single run can be fetched by ID."""
-        run = run_service.create_run(user_id=user_id, thread_id=thread_id)
-        found = run_service.get_run(run.id)
+        run = await run_service.create_run(user_id=user_id, thread_id=thread_id)
+        found = await run_service.get_run(run.id)
         assert found is not None
         assert found.id == run.id
 
-    def test_get_run_not_found(self, run_service):
+    async def test_get_run_not_found(self, run_service):
         """Non-existent run_id returns None."""
-        found = run_service.get_run(uuid.uuid4())
+        found = await run_service.get_run(uuid.uuid4())
         assert found is None
 
 
@@ -420,16 +431,16 @@ class TestSSEEndpoint:
 class TestRunLifecycle:
     """Run lifecycle management ensures updated_at changes."""
 
-    def test_updated_at_changes_on_status_update(self, run_service, user_id, thread_id):
+    async def test_updated_at_changes_on_status_update(self, run_service, user_id, thread_id):
         """updated_at is refreshed when status changes."""
-        run = run_service.create_run(user_id=user_id, thread_id=thread_id)
+        run = await run_service.create_run(user_id=user_id, thread_id=thread_id)
         original_updated = run.updated_at
-        run_service.update_status(run.id, "running")
-        updated_run = run_service.get_run(run.id)
+        await run_service.update_status(run.id, "running")
+        updated_run = await run_service.get_run(run.id)
         assert updated_run.updated_at >= original_updated
 
-    def test_summary_can_be_updated(self, run_service, user_id, thread_id):
+    async def test_summary_can_be_updated(self, run_service, user_id, thread_id):
         """Run summary can be updated after creation."""
-        run = run_service.create_run(user_id=user_id, thread_id=thread_id)
-        updated = run_service.update_run(run.id, summary="Updated summary")
+        run = await run_service.create_run(user_id=user_id, thread_id=thread_id)
+        updated = await run_service.update_run(run.id, summary="Updated summary")
         assert updated.summary == "Updated summary"

@@ -28,6 +28,9 @@ class ToolCapability(Base):
     granted_by: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
     )
+    function_name: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, default=None,
+    )
 
     __table_args__ = (
         Index("ix_tool_capabilities_user_tool", "user_id", "tool_name"),

@@ -52,6 +52,7 @@ async def invoke_llm(
     *,
     privacy_mode: str = "external",
     max_tokens: int = 4096,
+    tools: list[dict[str, Any]] | None = None,
 ) -> LLMResponse:
     """Invoke the LLM via ProviderRouter.
 
@@ -60,6 +61,7 @@ async def invoke_llm(
         messages: Conversation messages.
         privacy_mode: "external" or "private".
         max_tokens: Maximum tokens to generate.
+        tools: Optional list of available tool metadata dicts.
 
     Returns:
         LLMResponse with content and tool_calls.
@@ -68,10 +70,13 @@ async def invoke_llm(
         RuntimeError: If no router is configured.
     """
     if _router is None:
-        msg = "invoke_llm: no router configured — call set_router() at startup"
+        msg = (
+            "invoke_llm: no router configured "
+            "— call set_router() at startup"
+        )
         raise RuntimeError(msg)
 
-    # Parse provider from model string (e.g. "anthropic/claude-haiku" → "anthropic")
+    # Parse provider from model string
     provider: str | None = None
     model_name: str | None = None
     if "/" in model:
@@ -85,6 +90,7 @@ async def invoke_llm(
         privacy_mode=privacy_mode,
         provider=provider,
         model=model_name,
+        tools=tools,
     )
 
     return LLMResponse(
@@ -107,7 +113,13 @@ async def agent_node(state: AgentState) -> dict[str, Any]:
         model = state.get("selected_model", "anthropic/claude-haiku")
     privacy_mode = state.get("privacy_mode", "external")
 
-    response = await invoke_llm(model, messages, privacy_mode=privacy_mode)
+    available_tools = state.get("available_tools") or []
+    response = await invoke_llm(
+        model,
+        messages,
+        privacy_mode=privacy_mode,
+        tools=available_tools or None,
+    )
 
     raw_tool_calls: list[dict[str, Any]] = response.tool_calls or []
     # Enforce bounded autonomy: cap tool calls.
@@ -137,13 +149,23 @@ async def agent_node(state: AgentState) -> dict[str, Any]:
     prev_usage: list[dict[str, Any]] = list(state.get("llm_usage", []))
     prev_usage.append(usage_record)
 
-    result: dict[str, Any] = {"tool_calls": tool_calls, "llm_usage": prev_usage}
+    result: dict[str, Any] = {
+        "tool_calls": tool_calls,
+        "llm_usage": prev_usage,
+    }
 
     if not tool_calls and content:
         result["response"] = content
 
-    # Append assistant message to conversation.
-    new_message: dict[str, Any] = {"role": "assistant", "content": content}
+    # Build assistant message.
+    # When tools are called, include tool_use info so the next
+    # iteration can provide tool_result messages.
+    new_message: dict[str, Any] = {
+        "role": "assistant",
+        "content": content,
+    }
+    if tool_calls:
+        new_message["tool_calls"] = tool_calls
     result["messages"] = list(messages) + [new_message]
 
     return result

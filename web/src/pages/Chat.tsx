@@ -11,7 +11,7 @@ import { ActivityStream } from "@/components/chat/ActivityStream";
 import { ExecutionDetails } from "@/components/chat/ExecutionDetails";
 import { cn } from "@/lib/utils";
 import { Textarea } from "@/components/ui/textarea";
-import { Send, Plus, Settings2, Sparkles, User } from "lucide-react";
+import { Send, Plus, Settings2, Sparkles, User, Trash2 } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
@@ -83,7 +83,7 @@ export default function Chat() {
   const settings = settingsRes?.data;
   const model = settings?.default_model || "claude-sonnet-4-20250514";
   const provider = (settings?.default_provider || "anthropic") as Provider;
-  const privacyMode = (settings?.default_privacy_mode || "private") as PrivacyMode;
+  const privacyMode = (settings?.default_privacy_mode || "external") as PrivacyMode;
 
   const createThreadMutation = useMutation({
     mutationFn: (title: string) =>
@@ -96,6 +96,15 @@ export default function Chat() {
       if (res.data) {
         setActiveThread(res.data.id);
       }
+    },
+  });
+
+  const deleteThreadMutation = useMutation({
+    mutationFn: (threadId: string) =>
+      apiRequest(`/api/v1/threads/${threadId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["threads"] });
+      setActiveThread(null);
     },
   });
 
@@ -188,6 +197,11 @@ export default function Chat() {
         break;
       case "error":
         setIsStreaming(false);
+        toast({
+          title: "Chat error",
+          description: (event.data.error as string) || "An unexpected error occurred",
+          variant: "destructive",
+        });
         break;
     }
   }, [queryClient]);
@@ -219,15 +233,32 @@ export default function Chat() {
     setStreamEvents([]);
     setIsStreaming(true);
 
-    // UI-M5: Create a new thread with title derived from message if none active
-    if (!activeThread) {
-      const title = deriveThreadTitle(message);
-      createThreadMutation.mutate(title);
+    // UI-M5: Create a new thread and await its ID before connecting SSE
+    let threadId = activeThread;
+    if (!threadId) {
+      try {
+        const title = deriveThreadTitle(message);
+        const res = await createThreadMutation.mutateAsync(title);
+        threadId = res.data?.id ?? null;
+        if (!threadId) {
+          setIsStreaming(false);
+          toast({ title: "Failed to create thread", description: "Server returned no thread ID", variant: "destructive" });
+          return;
+        }
+      } catch (err) {
+        setIsStreaming(false);
+        toast({
+          title: "Failed to create thread",
+          description: err instanceof Error ? err.message : "Unknown error",
+          variant: "destructive",
+        });
+        return;
+      }
     }
 
     const body: ChatRequest = {
       message,
-      thread_id: activeThread || undefined,
+      thread_id: threadId || undefined,
       privacy_mode: privacyMode,
       model,
       provider,
@@ -252,20 +283,32 @@ export default function Chat() {
         <ScrollArea className="flex-1">
           <div className="p-1.5 space-y-0.5">
             {threads.map((thread, i) => (
-              <button
+              <div
                 key={thread.id}
-                onClick={() => setActiveThread(thread.id)}
                 className={cn(
-                  "w-full text-left px-3 py-2.5 rounded-lg text-sm transition-all duration-200 animate-fade-in",
+                  "group relative w-full text-left px-3 py-2.5 rounded-lg text-sm transition-all duration-200 animate-fade-in cursor-pointer",
                   activeThread === thread.id
                     ? "bg-accent text-accent-foreground font-medium glow-sm border border-border/50"
                     : "hover:bg-accent/40 text-muted-foreground hover:text-foreground"
                 )}
                 style={{ animationDelay: `${i * 50}ms` }}
+                onClick={() => setActiveThread(thread.id)}
               >
-                <p className="truncate text-[13px]">{thread.title}</p>
+                <p className="truncate text-[13px] pr-6">{thread.title}</p>
                 <p className="text-[10px] text-muted-foreground mt-0.5">{thread.message_count} messages</p>
-              </button>
+                <button
+                  className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-destructive/20 hover:text-destructive transition-all"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (confirm("Delete this thread?")) {
+                      deleteThreadMutation.mutate(thread.id);
+                    }
+                  }}
+                  aria-label="Delete thread"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </div>
             ))}
           </div>
         </ScrollArea>

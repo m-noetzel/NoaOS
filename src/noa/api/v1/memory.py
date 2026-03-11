@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from noa.api.middleware import trace_id_ctx
 from noa.api.schemas.common import success_envelope
-from noa.auth.middleware import require_auth
+from noa.auth.middleware import AuthUser, require_auth
 
 router = APIRouter(prefix="/api/v1/memory", tags=["memory"])
 
@@ -30,14 +30,14 @@ def _get_memory_store() -> Any:
 @router.get("/facts")
 async def list_facts(
     request: Request,
-    user: dict[str, Any] = Depends(require_auth),  # noqa: B008
+    user: AuthUser = Depends(require_auth),  # noqa: B008
 ) -> dict[str, Any]:
     """List memory facts for the authenticated user."""
     rid = trace_id_ctx.get("")
     store = _get_memory_store()
     if store is None:
         return success_envelope(data=[], trace_id=rid)
-    facts = store.list_all()
+    facts = store.list_all(user_id=str(user.user_id))
     return success_envelope(data=facts, trace_id=rid)
 
 
@@ -45,7 +45,7 @@ async def list_facts(
 async def approve_fact(
     fact_id: uuid.UUID,
     request: Request,
-    user: dict[str, Any] = Depends(require_auth),  # noqa: B008
+    user: AuthUser = Depends(require_auth),  # noqa: B008
 ) -> dict[str, Any]:
     """Approve a memory fact."""
     rid = trace_id_ctx.get("")
@@ -55,7 +55,7 @@ async def approve_fact(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Memory store unavailable",
         )
-    updated = store.update_status(str(fact_id), "approved")
+    updated = store.update_status(str(fact_id), "approved", user_id=str(user.user_id))
     if not updated:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -71,7 +71,7 @@ async def update_fact(
     fact_id: uuid.UUID,
     body: UpdateFactRequest,
     request: Request,
-    user: dict[str, Any] = Depends(require_auth),  # noqa: B008
+    user: AuthUser = Depends(require_auth),  # noqa: B008
 ) -> dict[str, Any]:
     """Update a memory fact's text."""
     rid = trace_id_ctx.get("")
@@ -81,14 +81,14 @@ async def update_fact(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Memory store unavailable",
         )
-    existing = store.get_by_id(str(fact_id))
+    existing = store.get_by_id(str(fact_id), user_id=str(user.user_id))
     if existing is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Fact {fact_id} not found",
         )
     existing["fact"] = body.fact
-    store._persist(str(fact_id))  # noqa: SLF001
+    store.persist(str(fact_id))
     return success_envelope(
         data={"id": str(fact_id), "status": "updated"}, trace_id=rid
     )
@@ -98,7 +98,7 @@ async def update_fact(
 async def delete_fact(
     fact_id: uuid.UUID,
     request: Request,
-    user: dict[str, Any] = Depends(require_auth),  # noqa: B008
+    user: AuthUser = Depends(require_auth),  # noqa: B008
 ) -> dict[str, Any]:
     """Delete a memory fact."""
     rid = trace_id_ctx.get("")
@@ -108,7 +108,7 @@ async def delete_fact(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Memory store unavailable",
         )
-    deleted = store.delete(str(fact_id))
+    deleted = store.delete(str(fact_id), user_id=str(user.user_id))
     if not deleted:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

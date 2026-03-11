@@ -548,7 +548,11 @@ class TestAPIWiringCompleteness:
 # ---------------------------------------------------------------------------
 
 
-async def _make_seeded_db(approval_id: uuid.UUID, risk_tier: str = "medium"):
+async def _make_seeded_db(
+    approval_id: uuid.UUID,
+    risk_tier: str = "medium",
+    user_id: uuid.UUID | None = None,
+):
     """Create an in-memory async SQLite DB with one pending Approval seeded.
 
     SQLite does not enforce FK constraints unless PRAGMA foreign_keys=ON is set,
@@ -573,7 +577,7 @@ async def _make_seeded_db(approval_id: uuid.UUID, risk_tier: str = "medium"):
         approval = Approval(
             id=approval_id,
             run_id=uuid.uuid4(),
-            user_id=uuid.uuid4(),
+            user_id=user_id or uuid.uuid4(),
             risk_tier=risk_tier,
             preview_text="Integration test approval",
             decision="pending",
@@ -607,13 +611,14 @@ class TestApprovalDecideResponseShape:
         from noa.api.deps import get_db_session
         from noa.auth.middleware import require_auth
 
-        approval_id = uuid.uuid4()
-        factory = await _make_seeded_db(approval_id, risk_tier="medium")
+        from noa.auth.middleware import AuthUser
 
-        fake_user = {"sub": str(uuid.uuid4()), "email": "test@example.com"}
+        owner_id = uuid.uuid4()
+        approval_id = uuid.uuid4()
+        factory = await _make_seeded_db(approval_id, risk_tier="medium", user_id=owner_id)
 
         async def _fake_auth():
-            return fake_user
+            return AuthUser(user_id=owner_id)
 
         async def _fake_db():
             async with factory() as session:
@@ -657,13 +662,14 @@ class TestApprovalDecideResponseShape:
         from noa.api.deps import get_db_session
         from noa.auth.middleware import require_auth
 
-        approval_id = uuid.uuid4()
-        factory = await _make_seeded_db(approval_id, risk_tier="high")
+        from noa.auth.middleware import AuthUser
 
-        fake_user = {"sub": str(uuid.uuid4()), "email": "test@example.com"}
+        owner_id = uuid.uuid4()
+        approval_id = uuid.uuid4()
+        factory = await _make_seeded_db(approval_id, risk_tier="high", user_id=owner_id)
 
         async def _fake_auth():
-            return fake_user
+            return AuthUser(user_id=owner_id)
 
         async def _fake_db():
             async with factory() as session:
@@ -695,3 +701,44 @@ class TestApprovalDecideResponseShape:
         from datetime import datetime as _dt
         parsed = _dt.fromisoformat(data["decided_at"])
         assert parsed.year >= 2024, f"decided_at looks wrong: {data['decided_at']}"
+
+    @pytest.mark.asyncio
+    async def test_decide_returns_403_for_wrong_user(self, monkeypatch):
+        """IDOR guard: a user must not be able to decide another user's approval.
+
+        Seeds an approval owned by owner_id, then sends the decide request
+        authenticated as a different user. Expects 403 Forbidden.
+        """
+        monkeypatch.setenv("SECRET_KEY", "test-secret-key-for-ios11")
+
+        from noa.api.app import create_app
+        from noa.api.deps import get_db_session
+        from noa.auth.middleware import AuthUser, require_auth
+
+        owner_id = uuid.uuid4()
+        other_user_id = uuid.uuid4()
+        approval_id = uuid.uuid4()
+        factory = await _make_seeded_db(approval_id, risk_tier="high", user_id=owner_id)
+
+        async def _fake_auth():
+            return AuthUser(user_id=other_user_id)
+
+        async def _fake_db():
+            async with factory() as session:
+                yield session
+
+        app = create_app()
+        app.dependency_overrides[require_auth] = _fake_auth
+        app.dependency_overrides[get_db_session] = _fake_db
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                f"/api/v1/approvals/{approval_id}/decide",
+                json={"decision": "approved"},
+            )
+
+        app.dependency_overrides.clear()
+        assert response.status_code == 403, (
+            f"Expected 403 for cross-user approval decision, got {response.status_code}"
+        )

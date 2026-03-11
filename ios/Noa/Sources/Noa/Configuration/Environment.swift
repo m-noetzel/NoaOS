@@ -18,7 +18,7 @@ public enum NoaEnvironment: Sendable {
         switch self {
         case .development:
             // swiftlint:disable:next force_unwrapping
-            return URL(string: "http://localhost:8000")!
+            return URL(string: "http://100.106.15.98:8000")!
         case .production:
             guard
                 let urlString = Bundle.main.object(forInfoDictionaryKey: "NOA_BASE_URL") as? String,

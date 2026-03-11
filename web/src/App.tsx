@@ -10,6 +10,7 @@ import { AuthGuard } from "@/auth/AuthGuard";
 import { AppLayout } from "@/components/layout/AppLayout";
 import Login from "@/pages/Login";
 import Register from "@/pages/Register";
+import ForgotPassword from "@/pages/ForgotPassword";
 import Chat from "@/pages/Chat";
 import Runs from "@/pages/Runs";
 import RunDetail from "@/pages/RunDetail";
@@ -56,6 +57,7 @@ const App = () => (
               <Routes>
                 <Route path="/login" element={<Login />} />
                 <Route path="/register" element={<Register />} />
+                <Route path="/forgot-password" element={<ForgotPassword />} />
                 <Route path="/" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
                 <Route path="/runs" element={<ProtectedRoute><Runs /></ProtectedRoute>} />
                 <Route path="/runs/:runId" element={<ProtectedRoute><RunDetail /></ProtectedRoute>} />

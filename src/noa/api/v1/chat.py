@@ -13,7 +13,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from noa.api.middleware import idempotency_key_ctx, trace_id_ctx
-from noa.auth.middleware import require_auth
+from noa.auth.middleware import AuthUser, require_auth
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +59,7 @@ get_session_factory = _get_session_factory
 async def submit_chat(
     body: ChatRequest,
     request: Request,
-    user: dict[str, Any] = Depends(require_auth),  # noqa: B008
+    user: AuthUser = Depends(require_auth),  # noqa: B008
 ) -> StreamingResponse:
     """Submit a chat message and stream SSE events back.
 
@@ -81,10 +81,7 @@ async def submit_chat(
 
     run_id = str(uuid.uuid4())
     thread_id = body.thread_id or str(uuid.uuid4())
-    user_id = (
-        str(user.user_id) if hasattr(user, "user_id")
-        else user.get("user_id", user.get("sub", ""))
-    )
+    user_id = str(user.user_id)
 
     # M1: Register idempotency key as active
     if idem_key:
@@ -118,11 +115,13 @@ async def submit_chat(
             yield f"data: {json.dumps(err)}\n\n"
             return
 
-        # Build a lightweight run service mock for event persistence
-        # (in production, this would use a real DB session)
-        run_svc = _make_run_service(user_id, thread_id, run_id)
+        # Create Conversation + Run rows in DB and get a no-op service for the runner
+        run_svc = await _make_run_service(
+            user_id, thread_id, run_id, body.privacy_mode, body.message,
+        )
 
         llm_usage: list[dict[str, Any]] = []
+        response_text = ""
 
         try:
             async for event in runner.run(
@@ -134,9 +133,11 @@ async def submit_chat(
                 provider=body.provider,
                 system_prompt=body.system_prompt,
             ):
-                # Capture llm_usage from result_ready for persistence
+                # Capture response and llm_usage from result_ready for persistence
                 if event.get("event_type") == "result_ready":
-                    llm_usage = event.get("payload", {}).get("llm_usage", [])
+                    payload = event.get("payload", {})
+                    llm_usage = payload.get("llm_usage", [])
+                    response_text = payload.get("response", "")
                 yield f"data: {json.dumps(event)}\n\n"
         except Exception as exc:  # noqa: BLE001
             err_event = {
@@ -145,9 +146,13 @@ async def submit_chat(
             }
             yield f"data: {json.dumps(err_event)}\n\n"
 
-        # Persist usage to DB (best-effort, after stream completes)
+        # Persist messages, usage, and run status to DB (best-effort)
+        await _persist_messages(user_id, thread_id, run_id, body.message, response_text)
         if llm_usage:
             await _record_usage(user_id, run_id, llm_usage)
+        await _update_run_status(
+            run_id, "completed" if response_text else "failed",
+        )
 
     return StreamingResponse(
         event_stream(),
@@ -160,55 +165,145 @@ async def submit_chat(
     )
 
 
-def _make_run_service(
+async def _make_run_service(
     user_id: str,
     thread_id: str,
     run_id: str,
+    privacy_mode: str,
+    user_message: str,
 ) -> Any:
-    """Create a run service for event persistence.
+    """Create Conversation + Run rows in DB, return a no-op service for the runner.
 
-    Uses the DB session factory if available, otherwise returns
-    a no-op service that logs events without persistence.
+    The runner calls sync methods (update_status, append_event) which
+    can't work with AsyncSession.  We create the rows here with
+    proper async operations and let the runner use a no-op service.
+    Run status updates happen after stream completion.
     """
     factory = _get_session_factory()
     if factory is not None:
         try:
-            session = factory()
-            from noa.runs.service import RunService
+            from sqlalchemy import select
 
-            svc = RunService(session)
-            # Create the run in DB
-            try:
-                svc.create_run(
-                    user_id=uuid.UUID(user_id),
-                    thread_id=uuid.UUID(thread_id),
-                    risk_tier="low",
-                    privacy_mode="external",
-                    summary=None,
+            from noa.db.models.conversation import Conversation
+            from noa.db.models.run import Run
+
+            tid = uuid.UUID(thread_id)
+            uid = uuid.UUID(user_id)
+
+            async with factory() as session:
+                # Ensure conversation exists (FK for runs.thread_id)
+                result = await session.execute(
+                    select(Conversation).where(Conversation.id == tid)
                 )
-                session.commit()
-            except Exception:  # noqa: BLE001
-                logger.debug("create_run failed, rolling back", exc_info=True)
-                session.rollback()
-            return svc
-        except Exception:  # noqa: BLE001
-            logger.debug("Failed to create run_service via factory", exc_info=True)
+                if result.scalar_one_or_none() is None:
+                    title = user_message[:50].strip() or "New thread"
+                    session.add(Conversation(id=tid, user_id=uid, title=title))
 
-    # Fallback: no-op service
+                session.add(Run(
+                    id=uuid.UUID(run_id),
+                    user_id=uid,
+                    thread_id=tid,
+                    status="running",
+                    risk_tier="low",
+                    privacy_mode=privacy_mode,
+                ))
+                await session.commit()
+        except Exception:  # noqa: BLE001
+            logger.debug("create_run failed", exc_info=True)
+
     return _NoOpRunService()
 
 
 class _NoOpRunService:
     """No-op RunService for when DB is not available."""
 
-    def create_run(self, *args: Any, **kwargs: Any) -> None:
+    async def create_run(self, *args: Any, **kwargs: Any) -> None:
         pass
 
-    def update_status(self, *args: Any, **kwargs: Any) -> None:
+    async def update_status(self, *args: Any, **kwargs: Any) -> None:
         pass
 
-    def append_event(self, *args: Any, **kwargs: Any) -> None:
+    async def append_event(self, *args: Any, **kwargs: Any) -> None:
         pass
+
+
+async def _persist_messages(
+    user_id: str,
+    thread_id: str,
+    run_id: str,
+    user_message: str,
+    assistant_response: str,
+) -> None:
+    """Persist user + assistant messages to the messages table.
+
+    Creates the Conversation row if it doesn't exist yet (new thread from chat).
+    """
+    factory = _get_session_factory()
+    if factory is None:
+        return
+
+    try:
+        from sqlalchemy import select
+
+        from noa.db.models.conversation import Conversation, Message
+        from noa.db.transaction import transactional
+
+        tid = uuid.UUID(thread_id)
+        uid = uuid.UUID(user_id)
+
+        async with factory() as session, transactional(session):
+            # Ensure conversation exists
+            result = await session.execute(
+                select(Conversation).where(Conversation.id == tid)
+            )
+            if result.scalar_one_or_none() is None:
+                # Derive title from first ~50 chars of user message
+                title = user_message[:50].strip() or "New thread"
+                session.add(Conversation(id=tid, user_id=uid, title=title))
+
+            # User message
+            session.add(Message(
+                id=uuid.uuid4(),
+                thread_id=tid,
+                user_id=uid,
+                role="user",
+                content=user_message,
+            ))
+            # Assistant message (if we got a response)
+            if assistant_response:
+                session.add(Message(
+                    id=uuid.uuid4(),
+                    thread_id=tid,
+                    user_id=uid,
+                    role="assistant",
+                    content=assistant_response,
+                ))
+    except Exception:  # noqa: BLE001
+        logger.warning("Failed to persist messages for run %s", run_id, exc_info=True)
+
+
+async def _update_run_status(run_id: str, status: str) -> None:
+    """Update run status in DB (best-effort)."""
+    factory = _get_session_factory()
+    if factory is None:
+        return
+
+    try:
+        from datetime import UTC, datetime
+
+        from sqlalchemy import update
+
+        from noa.db.models.run import Run
+
+        async with factory() as session:
+            await session.execute(
+                update(Run)
+                .where(Run.id == uuid.UUID(run_id))
+                .values(status=status, updated_at=datetime.now(UTC))
+            )
+            await session.commit()
+    except Exception:  # noqa: BLE001
+        logger.warning("Failed to update run status for %s", run_id)
 
 
 async def _record_usage(

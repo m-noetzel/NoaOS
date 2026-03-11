@@ -25,17 +25,18 @@ def create_access_token(
     secret_key: str,
     expires_minutes: int,
     session_id: str | None = None,
+    token_type: str = "access",  # noqa: S107
 ) -> str:
     """Create a signed JWT access token.
 
-    Claims: sub (user_id), exp, iat, jti, type='access'.
+    Claims: sub (user_id), exp, iat, jti, type.
     If session_id is provided, it is emitted as the 'sid' claim so that
     logout can identify the correct AuthSession row.
     """
     now = datetime.now(UTC)
     payload: dict[str, Any] = {
         "sub": user_id,
-        "type": "access",
+        "type": token_type,
         "iat": now,
         "exp": now + timedelta(minutes=expires_minutes),
         "jti": str(uuid.uuid4()),

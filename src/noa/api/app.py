@@ -206,18 +206,39 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         wire_llm_pipeline(settings)
 
     # Wire APNs push notification service (§29.5)
+    apns_http_client = None
     if settings is not None and settings.apns_key_id:
-        from noa.api.app_state import set_apns_service
-        from noa.push.apns import APNsService
+        missing = [
+            name
+            for name, val in [
+                ("APNS_TEAM_ID", settings.apns_team_id),
+                ("APNS_KEY_PATH", settings.apns_key_path),
+                ("APNS_BUNDLE_ID", settings.apns_bundle_id),
+            ]
+            if not val
+        ]
+        if missing:
+            logger.error(
+                "APNs misconfigured — APNS_KEY_ID is set but missing: %s. "
+                "Push notifications will be disabled.",
+                ", ".join(missing),
+            )
+        else:
+            import httpx
 
-        apns = APNsService(
-            key_id=settings.apns_key_id,
-            team_id=settings.apns_team_id or "",
-            key_path=settings.apns_key_path or "",
-            bundle_id=settings.apns_bundle_id or "",
-        )
-        set_apns_service(apns)
-        logger.info("APNs push notification service initialised")
+            from noa.api.app_state import set_apns_service
+            from noa.push.apns import APNsService
+
+            apns = APNsService(
+                key_id=settings.apns_key_id,
+                team_id=settings.apns_team_id,
+                key_path=settings.apns_key_path,
+                bundle_id=settings.apns_bundle_id,
+            )
+            apns_http_client = httpx.AsyncClient(http2=True, timeout=10.0)
+            apns.initialize(apns_http_client)
+            set_apns_service(apns)
+            logger.info("APNs push notification service initialised")
 
     # Wire MemoryStore from private worker (shared in-process in dev, §13.2)
     try:
@@ -258,6 +279,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.warning("Failed to start RetentionScheduler")
 
     yield
+
+    # Shutdown: close APNs HTTP client
+    if apns_http_client is not None:
+        await apns_http_client.aclose()
 
     # Shutdown: stop retention scheduler
     if retention_scheduler is not None:

@@ -100,6 +100,38 @@ public enum ServiceFactory {
         )
     }
 
+    // MARK: - NetworkMonitorService
+
+    /// Creates a `NetworkMonitorService` and wires it to drain `offlineQueue` whenever
+    /// the network becomes available.
+    ///
+    /// The returned monitor is already started; call `stopMonitoring()` on app termination.
+    ///
+    /// - Parameters:
+    ///   - offlineQueue: The `OfflineQueuing` instance whose `drain()` is called on reconnect.
+    ///   - apiClient: The `APIClient` used as the drain executor (replays queued requests).
+    /// - Returns: A started `NetworkMonitorService` instance.
+    @discardableResult
+    public static func makeNetworkMonitor(
+        draining offlineQueue: any OfflineQueuing,
+        via apiClient: APIClient
+    ) -> NetworkMonitorService {
+        let monitor = NetworkMonitorService()
+        Task {
+            await monitor.startMonitoring { connected in
+                guard connected else { return }
+                // When connectivity is restored, drain the offline queue by replaying
+                // each queued request through the real APIClient. Spec ref: §29.3 item 6.
+                Task {
+                    await offlineQueue.drain { request in
+                        try await apiClient.replayRequest(request)
+                    }
+                }
+            }
+        }
+        return monitor
+    }
+
     // MARK: - VoiceService
 
     /// Creates a production `VoiceService` using a certificate-pinned URLSession.

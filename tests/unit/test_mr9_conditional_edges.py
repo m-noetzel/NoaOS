@@ -14,6 +14,8 @@ from unittest.mock import patch
 
 import pytest
 
+pytest.importorskip("langgraph", reason="langgraph not installed")
+
 pytestmark = pytest.mark.mr9
 
 

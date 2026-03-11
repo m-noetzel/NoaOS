@@ -6,6 +6,10 @@ and OrchestratorRunner into app state.
 
 from __future__ import annotations
 
+import pytest
+
+pytest.importorskip("langgraph", reason="langgraph not installed")
+
 from unittest.mock import MagicMock
 
 from noa.api.app_state import (

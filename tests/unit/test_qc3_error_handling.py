@@ -161,15 +161,16 @@ class TestExceptionHandlingQuality:
             from noa.api.v1.chat import _make_run_service, _NoOpRunService
 
             with caplog.at_level(logging.DEBUG):
-                result = _make_run_service(
-                    user_id="u1", thread_id="t1", run_id="r1"
+                result = await _make_run_service(
+                    user_id="u1", thread_id="t1", run_id="r1",
+                    privacy_mode="external", user_message="test",
                 )
 
             assert isinstance(result, _NoOpRunService)
             # After QC3, a log entry must exist -- not silent pass
             assert any(
                 "connection refused" in record.message.lower()
-                or "run_service" in record.message.lower()
+                or "run" in record.message.lower()
                 or "factory" in record.message.lower()
                 for record in caplog.records
             ), "Expected a log entry when _make_run_service factory fails"

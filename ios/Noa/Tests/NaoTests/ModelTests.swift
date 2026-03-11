@@ -82,7 +82,7 @@ final class ModelTests: XCTestCase {
         let thread = try decoder.decode(Thread.self, from: data)
 
         XCTAssertEqual(thread.id.uuidString.lowercased(), threadId.lowercased())
-        XCTAssertEqual(thread.userId.uuidString.lowercased(), userId.lowercased())
+        XCTAssertEqual(thread.userId?.uuidString.lowercased(), userId.lowercased())
         XCTAssertEqual(thread.title, "My Thread")
         XCTAssertNotNil(thread.createdAt)
     }

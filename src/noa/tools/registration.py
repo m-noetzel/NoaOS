@@ -8,7 +8,11 @@ from __future__ import annotations
 import logging
 import os
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from noa.tools.adapters.direct import DirectApiAdapter
+from noa.tools.adapters.http_tool import HttpToolAdapter
 from noa.tools.gateway import ToolGateway
 
 logger = logging.getLogger(__name__)
@@ -177,3 +181,58 @@ def _register_notion(gateway: ToolGateway) -> None:
     adapter = DirectApiAdapter(tool=tool)
     gateway.register("notion", adapter)
     logger.info("Registered notion tool (Notion API v1)")
+
+
+def register_mcp_server(
+    gateway: ToolGateway,
+    *,
+    url: str,
+    auth_token: str,
+    name: str,
+    domain: str = "external",
+) -> None:
+    """Register a remote MCP server as a tool adapter in the gateway.
+
+    Creates an McpRemoteAdapter with the given config and domain, then
+    registers it under the specified name.
+
+    Args:
+        gateway: The ToolGateway to register with.
+        url: MCP server URL.
+        auth_token: Bearer token for MCP server authentication.
+        name: Name to register the adapter under.
+        domain: Domain scope ('private' or 'external').
+
+    Raises:
+        ValueError: If domain is not 'private' or 'external'.
+    """
+    from noa.tools.adapters.mcp_remote import McpRemoteAdapter, McpRemoteConfig
+
+    config = McpRemoteConfig(url=url, auth_token=auth_token)
+    adapter = McpRemoteAdapter(config=config, domain=domain)
+    gateway.register(name, adapter)
+    logger.info(
+        "Registered MCP server: %s at %s (domain=%s)", name, url, domain,
+    )
+
+
+async def load_custom_tools(
+    gateway: ToolGateway,
+    session: AsyncSession,
+) -> None:
+    """Load custom tools from DB and register as HTTP adapters in the gateway.
+
+    Called at app startup to restore user-registered custom tools.
+    """
+    from noa.db.models.custom_tool import CustomTool
+
+    result = await session.execute(select(CustomTool))
+    tools = result.scalars().all()
+
+    for tool in tools:
+        adapter = HttpToolAdapter(
+            base_url=tool.base_url,
+            auth_type=tool.auth_type,
+        )
+        gateway.register(tool.name, adapter)
+        logger.info("Registered custom tool: %s (%s)", tool.name, tool.base_url)

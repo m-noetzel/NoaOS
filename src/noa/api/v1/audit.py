@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from noa.api.middleware import trace_id_ctx
 from noa.api.schemas.common import success_envelope
 from noa.audit.schemas import AuditEntryRead
-from noa.auth.middleware import require_auth
+from noa.auth.middleware import AuthUser, require_auth
 
 router = APIRouter(prefix="/api/v1/audit", tags=["audit"])
 
@@ -19,7 +19,7 @@ router = APIRouter(prefix="/api/v1/audit", tags=["audit"])
 async def query_audit_entries(
     request: Request,
     trace_id: uuid.UUID = Query(..., description="Filter entries by trace_id"),  # noqa: B008
-    user: dict[str, Any] = Depends(require_auth),  # noqa: B008
+    user: AuthUser = Depends(require_auth),  # noqa: B008
 ) -> dict[str, Any]:
     """Query audit entries by trace_id for debugging/compliance (§28.1)."""
     rid = trace_id_ctx.get("")
@@ -29,8 +29,6 @@ async def query_audit_entries(
     factory = get_session_factory()
     if factory is None:
         return success_envelope(data={"entries": []}, trace_id=rid)
-
-    from noa.audit.service import AuditService
 
     async with factory() as session:
         # AuditService expects a sync-style session; use run_sync for the query
@@ -59,7 +57,7 @@ async def query_audit_entries(
 @router.post("/verify")
 async def verify_chain_endpoint(
     request: Request,
-    user: dict[str, Any] = Depends(require_auth),  # noqa: B008
+    user: AuthUser = Depends(require_auth),  # noqa: B008
 ) -> dict[str, Any]:
     """Verify hash chain integrity of the audit log (§28.2)."""
     rid = trace_id_ctx.get("")

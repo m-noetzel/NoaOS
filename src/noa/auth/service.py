@@ -79,7 +79,9 @@ class AuthService:
         session_id = uuid.uuid4()
 
         # Create tokens
-        secret = self._settings.secret_key or ""
+        secret = self._settings.secret_key
+        if not secret:
+            raise RuntimeError("SECRET_KEY is not set — refusing to issue tokens")
         access_token = create_access_token(
             user_id=str(user.id),
             secret_key=secret,
@@ -120,7 +122,9 @@ class AuthService:
 
         SPEC.md SS5.2 — old refresh token invalidated on use.
         """
-        secret = self._settings.secret_key or ""
+        secret = self._settings.secret_key
+        if not secret:
+            raise RuntimeError("SECRET_KEY is not set — refusing to validate tokens")
         payload = decode_token(refresh_token, secret_key=secret)
         user_id = payload["sub"]
 
@@ -160,6 +164,79 @@ class AuthService:
         if auth_session is not None:
             auth_session.is_active = False
             await self._session.commit()
+
+    async def request_password_reset(
+        self,
+        *,
+        email: str,
+    ) -> dict[str, str]:
+        """Generate a short-lived password reset token.
+
+        For self-hosted systems the token is returned directly
+        and also logged to stdout so the admin can retrieve it.
+        """
+        import logging
+
+        logger = logging.getLogger(__name__)
+
+        user = await self._get_user_by_email(email)
+        if user is None:
+            # Don't reveal whether email exists
+            return {"status": "ok"}
+
+        secret = self._settings.secret_key
+        if not secret:
+            raise RuntimeError("SECRET_KEY not set")
+
+        # Create a signed reset token (15 min expiry)
+        token = create_access_token(
+            user_id=str(user.id),
+            secret_key=secret,
+            expires_minutes=15,
+            token_type="reset",  # noqa: S106
+        )
+
+        logger.info(
+            "Password reset requested for %s — token: %s",
+            email,
+            token[:20] + "...",
+        )
+
+        return {"status": "ok", "reset_token": token}
+
+    async def reset_password(
+        self,
+        *,
+        token: str,
+        new_password: str,
+    ) -> dict[str, str]:
+        """Reset password using a valid reset token."""
+        secret = self._settings.secret_key
+        if not secret:
+            raise RuntimeError("SECRET_KEY not set")
+
+        try:
+            payload = decode_token(token, secret_key=secret)
+        except Exception as exc:
+            msg = "Invalid or expired reset token"
+            raise AuthError(msg) from exc
+
+        if payload.get("type") != "reset":
+            msg = "Invalid token type"
+            raise AuthError(msg)
+
+        user_id = payload["sub"]
+        stmt = select(User).where(User.id == uuid.UUID(user_id))
+        result = await self._session.execute(stmt)
+        user = result.scalar_one_or_none()
+        if user is None:
+            msg = "User not found"
+            raise AuthError(msg)
+
+        user.password_hash = hash_password(new_password)
+        await self._session.commit()
+
+        return {"status": "password_reset"}
 
     async def register(
         self,

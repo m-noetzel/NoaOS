@@ -111,12 +111,12 @@ public final class ChatViewModel {
                 let stream = await chatService.sendMessage(request)
                 for try await event in stream {
                     guard !Task.isCancelled else { break }
-                    await self.handleEvent(event, assistantIndex: assistantIndex)
+                    self.handleEvent(event, assistantIndex: assistantIndex)
                 }
             } catch {
-                await self.handleStreamError(error, assistantIndex: assistantIndex)
+                self.handleStreamError(error, assistantIndex: assistantIndex)
             }
-            await self.finishStream()
+            self.finishStream()
         }
     }
 
@@ -130,6 +130,27 @@ public final class ChatViewModel {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// Cancels the active SSE stream and clears the current message list.
+    ///
+    /// Call this before switching to a different thread so that:
+    /// 1. The old SSE connection is terminated (no duplicate deliveries).
+    /// 2. The message list is empty when the new thread starts loading.
+    ///
+    /// iOS-H2: previously only `cancelStream()` existed but `clearMessages()` was
+    /// separate; callers had to remember both. This combined method is the single
+    /// correct call site for thread switching.
+    public func cancelStreamAndClear() {
+        streamTask?.cancel()
+        streamTask = nil
+        isStreaming = false
+        messages = []
+        currentIndicator = nil
+        errorMessage = nil
+        currentRunId = nil
+        capturedThreadId = nil
+        optimisticIndex = nil
     }
 
     /// Cancels the active SSE stream.

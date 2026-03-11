@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Request
 
 from noa.api.middleware import trace_id_ctx
 from noa.api.schemas.common import success_envelope
-from noa.auth.middleware import require_auth
+from noa.auth.middleware import AuthUser, require_auth
 
 router = APIRouter(prefix="/api/v1/usage", tags=["usage"])
 
@@ -16,7 +16,7 @@ router = APIRouter(prefix="/api/v1/usage", tags=["usage"])
 @router.get("")
 async def get_usage(
     request: Request,
-    user: dict[str, Any] = Depends(require_auth),  # noqa: B008
+    user: AuthUser = Depends(require_auth),  # noqa: B008
 ) -> dict[str, Any]:
     """Get usage data with daily and monthly breakdown."""
     rid = trace_id_ctx.get("")

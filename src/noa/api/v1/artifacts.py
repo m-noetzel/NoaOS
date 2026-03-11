@@ -6,7 +6,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from noa.api.deps import get_db_session
 from noa.api.middleware import trace_id_ctx
 from noa.api.schemas.common import success_envelope
-from noa.auth.middleware import require_auth
+from noa.auth.middleware import AuthUser, require_auth
 from noa.db.models.artifact import Artifact
 from noa.db.models.run import Run
 
@@ -24,19 +24,22 @@ router = APIRouter(prefix="/api/v1/artifacts", tags=["artifacts"])
 @router.get("")
 async def list_artifacts(
     request: Request,
-    user: dict[str, Any] = Depends(require_auth),  # noqa: B008
+    user: AuthUser = Depends(require_auth),  # noqa: B008
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
 ) -> dict[str, Any]:
     """List artifacts for the authenticated user."""
     rid = trace_id_ctx.get("")
-    user_id = user.user_id if hasattr(user, "user_id") else uuid.UUID(user["sub"])  # type: ignore[union-attr]
+    user_id = user.user_id
     # Join artifacts to runs so we can filter by user_id
     result = await session.execute(
         select(Artifact)
         .join(Run, Run.id == Artifact.run_id)
         .where(Run.user_id == user_id)
         .order_by(Artifact.created_at.desc())
-        .limit(200)
+        .limit(limit)
+        .offset(offset)
     )
     artifacts = result.scalars().all()
     data = [
@@ -58,11 +61,11 @@ async def list_artifacts(
 async def download_artifact(
     artifact_id: uuid.UUID,
     request: Request,
-    user: dict[str, Any] = Depends(require_auth),  # noqa: B008
+    user: AuthUser = Depends(require_auth),  # noqa: B008
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
 ) -> FileResponse:
     """Download an artifact by ID — streams the file from storage_ref path."""
-    user_id = user.user_id if hasattr(user, "user_id") else uuid.UUID(user["sub"])  # type: ignore[union-attr]
+    user_id = user.user_id
     result = await session.execute(
         select(Artifact)
         .join(Run, Run.id == Artifact.run_id)

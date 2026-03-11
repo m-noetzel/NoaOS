@@ -36,7 +36,7 @@ _ALL_FIELDS = frozenset({
 _DEFAULTS: dict[str, Any] = {
     "default_model": "claude-sonnet-4-20250514",
     "default_provider": "anthropic",
-    "default_privacy_mode": "standard",
+    "default_privacy_mode": "external",
     "budget_daily_usd": 10.0,
     "budget_monthly_usd": 200.0,
     "anthropic_api_key": None,
@@ -112,7 +112,11 @@ class SettingsService:
                 effective = self.get_effective_key(field, db_value=db_value)
                 result[field] = self.mask_key(effective)
             else:
-                result[field] = db_value
+                # Decimal → float for JSON serialization
+                val = db_value
+                if hasattr(val, "as_integer_ratio"):
+                    val = float(val)
+                result[field] = val
         return result
 
     async def update_settings(

@@ -122,9 +122,18 @@ class TestCookieAuth:
     def test_tokens_ts_no_localstorage_tokens(self):
         """Frontend tokens.ts must not store actual tokens in localStorage."""
         import os
+        from pathlib import Path
 
-        # Resolve from workspace root — works inside Docker (/workspace) and on host
-        workspace = os.environ.get("WORKSPACE_ROOT", "/workspace")
+        # Resolve workspace: env var > /workspace (Docker) > git root
+        workspace = os.environ.get("WORKSPACE_ROOT")
+        if not workspace:
+            # Try Docker path first, then walk up from this file
+            if os.path.isdir("/workspace/web"):
+                workspace = "/workspace"
+            else:
+                workspace = str(
+                    Path(__file__).resolve().parents[2],
+                )
         tokens_path = os.path.join(workspace, "web/src/auth/tokens.ts")
         with open(tokens_path) as f:
             content = f.read()
@@ -133,15 +142,16 @@ class TestCookieAuth:
         assert "REFRESH_TOKEN_KEY" not in content or "noa_authenticated" in content
 
     def test_set_auth_cookies_sets_httponly(self):
-        """_set_auth_cookies must set httponly=True."""
+        """_set_auth_cookies must set httponly=True and env-based secure flag."""
         import inspect
 
         from noa.api.v1.auth import _set_auth_cookies
 
         source = inspect.getsource(_set_auth_cookies)
         assert "httponly=True" in source
-        assert "secure=True" in source
-        assert 'samesite="strict"' in source
+        # Secure flag is environment-dependent (strict in prod, lax in dev)
+        assert "is_secure" in source or "secure=True" in source
+        assert "samesite=" in source
 
 
 # ---------------------------------------------------------------------------

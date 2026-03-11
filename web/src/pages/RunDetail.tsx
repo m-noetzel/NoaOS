@@ -30,7 +30,10 @@ export default function RunDetail() {
 
   const { data: eventsRes } = useQuery({
     queryKey: ["runEvents", runId],
-    queryFn: () => apiRequest<RunEvent[]>(`/api/v1/runs/${runId}/events`),
+    queryFn: async (): Promise<import("@/api/types").ApiResponse<RunEvent[]>> => {
+      const res = await apiRequest<{ events: RunEvent[] }>(`/api/v1/runs/${runId}/events/replay`);
+      return { ...res, data: res.data?.events ?? [] };
+    },
     enabled: !!runId,
   });
 

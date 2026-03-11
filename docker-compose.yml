@@ -14,13 +14,14 @@ services:
       context: .
       dockerfile: docker/noa-api/Dockerfile
     ports:
-      - "127.0.0.1:8000:8000"  # LAN only, never 0.0.0.0 (§20.1)
+      - "127.0.0.1:8000:8000"  # localhost
+      - "100.106.15.98:8000:8000"  # Tailscale VPN (iOS dev)
     networks:
       - noa-internal
       - noa-external
     environment:
       - DATABASE_URL=postgresql+asyncpg://noa:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/noa
-      - NOA_ENV=production
+      - NOA_ENV=${NOA_ENV:-development}
       - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set}
       - JWT_SECRET=${JWT_SECRET:-}
       - LOG_LEVEL=INFO
@@ -46,6 +47,8 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+    volumes:
+      - ./src:/app/src:ro  # Live source mount — restart picks up changes without rebuild
     # Container hardening (§8.1)
     read_only: true
     cap_drop:

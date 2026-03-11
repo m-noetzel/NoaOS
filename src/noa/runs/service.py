@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
+
+from sqlalchemy import select
 
 from noa.db.models.artifact import Artifact
 from noa.db.models.run import Run, RunEvent
 from noa.runs.schemas import VALID_EVENT_TYPES, VALID_TRANSITIONS
+
+logger = logging.getLogger(__name__)
+
+# Run statuses that trigger push notifications (§29.5)
+_PUSH_STATUSES = {"completed": "run_completed", "failed": "run_failed"}
 
 
 class RunService:
@@ -19,7 +27,7 @@ class RunService:
 
     # -- Run CRUD ------------------------------------------------------------
 
-    def create_run(
+    async def create_run(
         self,
         user_id: uuid.UUID,
         thread_id: uuid.UUID,
@@ -39,14 +47,17 @@ class RunService:
             summary=summary,
         )
         self._session.add(run)
-        self._session.flush()
+        await self._session.flush()
         return run
 
-    def get_run(self, run_id: uuid.UUID) -> Run | None:
+    async def get_run(self, run_id: uuid.UUID) -> Run | None:
         """Get a run by ID, or None if not found."""
-        return self._session.query(Run).filter(Run.id == run_id).first()
+        result = await self._session.execute(
+            select(Run).where(Run.id == run_id)
+        )
+        return cast(Run | None, result.scalar_one_or_none())
 
-    def list_runs(
+    async def list_runs(
         self,
         *,
         thread_id: uuid.UUID | None = None,
@@ -54,39 +65,96 @@ class RunService:
         status: str | None = None,
     ) -> list[Run]:
         """List runs with optional filters."""
-        q = self._session.query(Run)
+        stmt = select(Run)
         if thread_id is not None:
-            q = q.filter(Run.thread_id == thread_id)
+            stmt = stmt.where(Run.thread_id == thread_id)
         if user_id is not None:
-            q = q.filter(Run.user_id == user_id)
+            stmt = stmt.where(Run.user_id == user_id)
         if status is not None:
-            q = q.filter(Run.status == status)
-        return q.order_by(Run.created_at.desc()).all()
+            stmt = stmt.where(Run.status == status)
+        stmt = stmt.order_by(Run.created_at.desc())
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
 
-    def update_status(self, run_id: uuid.UUID, new_status: str) -> Run:
-        """Transition a run to a new status, enforcing valid transitions."""
-        run = self._session.query(Run).filter(Run.id == run_id).one()
+    async def update_status(self, run_id: uuid.UUID, new_status: str) -> Run:
+        """Transition a run to a new status, enforcing valid transitions.
+
+        Triggers push notification for completed/failed runs (§29.5).
+        """
+        result = await self._session.execute(
+            select(Run).where(Run.id == run_id)
+        )
+        run = cast(Run, result.scalar_one())
         allowed = VALID_TRANSITIONS.get(run.status, frozenset())
         if new_status not in allowed:
             msg = f"Invalid status transition: {run.status} -> {new_status}"
             raise ValueError(msg)
         run.status = new_status
         run.updated_at = datetime.now(UTC)
-        self._session.flush()
+        await self._session.flush()
+
+        # Push notification hook (§29.5)
+        if new_status in _PUSH_STATUSES:
+            self._notify_push(run, _PUSH_STATUSES[new_status])
+
         return run
 
-    def update_run(self, run_id: uuid.UUID, **kwargs: object) -> Run:
+    def _notify_push(self, run: Run, notification_type: str) -> None:
+        """Schedule a push notification for run status changes."""
+        import asyncio
+
+        try:
+            from noa.api.app_state import get_apns_service
+
+            apns = get_apns_service()
+            if apns is None:
+                return
+            risk_tier = getattr(run, "risk_tier", "low")
+            if not apns.should_notify(
+                event_type=notification_type,
+                risk_tier=risk_tier,
+            ):
+                return
+
+            from noa.push.tasks import send_push_to_user
+
+            asyncio.create_task(
+                send_push_to_user(
+                    user_id=run.user_id,
+                    notification_type=notification_type,
+                    request_id=run.id,
+                    risk_tier=risk_tier,
+                )
+            )
+            logger.info(
+                "Push notification scheduled: type=%s run=%s user=%s",
+                notification_type,
+                run.id,
+                run.user_id,
+            )
+        except RuntimeError:
+            # No running event loop (e.g. sync test context) — skip push
+            logger.debug("No event loop for push notification, skipping")
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "Failed to schedule push notification", exc_info=True
+            )
+
+    async def update_run(self, run_id: uuid.UUID, **kwargs: object) -> Run:
         """Update arbitrary run fields (e.g. summary)."""
-        run = self._session.query(Run).filter(Run.id == run_id).one()
+        result = await self._session.execute(
+            select(Run).where(Run.id == run_id)
+        )
+        run = cast(Run, result.scalar_one())
         for key, value in kwargs.items():
             setattr(run, key, value)
         run.updated_at = datetime.now(UTC)
-        self._session.flush()
+        await self._session.flush()
         return run
 
     # -- Event operations ----------------------------------------------------
 
-    def append_event(
+    async def append_event(
         self,
         run_id: uuid.UUID,
         event_type: str,
@@ -103,21 +171,21 @@ class RunService:
             payload=payload,
         )
         self._session.add(event)
-        self._session.flush()
+        await self._session.flush()
         return event
 
-    def list_events(self, run_id: uuid.UUID) -> list[RunEvent]:
+    async def list_events(self, run_id: uuid.UUID) -> list[RunEvent]:
         """List events for a run, ordered by timestamp."""
-        return (
-            self._session.query(RunEvent)
-            .filter(RunEvent.run_id == run_id)
+        result = await self._session.execute(
+            select(RunEvent)
+            .where(RunEvent.run_id == run_id)
             .order_by(RunEvent.timestamp.asc())
-            .all()
         )
+        return list(result.scalars().all())
 
     # -- Artifact operations -------------------------------------------------
 
-    def create_artifact(
+    async def create_artifact(
         self,
         run_id: uuid.UUID,
         artifact_type: str,
@@ -137,14 +205,14 @@ class RunService:
             storage_ref=storage_ref,
         )
         self._session.add(artifact)
-        self._session.flush()
+        await self._session.flush()
         return artifact
 
-    def list_artifacts(self, run_id: uuid.UUID) -> list[Artifact]:
+    async def list_artifacts(self, run_id: uuid.UUID) -> list[Artifact]:
         """List artifacts for a run."""
-        return (
-            self._session.query(Artifact)
-            .filter(Artifact.run_id == run_id)
+        result = await self._session.execute(
+            select(Artifact)
+            .where(Artifact.run_id == run_id)
             .order_by(Artifact.created_at.asc())
-            .all()
         )
+        return list(result.scalars().all())

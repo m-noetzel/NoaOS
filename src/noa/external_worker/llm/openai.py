@@ -35,6 +35,7 @@ class OpenAIClient:
         messages: list[dict[str, Any]],
         max_tokens: int,
         top_p: float | None = None,
+        tools: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Build a request payload for the OpenAI Chat Completions API."""
         request: dict[str, Any] = {
@@ -44,6 +45,8 @@ class OpenAIClient:
         }
         if top_p is not None:
             request["top_p"] = top_p
+        if tools:
+            request["tools"] = tools
         return request
 
     async def _send_request(self, request: dict[str, Any]) -> httpx.Response:
@@ -85,7 +88,7 @@ class OpenAIClient:
             try:
                 body = response.json()
                 detail = body.get("error", {}).get("message", "")
-            except Exception:
+            except Exception:  # noqa: BLE001
                 detail = response.text
             msg = f"OpenAI API error {response.status_code}: {detail}"
             raise ProviderError(msg)
@@ -128,8 +131,14 @@ class OpenAIClient:
         messages: list[dict[str, Any]],
         max_tokens: int,
         top_p: float | None = None,
+        model: str | None = None,
+        tools: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Send a completion request to OpenAI.
+
+        Args:
+            model: Optional model override (uses constructor default if None).
+            tools: Optional OpenAI-format tool definitions.
 
         Returns normalized response dict with content, tool_calls, usage.
 
@@ -140,7 +149,10 @@ class OpenAIClient:
             messages=messages,
             max_tokens=max_tokens,
             top_p=top_p,
+            tools=tools,
         )
+        if model:
+            request["model"] = model
         try:
             response = await self._send_request(request)
         except httpx.TimeoutException as exc:

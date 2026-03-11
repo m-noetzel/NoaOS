@@ -12,6 +12,8 @@ from noa.db.models.audit import AuditLog  # noqa: E402, F401
 from noa.db.models.base import Base  # noqa: F401
 from noa.db.models.checkpoint import Checkpoint  # noqa: E402, F401
 from noa.db.models.conversation import Conversation, Message  # noqa: E402, F401
+from noa.db.models.custom_tool import CustomTool  # noqa: E402, F401
+from noa.db.models.device_token import DevicePushToken  # noqa: E402, F401
 from noa.db.models.google_credential import GoogleCredential  # noqa: E402, F401
 from noa.db.models.run import Run, RunEvent  # noqa: E402, F401
 from noa.db.models.session import AuthSession  # noqa: E402, F401

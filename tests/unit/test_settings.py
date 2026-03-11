@@ -188,7 +188,7 @@ class TestSettingsService:
         result = await service.get_settings(_make_user_id())
 
         assert result["default_model"] is not None
-        assert result["default_privacy_mode"] == "standard"
+        assert result["default_privacy_mode"] == "external"
         # API key fields should be None in defaults
         assert result["anthropic_api_key"] is None
 

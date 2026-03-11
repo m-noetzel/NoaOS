@@ -16,7 +16,7 @@ public enum ApprovalStatus: String, Codable, Sendable {
 
 /// A pending or decided approval request. Mirrors the backend Approval schema.
 /// Spec ref: SPEC.md §29.6
-public struct Approval: Codable, Sendable, Identifiable {
+public struct Approval: Codable, Sendable, Identifiable, Hashable {
     public let id: UUID
     public let runId: UUID
     public let userId: UUID

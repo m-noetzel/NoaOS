@@ -104,9 +104,16 @@ class MemoryStore:
 
         return fact_id
 
-    def get_by_id(self, fact_id: str) -> dict[str, Any] | None:
-        """Retrieve a fact by ID."""
-        return self._facts.get(fact_id)
+    def get_by_id(
+        self, fact_id: str, *, user_id: str | None = None
+    ) -> dict[str, Any] | None:
+        """Retrieve a fact by ID, optionally scoped to user_id."""
+        fact = self._facts.get(fact_id)
+        if fact is None:
+            return None
+        if user_id is not None and fact.get("user_id") != user_id:
+            return None
+        return fact
 
     def recall(
         self,
@@ -142,36 +149,56 @@ class MemoryStore:
 
         return [fact for _, fact in scored[:n_results]]
 
-    def delete(self, fact_id: str) -> bool:
+    def delete(self, fact_id: str, *, user_id: str | None = None) -> bool:
         """Delete a fact by ID. Returns True if deleted.
 
         SPEC.md §13.2 — Purge: immediate removal.
+        When user_id is provided, only deletes if the fact belongs to that user.
         """
-        if fact_id in self._facts:
-            del self._facts[fact_id]
-            self._remove_file(fact_id)
-            return True
-        return False
+        fact = self._facts.get(fact_id)
+        if fact is None:
+            return False
+        if user_id is not None and fact.get("user_id") != user_id:
+            return False
+        del self._facts[fact_id]
+        self._remove_file(fact_id)
+        return True
 
-    def update_status(self, fact_id: str, status: str) -> bool:
+    def update_status(
+        self, fact_id: str, status: str, *, user_id: str | None = None
+    ) -> bool:
         """Update a fact's status (approve/reject).
 
         Args:
             fact_id: The fact ID.
             status: New status ('approved', 'rejected', 'pending').
+            user_id: When provided, only updates if the fact belongs to this user.
 
         Returns:
-            True if updated, False if fact not found.
+            True if updated, False if fact not found or user mismatch.
         """
-        if fact_id in self._facts:
-            self._facts[fact_id]["status"] = status
-            self._persist(fact_id)
-            return True
-        return False
+        fact = self._facts.get(fact_id)
+        if fact is None:
+            return False
+        if user_id is not None and fact.get("user_id") != user_id:
+            return False
+        self._facts[fact_id]["status"] = status
+        self._persist(fact_id)
+        return True
 
-    def list_all(self) -> list[dict[str, Any]]:
-        """Return all facts (for Memory Audit UI)."""
-        return list(self._facts.values())
+    def list_all(self, *, user_id: str | None = None) -> list[dict[str, Any]]:
+        """Return all facts (for Memory Audit UI).
+
+        When user_id is provided, only returns facts belonging to that user.
+        """
+        facts = self._facts.values()
+        if user_id is not None:
+            return [f for f in facts if f.get("user_id") == user_id]
+        return list(facts)
+
+    def persist(self, fact_id: str) -> None:
+        """Public method to persist a fact to disk."""
+        self._persist(fact_id)
 
     # ------------------------------------------------------------------
     # Disk persistence helpers

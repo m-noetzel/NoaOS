@@ -168,7 +168,10 @@ class TestMemoryFactsWiring:
 
         result = asyncio.run(_run())
         assert result["data"]["status"] == "approved"
-        fake_store.update_status.assert_called_once_with(str(fact_id), "approved")
+        # user_id is now passed for user-scoped update (BE-C2)
+        call_args = fake_store.update_status.call_args
+        assert call_args.args == (str(fact_id), "approved")
+        assert "user_id" in call_args.kwargs
 
     def test_approve_fact_404_when_not_found(self) -> None:
         """approve_fact raises 404 when store.update_status returns False."""
@@ -206,7 +209,10 @@ class TestMemoryFactsWiring:
 
         result = asyncio.run(_run())
         assert result["data"]["status"] == "deleted"
-        fake_store.delete.assert_called_once_with(str(fact_id))
+        # user_id is now passed for user-scoped delete (BE-C2)
+        call_args = fake_store.delete.call_args
+        assert call_args.args == (str(fact_id),)
+        assert "user_id" in call_args.kwargs
 
     def test_app_state_has_memory_store_accessors(self) -> None:
         """app_state exports get_memory_store / set_memory_store."""
@@ -277,8 +283,11 @@ class TestQueueRealDB:
         result = asyncio.run(_run())
         assert result["ok"] is True
         assert len(result["data"]) == 1
-        assert result["data"][0]["task_type"] == "run"
-        assert result["data"][0]["status"] == "queued"
+        item = result["data"][0]
+        assert item["status"] == "queued"
+        assert item["position"] == 0
+        assert "run_id" in item
+        assert "estimated_wait" in item
 
 
 # ---------------------------------------------------------------------------
@@ -332,6 +341,8 @@ class TestArtifactsRealDB:
                 request=_mock_request(),
                 user=_make_auth_user(user_id),
                 session=mock_session,
+                limit=50,
+                offset=0,
             )
 
         result = asyncio.run(_run())

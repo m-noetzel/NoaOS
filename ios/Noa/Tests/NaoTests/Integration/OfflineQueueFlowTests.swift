@@ -10,6 +10,12 @@
 import XCTest
 @testable import Noa
 
+/// Thread-safe collector for use in Sendable closures.
+private actor SendableCollector<T: Sendable> {
+    var values: [T] = []
+    func append(_ value: T) { values.append(value) }
+}
+
 /// E2E integration tests for the offline request queue drain flow.
 ///
 /// Uses a temporary directory so tests are fully isolated and leave no artifacts.
@@ -42,11 +48,12 @@ final class OfflineQueueFlowTests: XCTestCase {
         await queue.enqueue(req1)
         await queue.enqueue(req2)
 
-        var drainedIds: [String] = []
+        let collector = SendableCollector<String>()
         await queue.drain { request in
-            drainedIds.append(request.id)
+            await collector.append(request.id)
         }
 
+        let drainedIds = await collector.values
         XCTAssertEqual(drainedIds, ["key-1", "key-2"],
             "IT11: Queue must drain in FIFO order — first enqueued is first drained")
 
@@ -66,11 +73,12 @@ final class OfflineQueueFlowTests: XCTestCase {
             await queue.enqueue(req)
         }
 
-        var executedCount = 0
+        let counter = SendableCollector<Int>()
         await queue.drain { _ in
-            executedCount += 1
+            await counter.append(1)
         }
 
+        let executedCount = await counter.values.count
         XCTAssertEqual(executedCount, 3, "IT12: drain() must execute each queued request once")
         let remaining = await queue.count
         XCTAssertEqual(remaining, 0, "IT12: All requests must be removed from the queue after drain")

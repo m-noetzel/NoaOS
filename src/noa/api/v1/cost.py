@@ -85,6 +85,7 @@ async def cost_summary(
 async def cost_records(
     request: Request,
     limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     user: Any = Depends(require_auth),  # noqa: B008
 ) -> dict[str, Any]:
     """Return recent cost records."""
@@ -106,6 +107,7 @@ async def cost_records(
                 .where(UsageStats.user_id == uid)
                 .order_by(UsageStats.timestamp.desc())
                 .limit(limit)
+                .offset(offset)
             )
             result = await session.execute(stmt)
             rows = result.scalars().all()

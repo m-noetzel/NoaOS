@@ -92,7 +92,7 @@ If this is a new wave, also add a wave header row:
 If the user indicates they want to start this phase immediately:
 1. Change status from "Pending" to "In Progress" in the table
 2. Add the current date as a note
-3. Remind the user: "Run `/write-tests {phase-id}` before writing any implementation code."
+3. Remind the user: "Launch the `implement` agent to build this phase."
 
 ---
 
@@ -154,5 +154,5 @@ These are approximate. Use `~{N}` format for pending phases. Replace with exact 
 
 Tell the user:
 1. The phase has been added to PLAN.md and PHASE_DETAILS.md
-2. Remind them to run `/write-tests {phase-id}` before implementation
-3. Show the test gate command they'll need to run when done
+2. Show the test gate command they'll need to run when done
+3. Remind them to launch the `implement` agent to build the phase

@@ -44,6 +44,12 @@ public struct ApiResponse<T: Decodable>: Decodable, @unchecked Sendable {
     }
 }
 
+/// A decodable placeholder for endpoints that return an empty or irrelevant body.
+/// Used by offline-queue drain replay and similar fire-and-forget calls.
+public struct EmptyResponse: Decodable, Sendable {
+    public init() {}
+}
+
 /// Typed errors surfaced by `APIClient` to callers.
 public enum APIError: Error, Sendable {
     /// HTTP 401 — token expired and refresh also failed.

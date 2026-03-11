@@ -30,30 +30,41 @@ Noa is a governed personal AI agent with dual-domain architecture (private + ext
 | Agent/Skill | Role | Writes To |
 |-------------|------|-----------|
 | `/phase-planning` | Plan phases with spec-traceability | `Plan/PLAN.md` + `Plan/PHASE_DETAILS.md` |
-| `/write-tests` | Failing tests from spec (red phase) | `tests/` |
-| `/write-code` | Make tests pass (green phase) | `src/` |
+| `implement` | Full-cycle agent: builds production-quality features (code + tests + wiring). Quality bar: "could you demo this right now?" | `tests/` + `src/` + `web/src/` |
+| `code-reviewer` | Fast code review, pre-QA | stdout |
+| `qa-review` | Adversarial review (post-impl) + health brief. **MANDATORY for every phase — never skip.** | `Plan/REVIEWS/` |
+| `ci` | Continuous improvement. **AUTO-TRIGGER after every QA review.** Finds recurring patterns, proposes process fixes. P1 proposals = human gate. | `Plan/CI/` |
+| `system-auditor` | Full-system audit at wave boundaries. Real HTTP requests, E2E flows, security, dead code, cross-phase integration. Read-only (never edits source). | `Plan/REVIEWS/` |
 | `/retrospective` | Wave-level retro, estimation accuracy | `Plan/RETROS/` |
-| `qa-review` | Test planning (pre-impl) + adversarial review (post-impl) + health brief | `Plan/REVIEWS/` |
-| `code-reviewer` | Fast code review (sonnet), pre-QA | stdout |
-| `continuous-improvement` | Cross-wave patterns, fix tracking | `Plan/CI/` |
 
 ### Phase Pipeline
 
 ```
-/phase-planning → qa-review (test-plan) → /write-tests → verify red → /write-code → verify green → verify integration → code-reviewer → fix → qa-review (review) → fix/iterate → complete
+/phase-planning → implement agent → verify → code-reviewer → fix → qa-review (MANDATORY) → ci agent (AUTO) → complete
+```
+
+### Wave Boundary
+
+```
+last phase complete → system-auditor → /retrospective → ci agent → human gate (wave review) → next wave planning
 ```
 
 **Gates:**
-- **Verify Red**: >=1 new test FAIL with assertion error (not ImportError/NotImplementedError)
-- **Verify Green**: All tests pass + `ruff check` + `mypy`
-- **Verify Integration**: Import main modules, verify wiring (routers registered, services instantiated)
+- **Verify**: All tests pass + `ruff check` + `mypy` + app loads + feature is wired and callable
+- **Integration**: Data flows end-to-end (stored data is readable where needed, UI actions produce real backend effects). "Could you demo this to the user right now?"
 - **Code Review**: Fix Critical issues before QA
-- **QA Review**: Adversarial review against `Plan/QA_CHECKLIST.md` (M1-M8, S1-S5). Max 2 cycles; on 2nd FAIL write `Plan/RCA/rca_{phase-id}.md`. After verdict, generates `Plan/REVIEWS/health_{date}.md` (project score 1-10, greatest risk, decisions needed, security posture)
+- **QA Review (MANDATORY — never skip)**: Adversarial review against `Plan/QA_CHECKLIST.md` (M1-M8, S1-S5). Max 2 cycles; on 2nd FAIL write `Plan/RCA/rca_{phase-id}.md`. After verdict, generates `Plan/REVIEWS/health_{date}.md`
+- **CI Agent (AUTO — never skip)**: Runs after every QA review. P1 proposals become a human gate. **Enforcement:** A phase is NOT complete until `Plan/CI/analysis_{date}.md` exists for its QA cycle.
+- **System Audit (wave boundaries)**: Full-system health check before starting next wave.
+- **Retrospective (wave boundaries — never skip)**: Runs after system-auditor at every wave boundary. **Enforcement:** Do not start next-wave planning until `Plan/RETROS/retro_{wave-id}.md` exists.
 
 **Implementation rules:**
 - Code must be wired into the running system
 - No bare `except` blocks
-- >=1 non-mocked integration test per phase
+- >=1 non-mocked integration test per phase that tests real user-visible behavior
+- **Minimize mocks**: only mock system boundaries (external APIs, network, filesystem). Never mock internal services, DB, or the function under test.
+- **No dead-end stores**: if data is stored somewhere, something must read it. If nothing reads it, don't store it.
+- **Tool-specific behavior**: each tool must be tested for its actual auth model (OAuth vs API key vs token), not generic one-size-fits-all.
 
 ### Cross-Cutting Verification (After Parallel Merge)
 
@@ -65,8 +76,8 @@ Pause and wait at:
 1. Wave planning approval
 2. Architectural FAIL from QA
 3. CRITICAL issue in `Plan/FINDINGS.md`
-4. Skill patches from retrospective
-5. Wave completion review
+4. P1 proposals from CI agent
+5. Wave completion review (after system-auditor)
 
 **At every human gate, immediately notify before pausing:**
 ```bash
@@ -78,15 +89,17 @@ Example: `python3 tools/notify.py "Wave Planning" "Wave 15 plan ready for approv
 
 | Situation | Action |
 |-----------|--------|
-| Test agent can't derive tests | STOP, ask human to clarify spec |
-| Code agent fails 2x | Orchestrator tries once, then escalates |
-| QA fails once | Launch `continuous-improvement` agent |
-| QA fails twice | Write RCA, launch CI agent, escalate |
+| Implement agent can't derive tests from spec | STOP, ask human to clarify spec |
+| Implement agent fails 2x on same feature | Orchestrator tries once, then escalates |
+| QA fails once | Launch `ci` agent |
+| QA fails twice | Write RCA, launch `ci` agent, escalate |
+| QA review skipped | **Pipeline violation** — go back and run QA before marking complete |
+| CI agent skipped after QA | **Pipeline violation** — go back and run CI |
 | Security concern | Immediate CRITICAL escalation |
 
 ### Continuous Improvement
 
-**Mandatory CI triggers:** after every retrospective, QA FAIL, RCA report, or `/insights` report. Skipping = pipeline violation. Human approves all proposals before application.
+**CI agent runs after every QA review — this is automatic, not optional.** Also runs after retrospectives, RCA reports, and `/insights` reports. P1 proposals become human gates. Human approves all proposals before application.
 
 ### Findings Lifecycle
 

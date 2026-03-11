@@ -143,14 +143,15 @@ public actor VPNService {
         // actors cannot make this synchronous, we check availability here and return the
         // result immediately; the actual open fires asynchronously on the main actor.
         // This preserves the correct `false` return when the app is not installed.
-        var canOpen = false
+        final class Box: @unchecked Sendable { var value = false }
+        let box = Box()
         let sema = DispatchSemaphore(value: 0)
         Task { @MainActor in
-            canOpen = UIApplication.shared.canOpenURL(url)
+            box.value = UIApplication.shared.canOpenURL(url)
             sema.signal()
         }
         sema.wait()
-        guard canOpen else { return false }
+        guard box.value else { return false }
         Task { @MainActor in
             UIApplication.shared.open(url, options: [:], completionHandler: nil)
         }

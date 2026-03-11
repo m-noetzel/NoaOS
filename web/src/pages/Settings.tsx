@@ -41,7 +41,7 @@ export default function Settings() {
 
   const [model, setModel] = useState("");
   const [provider, setProvider] = useState("");
-  const [privacy, setPrivacy] = useState<PrivacyMode>("private");
+  const [privacy, setPrivacy] = useState<PrivacyMode>("external");
   const [dailyBudget, setDailyBudget] = useState("10");
   const [monthlyBudget, setMonthlyBudget] = useState("200");
   const [budgetError, setBudgetError] = useState<string | null>(null);
@@ -60,7 +60,7 @@ export default function Settings() {
       } else if (models && models.length > 0) {
         setModel(models[0].value);
       }
-      setPrivacy(settings.default_privacy_mode || "private");
+      setPrivacy(settings.default_privacy_mode || "external");
       setDailyBudget(String(settings.budget_daily_usd || 10));
       setMonthlyBudget(String(settings.budget_monthly_usd || 200));
       setOllamaUrl(settings.ollama_base_url || "http://private-worker:11434");

@@ -378,6 +378,7 @@ final class AuthViewModelTests: XCTestCase {
 
     // MARK: - T15: Initial state is unauthenticated when no token in Keychain
 
+    @MainActor
     func test_initialState_isUnauthenticated_whenNoKeychain() {
         // Phase iOS4 deliverable 4: "AuthViewModel managing auth state"
         // AuthGuard uses isAuthenticated to decide which view to show.
@@ -390,6 +391,7 @@ final class AuthViewModelTests: XCTestCase {
 
     // MARK: - T16: After login, isAuthenticated becomes true
 
+    @MainActor
     func test_afterLogin_isAuthenticated_becomesTrue() async throws {
         // Phase iOS4 deliverable 4: Auth state transitions on successful login.
         let fake = FakeAuthAPIClient()
@@ -404,6 +406,7 @@ final class AuthViewModelTests: XCTestCase {
 
     // MARK: - T17: Failed login populates errorMessage
 
+    @MainActor
     func test_failedLogin_populatesErrorMessage() async {
         // Phase iOS4 deliverable 4: "AuthViewModel … error display"
         // LoginView binds to vm.errorMessage; it must be non-nil after failure.
@@ -420,6 +423,7 @@ final class AuthViewModelTests: XCTestCase {
 
     // MARK: - T18: After logout, isAuthenticated becomes false
 
+    @MainActor
     func test_afterLogout_isAuthenticated_becomesFalse() async throws {
         // SPEC.md §5.4: Logout invalidates all tokens.
         // AuthViewModel must reflect this by setting isAuthenticated = false.
@@ -437,6 +441,7 @@ final class AuthViewModelTests: XCTestCase {
 
     // MARK: - T19: Auto-refresh triggers when token is near expiry
 
+    @MainActor
     func test_autoRefresh_triggersWhenTokenNearExpiry() async throws {
         // Phase iOS4 deliverable 7: "Automatic token refresh on app foreground (if access token near expiry)"
         // If expiresIn is <= 60 seconds, foreground check must trigger refresh.
@@ -460,6 +465,7 @@ final class AuthViewModelTests: XCTestCase {
 
     // MARK: - T20: App foreground with valid token does NOT refresh
 
+    @MainActor
     func test_appForeground_withFreshToken_doesNotRefresh() async throws {
         // Phase iOS4 deliverable 7: Refresh is conditional — only triggers if near expiry.
         // This prevents unnecessary API calls every time the user switches apps.

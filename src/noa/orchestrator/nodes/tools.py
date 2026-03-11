@@ -95,9 +95,21 @@ async def tool_node(state: AgentState) -> dict[str, Any]:
                 result = await _dispatch_registry(tool_name, function, args)
             results.append({"name": f"{tool_name}.{function}", **result})
         else:
-            # Legacy format: {"name": "calendar_list", "arguments": {...}}
+            # Legacy or LLM tool_use format:
+            #   {"name": "web_search__web_search", "input": {...}}
+            #   {"name": "calendar_list", "arguments": {...}}
             name = call.get("name", "")
-            arguments = call.get("arguments", {})
+            arguments = call.get("input") or call.get("arguments", {})
+
+            # Parse tool__function naming from definitions
+            from noa.tools.definitions import parse_tool_call_name
+            parsed_tool, parsed_func = parse_tool_call_name(name)
+            if parsed_tool != name and _gateway is not None:
+                result = await _dispatch_gateway(
+                    parsed_tool, parsed_func, arguments,
+                )
+                results.append({"name": name, **result})
+                continue
 
             if _registry is not None:
                 # Try to dispatch through registry with legacy name
@@ -115,7 +127,27 @@ async def tool_node(state: AgentState) -> dict[str, Any]:
                 result = execute_tool(name, arguments)
                 results.append({"name": name, **result})
 
-    return {"tool_results": results, "tool_rounds": current_rounds + 1}
+    # Append tool results as messages so the LLM sees them
+    import json as _json
+    msgs = list(state.get("messages", []))
+    for idx, res in enumerate(results):
+        tool_call = tool_calls[idx] if idx < len(tool_calls) else {}
+        content = res.get("error") or _json.dumps(
+            {k: v for k, v in res.items() if k != "name"},
+            default=str,
+        )
+        msgs.append({
+            "role": "tool",
+            "tool_call_id": tool_call.get("id", ""),
+            "name": res.get("name", ""),
+            "content": content,
+        })
+
+    return {
+        "tool_results": results,
+        "tool_rounds": current_rounds + 1,
+        "messages": msgs,
+    }
 
 
 async def _dispatch_registry(

@@ -1,5 +1,4 @@
 import { SidebarTrigger } from "@/components/ui/sidebar";
-import { ModelSelector } from "@/components/shared/ModelSelector";
 import { PrivacyToggle } from "@/components/shared/PrivacyToggle";
 import { ThemeToggle } from "@/components/shared/ThemeToggle";
 import { Badge } from "@/components/ui/badge";
@@ -18,7 +17,6 @@ export function TopBar() {
       </div>
 
       <div className="flex items-center gap-2">
-        <ModelSelector />
         <PrivacyToggle />
         <ThemeToggle />
         <div className="flex items-center gap-1.5 ml-1 px-2 py-1 rounded-full bg-success/8 border border-success/15">

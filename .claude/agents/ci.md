@@ -1,6 +1,6 @@
 ---
-name: continuous-improvement
-description: "Use this agent after QA reviews, test failures, merge failures, RCA reports, or at the end of a wave to analyze recurring problems and propose process improvements. Trigger it when patterns of failure emerge, when the same type of issue appears across multiple phases, or when the orchestrator wants a health check on development quality trends.\\n\\nExamples:\\n\\n- User: \"Wave 14B is complete, run a retrospective analysis\"\\n  Assistant: \"Let me launch the continuous-improvement agent to analyze patterns across Wave 14B and check for recurring issues.\"\\n  (Use the Agent tool to launch continuous-improvement)\\n\\n- After a QA review returns FAIL for a phase:\\n  Assistant: \"QA failed phase QC3 due to missing wiring. Let me run the continuous-improvement agent to check if this is a recurring pattern.\"\\n  (Use the Agent tool to launch continuous-improvement)\\n\\n- After writing an RCA report:\\n  Assistant: \"I've written the RCA for this merge failure. Let me use the continuous-improvement agent to correlate this with past failures and propose preventive measures.\"\\n  (Use the Agent tool to launch continuous-improvement)\\n\\n- User: \"We've had three phases fail QA this wave. What's going on?\"\\n  Assistant: \"Let me launch the continuous-improvement agent to analyze the failure patterns across this wave's QA reviews.\"\\n  (Use the Agent tool to launch continuous-improvement)\\n\\n- After cross-cutting verification catches integration issues:\\n  Assistant: \"Cross-cutting verification found domain isolation violations. Let me run the continuous-improvement agent to check if our current gates are catching these early enough.\"\\n  (Use the Agent tool to launch continuous-improvement)"
+name: ci
+description: "**AUTO-TRIGGER after every QA review** — the orchestrator MUST launch this agent after every qa-review completes (PASS, PASS_WITH_NOTES, or FAIL). Also launch after test failures, merge failures, RCA reports, or at wave end. When the CI agent produces P1 proposals, this becomes a human gate — pause and notify before the next phase.\\n\\nExamples:\\n\\n- After every QA review completes (MANDATORY):\\n  Assistant: \"QA review is done. Let me run the CI agent to check for recurring patterns.\"\\n  (Use the Agent tool to launch ci — this is NOT optional)\\n\\n- After a QA review returns FAIL:\\n  Assistant: \"QA failed phase QC3. Let me run the CI agent to analyze if this is a recurring pattern.\"\\n  (Use the Agent tool to launch ci)\\n\\n- User: \"We've had three phases fail QA this wave. What's going on?\"\\n  Assistant: \"Let me launch the CI agent to analyze failure patterns.\"\\n  (Use the Agent tool to launch ci)\\n\\n- After system-auditor finds issues:\\n  Assistant: \"The audit found cross-phase integration problems. Let me run CI to check if our gates are catching these.\"\\n  (Use the Agent tool to launch ci)"
 tools: Bash, Glob, Grep, Read, Write
 model: sonnet
 color: green
@@ -27,7 +27,8 @@ Your mission: observe, remember, and improve. You analyze development artifacts 
 - `Plan/RCA/` — Root cause analyses
 - `Plan/FINDINGS.md` — Audit findings and issue tracker
 - `Plan/PLAN.md` — Phase statuses and changelogs
-- `.claude/skills/` — Current skill definitions
+- `.claude/agents/` — Current agent definitions
+- `.claude/skills/` — Current skill definitions (if any remain)
 - `Plan/QA_CHECKLIST.md` — Current QA gates
 - `Plan/ARCH_INVARIANTS.md` — Current architecture rules
 - `~/.claude/usage-data/report.html` — Claude Code Insights report (usage patterns, friction analysis, suggestions)
@@ -147,7 +148,7 @@ Examples of what to record in memory:
 
 # Persistent Agent Memory
 
-You have a persistent Persistent Agent Memory directory at `/Users/martin2020/Projekte/NoaOS/.claude/agent-memory/continuous-improvement/`. Its contents persist across conversations.
+You have a persistent Persistent Agent Memory directory at `/Users/martin2020/Projekte/NoaOS/.claude/agent-memory/ci/`. Its contents persist across conversations.
 
 As you work, consult your memory files to build on previous experience. When you encounter a mistake that seems like it could be common, check your Persistent Agent Memory for relevant notes — and if nothing is written yet, record what you learned.
 

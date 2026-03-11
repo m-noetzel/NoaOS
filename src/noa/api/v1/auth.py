@@ -1,9 +1,11 @@
 """Auth API endpoints — SPEC.md SS5.3, SS5.4.
 
-POST /api/v1/auth/login    — authenticate, return tokens
-POST /api/v1/auth/refresh  — rotate refresh token
-POST /api/v1/auth/logout   — invalidate session
-POST /api/v1/auth/register — create new user account (public)
+POST /api/v1/auth/login           — authenticate, return tokens
+POST /api/v1/auth/refresh         — rotate refresh token
+POST /api/v1/auth/logout          — invalidate session
+POST /api/v1/auth/register        — create new user account (public)
+POST /api/v1/auth/forgot-password — request password reset token
+POST /api/v1/auth/reset-password  — reset password with token
 """
 
 from __future__ import annotations
@@ -22,7 +24,7 @@ from noa.api.schemas.common import success_envelope
 from noa.auth.jwt import TokenError
 from noa.auth.middleware import require_auth
 from noa.auth.service import AccountLockedError, AuthError, AuthService
-from noa.config import Settings
+from noa.config import Environment, Settings
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
@@ -45,6 +47,15 @@ class RefreshRequest(BaseModel):
 class RegisterRequest(BaseModel):
     email: EmailStr
     password: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
 
 
 class AuthTokenResponse(BaseModel):
@@ -77,12 +88,14 @@ def _set_auth_cookies(
     response: Response, tokens: dict[str, Any],
 ) -> None:
     """Set httpOnly cookies for auth tokens (C6)."""
+    settings = _get_settings()
+    is_secure = settings.noa_env == Environment.PRODUCTION
     response.set_cookie(
         key="noa_access_token",
         value=tokens["access_token"],
         httponly=True,
-        secure=True,
-        samesite="strict",
+        secure=is_secure,
+        samesite="lax" if not is_secure else "strict",
         max_age=900,  # 15 minutes
         path="/",
     )
@@ -90,8 +103,8 @@ def _set_auth_cookies(
         key="noa_refresh_token",
         value=tokens["refresh_token"],
         httponly=True,
-        secure=True,
-        samesite="strict",
+        secure=is_secure,
+        samesite="lax" if not is_secure else "strict",
         max_age=7 * 24 * 3600,  # 7 days
         path="/api/v1/auth",  # Only sent to auth endpoints
     )
@@ -243,4 +256,38 @@ async def register(
             detail=str(exc),
         ) from exc
 
+    return success_envelope(data=result, trace_id=rid)
+
+
+@router.post("/forgot-password")
+async def forgot_password(
+    body: ForgotPasswordRequest,
+    session: AsyncSession = Depends(get_db_session),  # noqa: B008
+    settings: Settings = Depends(_get_settings),  # noqa: B008
+) -> dict[str, Any]:
+    """Request a password reset token. Always returns 200 to avoid email enumeration."""
+    rid = trace_id_ctx.get("")
+    service = AuthService(session=session, settings=settings)
+    result = await service.request_password_reset(email=body.email)
+    return success_envelope(data=result, trace_id=rid)
+
+
+@router.post("/reset-password")
+async def reset_password(
+    body: ResetPasswordRequest,
+    session: AsyncSession = Depends(get_db_session),  # noqa: B008
+    settings: Settings = Depends(_get_settings),  # noqa: B008
+) -> dict[str, Any]:
+    """Reset password using a valid reset token."""
+    rid = trace_id_ctx.get("")
+    try:
+        service = AuthService(session=session, settings=settings)
+        result = await service.reset_password(
+            token=body.token, new_password=body.new_password,
+        )
+    except AuthError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
     return success_envelope(data=result, trace_id=rid)

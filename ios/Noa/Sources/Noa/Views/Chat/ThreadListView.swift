@@ -31,7 +31,7 @@ public struct ThreadListView: View {
                             Text(thread.title ?? "Untitled")
                                 .font(.body)
                                 .lineLimit(1)
-                            Text(thread.createdAt, style: .relative)
+                            Text(thread.createdAt ?? Date(), style: .relative)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }

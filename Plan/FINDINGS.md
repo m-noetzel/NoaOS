@@ -12,33 +12,33 @@
 | ID | Severity | Title | Status | Resolved By |
 |----|----------|-------|--------|-------------|
 | C1 | Critical | Async/Sync Mismatch in Tool Dispatch | **Resolved** | QC1 |
-| C2 | Critical | Domain Isolation Violation — External→Private Import | Open | QC4 (planned) |
+| C2 | Critical | Domain Isolation Violation — External→Private Import | **Resolved** | QC4 |
 | C3 | Critical | Audit Hash Chain Race Condition | **Resolved** | QC2 |
 | C4 | Critical | Schema Drift — Model vs Migration Mismatch | **Resolved** | QC1 |
 | C5 | Critical | JWT Secret Key Falls Back to Empty String | **Resolved** | QC1 |
 | C6 | Critical | Token Storage in localStorage (XSS-Vulnerable) | **Resolved** | QC2 |
-| H1 | High | Workers Are Skeleton-Only — No Actual Endpoints | Open | QC4 (planned) |
-| H2 | High | No Database Indexes (Performance Cliff) | Open | QC5 (planned) |
+| H1 | High | Workers Are Skeleton-Only — No Actual Endpoints | **Resolved** | QC4 |
+| H2 | High | No Database Indexes (Performance Cliff) | **Resolved** | QC5 |
 | H3 | High | AuditService Instantiation Bypasses `__init__` | **Resolved** | QC1 |
 | H4 | High | Settings Repository Commits Inside Repository Layer | **Resolved** | QC3 |
 | H5 | High | Bare `except Exception: pass` Throughout Codebase | **Resolved** | QC3 |
 | H6 | High | No Input Validation on Email Recipients | **Resolved** | QC2 |
 | H7 | High | Tool Capability Default is "Allow" | **Resolved** | QC2 |
 | H8 | High | Rate Limiting Is Process-Local and Per-Action | **Resolved** | QC8 + HD (per-user in ToolGateway dispatch; GovernanceWrapper is unused dead code) |
-| H9 | High | Google AI Provider Missing Tool Call `id` Field | Open | QC4 (planned) |
+| H9 | High | Google AI Provider Missing Tool Call `id` Field | **Resolved** | QC4 |
 | H10 | High | Notion HTML Sanitization Is Regex-Based | **Resolved** | QC2 |
 | M1 | Medium | Idempotency Implementation Is Dead Code | **Resolved** | QC8 |
 | M2 | Medium | No CSRF Protection | **Resolved** | QC2 |
-| M3 | Medium | Retention Scheduler Never Actually Purges | Open | QC5 (planned) |
+| M3 | Medium | Retention Scheduler Never Actually Purges | **Resolved** | QC5 |
 | M4 | Medium | No Content-Security-Policy Headers | **Resolved** | QC2 |
 | M5 | Medium | SSE Reconnection Loses Events | **Resolved** | QC8 + HD (replay queries run_events with user_id auth filter) |
-| M6 | Medium | Approval Expiry Never Enforced | Open | QC5 (planned) |
+| M6 | Medium | Approval Expiry Never Enforced | **Resolved** | QC5 |
 | M7 | Medium | Step-Up Auth Defined But Not Enforced | **Resolved** | QC8 |
 | M8 | Medium | Cost Endpoint Returns 200 on Database Error | **Resolved** | QC3 |
-| M9 | Medium | ContractViolationTracker Window Never Pruned | Open | QC5 (planned) |
+| M9 | Medium | ContractViolationTracker Window Never Pruned | **Resolved** | QC5 |
 | M10 | Medium | Google Refresh Tokens Not Persisted | **Resolved** | QC8 + HD (Fernet-encrypted tokens in google_credentials table) |
 | M11 | Medium | Inconsistent User ID Extraction from JWT | **Resolved** | QC3 |
-| M12 | Medium | Mixed Sync/Async Service Layer | Open | QC5 (planned) |
+| M12 | Medium | Mixed Sync/Async Service Layer | **Resolved** | QC5 |
 | M13 | Medium | Backup Script Errors Silently Ignored | **Resolved** | QC3 |
 | M14 | Medium | No Frontend Request Timeouts | **Resolved** | QC8 |
 | A1 | Arch | Global Mutable State Instead of DI | **Resolved** | QC8 + HD (app.state-backed DI with module fallback) |
@@ -70,8 +70,39 @@
 
 | iOS11-M1 | Medium | Approval Decide Endpoint Is a Stub (No DB Persistence) | **Resolved** | iOS11-fix |
 | iOS11-M2 | Medium | Approval Decide Returns Hardcoded risk_tier="high" | **Resolved** | iOS11-fix |
+| BE-C1 | Critical | Runs Endpoint Returns Hardcoded Zeros for Cost/Token/Model | **Resolved** | PR1 |
+| BE-C2 | Critical | Memory Endpoints Not User-Scoped (Cross-User Data Leak) | **Resolved** | PR1 |
+| BE-H1 | High | Credential Store Is In-Memory Only (Lost on Restart) | Open | — |
+| BE-H2 | High | RunService Uses Sync ORM .query() on Async Session | **Resolved** | PR1 |
+| BE-H3 | High | Settings Only Has PUT But PrivacyToggle Sends PATCH (405) | **Resolved** | PR2 |
+| BE-M1 | Medium | Cost Endpoint Uses Raw SQL With Magic Column Indices | Open | — |
+| BE-M2 | Medium | Memory Update Uses Private _persist() Method | **Resolved** | PR1 |
+| BE-M3 | Medium | Artifact Download No Path Traversal Guard | Open | — |
+| BE-M4 | Medium | No Structured Logging Context (user_id, trace_id) in Exceptions | Open | — |
+| BE-M5 | Medium | MemoryStore.store() Saves Facts Without user_id (Write Path Not Scoped) | Open | — |
+| BE-H4 | High | SSE Replay Cursor Uses List Index, Not Stable DB Offset (Reconnect Unreliable) | Open | — |
+| BE-H5 | High | chat.py _update_run_status Raw UPDATE Bypasses RunService State Machine | Open | — |
+| FE-C1 | Critical | PrivacyToggle Uses PATCH Method — Backend Returns 405 | **Resolved** | PR2 |
+| FE-H1 | High | Chat Thread Creation Race — Message Sent Before Thread Exists | **Resolved** | PR2 |
+| FE-H2 | High | RunDetail Uses Unsafe `as unknown as` Type Coercion | **Resolved** | PR2 |
+| FE-M1 | Medium | TopBar "Online" Status Indicator Is Hardcoded (Never Reflects Real State) | Open | — |
+| FE-M2 | Medium | Session Expiry Hard-Redirects via window.location (Breaks React State) | Open | — |
+| FE-M3 | Medium | Artifact Download Bypasses Auth Headers | Open | — |
+| FE-M4 | Medium | CredentialModal Has No Empty-Value Validation | Open | — |
+| FE-M5 | Medium | No Unsaved-Changes Warning on Settings Page | Open | — |
+| iOS-H1 | High | Offline Queue Never Drained on Network Restore | Open | — |
+| iOS-H2 | High | SSE Stream Not Cancelled on Thread Switch (Resource Leak) | Open | — |
+| iOS-H3 | High | AuthGuard Shows Login Without Attempting Token Refresh | Open | — |
+| iOS-H4 | High | ComposerBar Has No Provider/Model Selectors (Sends nil) | Open | — |
+| iOS-M1 | Medium | MainTabView ViewModels Created Without Lifecycle Cleanup | Open | — |
+| iOS-M2 | Medium | ChatView loadHistory Race on Rapid Thread Switching | Open | — |
+| iOS-M3 | Medium | Biometric Auth Failure Has No Recovery UI | Open | — |
+| iOS-M4 | Medium | Batch Deny Has No Confirmation Dialog | Open | — |
+| iOS-M5 | Medium | VoiceService Has No User-Facing Timeout/Cancel UI | Open | — |
+| iOS-L1 | Low | Environment.swift Hardcoded Dev IP (Crash if Unavailable) | Open | — |
+| iOS-L2 | Low | DEBUG Builds Completely Disable Certificate Pinning | Open | — |
 
-**Open:** 0 | **Partially Resolved:** 0 | **Resolved:** 53 | **Total:** 53
+**Open:** 22 | **Partially Resolved:** 0 | **Resolved:** 74 | **Total:** 96
 
 ---
 
@@ -807,6 +838,172 @@ All pages and all UI components are in one bundle. The `recharts` library alone 
 
 ---
 
+## 10. Production Readiness Audit (2026-03-11)
+
+Full-stack audit by new tech lead. Focus: real user flows, broken data paths, production blockers.
+
+### Backend Critical & High
+
+#### BE-C1. Runs Endpoint Returns Hardcoded Zeros for Cost/Token/Model
+
+**Files:** `src/noa/api/v1/runs.py:48-53,87-92`
+
+Both `list_runs` and `get_run` return hardcoded empty strings and zeros for `model`, `provider`, `tokens_in`, `tokens_out`, `cost_usd`, `duration_ms`. The Run ORM model doesn't have these fields — they should be joined from `usage_stats`.
+
+**Impact:** Users see $0.00 cost for all runs. Run detail page shows no model/provider info. Cost data IS recorded in `usage_stats` but never surfaced through runs.
+
+#### BE-C2. Memory Endpoints Not User-Scoped (Cross-User Data Leak)
+
+**File:** `src/noa/api/v1/memory.py:30-41`
+
+`store.list_all()` returns ALL facts for ALL users. The `AuthUser` is extracted but never used for filtering. Same issue in approve, update, and delete — no ownership check.
+
+**Impact:** Privacy violation. User A sees User B's memory facts. Any authenticated user can modify/delete any fact.
+
+#### BE-H1. Credential Store Is In-Memory Only
+
+**File:** `src/noa/api/v1/tools.py:32-34`
+
+`_credential_store: dict[tuple[str, str], dict[str, str]] = {}` with TODO comment. All API keys entered by users are lost on container restart.
+
+#### BE-H2. RunService Uses Sync ORM .query() on Async Session
+
+**File:** `src/noa/runs/service.py:51-70`
+
+`RunService.get_run()`, `list_runs()`, `update_status()` all use `self._session.query(Run)` — the legacy sync ORM interface. When called with an AsyncSession, this raises errors. The runs API endpoint (runs.py) does its own async queries, but the chat pipeline that creates/updates runs via RunService may fail.
+
+#### BE-H3. Settings Only Has PUT, PrivacyToggle Sends PATCH
+
+**Files:** `src/noa/api/v1/settings.py:52` (only `@router.put("")`), `web/src/components/shared/PrivacyToggle.tsx:21` (sends `PATCH`)
+
+The privacy mode toggle in the TopBar sends a PATCH request, but the backend only defines a PUT handler. Result: 405 Method Not Allowed. The privacy toggle silently fails.
+
+### Backend Medium
+
+#### BE-M1. Cost Endpoint Uses Raw SQL With Magic Column Indices
+
+**File:** `src/noa/api/v1/cost.py:56-76`
+
+Uses `text("SELECT COALESCE(SUM(...))...")` with `row[1]`, `row[2]` index access. Fragile — any column reorder breaks silently.
+
+#### BE-M2. Memory Update Uses Private _persist() Method
+
+**File:** `src/noa/api/v1/memory.py:91`
+
+`store._persist(str(fact_id))` with `# noqa: SLF001` suppression. Breaks encapsulation, blocks future storage migration.
+
+#### BE-M3. Artifact Download No Path Traversal Guard
+
+**File:** `src/noa/api/v1/artifacts.py:60-90`
+
+`Path(artifact.storage_ref)` from DB is served via `FileResponse` without verifying it's within the allowed artifact directory. Could serve arbitrary files if `storage_ref` is manipulated.
+
+#### BE-M4. No Structured Logging Context in Exception Handlers
+
+Multiple files log exceptions without `user_id` or `trace_id`, making production debugging very difficult.
+
+### Frontend Critical & High
+
+#### FE-C1. PrivacyToggle Uses PATCH Method — Backend Returns 405
+
+**File:** `web/src/components/shared/PrivacyToggle.tsx:21`
+
+Sends `method: "PATCH"` but backend settings endpoint only supports PUT. The optimistic UI update makes it LOOK like it worked (icon flips), but the onSettled refetch reverts it. User thinks privacy mode changed but it didn't.
+
+#### FE-H1. Chat Thread Creation Race — Message Sent Before Thread Exists
+
+**File:** `web/src/pages/Chat.tsx:237-253`
+
+When user sends first message (no active thread), `createThreadMutation.mutate(title)` fires (async, non-awaited), then immediately proceeds to SSE connect with `thread_id: activeThread` which is still `null`. Backend receives message with no thread_id.
+
+#### FE-H2. RunDetail Uses Unsafe Type Coercion
+
+**File:** `web/src/pages/RunDetail.tsx:35`
+
+`as unknown as` double-cast masks API response shape mismatches. Will silently produce runtime errors if the actual response structure changes.
+
+### Frontend Medium
+
+#### FE-M1. TopBar "Online" Status Is Hardcoded
+
+**File:** `web/src/components/layout/TopBar.tsx:22-25`
+
+Always shows green "Online" indicator regardless of actual connection state. Misleading when backend is down or SSE disconnects.
+
+#### FE-M2. Session Expiry Hard-Redirects via window.location
+
+**File:** `web/src/api/client.ts:108`
+
+`window.location.href = "/login"` bypasses React Router, loses all component state. Should use AuthContext logout flow instead.
+
+#### FE-M3. Artifact Download Bypasses Auth Headers
+
+Artifact download uses direct `link.href` assignment, not the `apiRequest()` function, so auth headers aren't included.
+
+#### FE-M4. CredentialModal Has No Empty-Value Validation
+
+Users can save empty API keys. No error feedback on save failure.
+
+#### FE-M5. No Unsaved-Changes Warning on Settings Page
+
+User can navigate away after editing settings without saving. No prompt, silent data loss.
+
+### iOS High
+
+#### iOS-H1. Offline Queue Never Drained on Network Restore
+
+**File:** `ios/Noa/Sources/Noa/Services/APIClient.swift:103-118`
+
+APIClient enqueues requests when offline, but `NetworkMonitorService.startMonitoring()` is never called. Queue items sit in Documents directory forever. User never knows messages weren't sent.
+
+#### iOS-H2. SSE Stream Not Cancelled on Thread Switch
+
+**File:** ChatViewModel — when user switches threads, previous SSE stream task is not cancelled. Multiple streams can run simultaneously, causing wrong-thread messages to appear.
+
+#### iOS-H3. AuthGuard Shows Login Without Attempting Token Refresh
+
+**File:** `ios/Noa/Sources/Noa/Views/Auth/AuthGuard.swift:18-24`
+
+Checks `isAuthenticated` but doesn't call `handleAppForeground()` to refresh expired tokens. Users with expired (but refreshable) tokens see LoginView unnecessarily.
+
+#### iOS-H4. ComposerBar Has No Provider/Model Selectors
+
+Chat requests send `provider: nil, model: nil`. If backend requires these fields or defaults to an unconfigured provider, chat fails.
+
+### iOS Medium
+
+#### iOS-M1. MainTabView ViewModels Without Lifecycle Cleanup
+
+ViewModels with active SSE streams are created in `init` but never cleaned up on dismiss. Memory leak potential.
+
+#### iOS-M2. ChatView loadHistory Race on Rapid Thread Switching
+
+Multiple `loadHistory()` calls can overlap. Last one to complete wins, potentially showing wrong thread's messages.
+
+#### iOS-M3. Biometric Auth Failure Has No Recovery UI
+
+If biometric fails on high-risk approval, view stays open with no feedback. User can repeatedly tap Approve.
+
+#### iOS-M4. Batch Deny Has No Confirmation Dialog
+
+Multiple high-risk approvals can be denied with a single tap, no confirmation or biometric gate.
+
+#### iOS-M5. VoiceService No User-Facing Timeout/Cancel UI
+
+120s timeout with no progress indicator or cancel button. App appears frozen during slow uploads.
+
+### iOS Low
+
+#### iOS-L1. Environment.swift Hardcoded Dev IP
+
+`URL(string: "http://100.106.15.98:8000")!` — force unwrap crashes if IP changes.
+
+#### iOS-L2. DEBUG Builds Disable Certificate Pinning Entirely
+
+`#if DEBUG` returns plain URLSession. If debug binary connects to production, MITM is possible.
+
+---
+
 ## 8. Resolved Pipeline Issues
 
 Historical issues encountered during pipeline execution (formerly `Plan/ISSUES.md`). All resolved.
@@ -819,3 +1016,24 @@ Historical issues encountered during pipeline execution (formerly `Plan/ISSUES.m
 | I4 | DW4 | LOW | Router not wired to PrivacyClassifier; LLM classification deferred | Router delegates to PrivacyClassifier as of DW4 |
 | I5 | TI6 | LOW | Tool node not wired; rate limiter fixed-window not sliding-window | Replaced with true sliding-window implementation using timestamp deque |
 | I6 | TI6 | LOW | `extract_idempotency_key` case-sensitive for header lookup | Now checks canonical, lowercase, and full case-insensitive fallback per RFC 7230 |
+
+
+
+## 9. User E2E Testing Findings (2026-03-11)
+
+| ID | Severity | Title | Status | Fix |
+|----|----------|-------|--------|-----|
+| L1 | Critical | Settings PUT never commits — changes rolled back on session close | **Resolved** | Added `await session.commit()` in settings endpoint |
+| L2 | Critical | Chat fails from UI — defaults to unconfigured Anthropic provider | **Resolved** | Root cause was L1; also fixed privacy_mode default to "external" |
+| L3 | High | Model routing ignored — always used constructor default model | **Resolved** | Pass model override through router → client complete() |
+| L4 | High | Runs never persisted — sync RunService on async session | **Resolved** | Create Run+Conversation via async session before runner starts |
+| L5 | High | Privacy mode override ignored — runner set wrong state key | **Resolved** | Runner now sets `user_privacy_override` (not just `privacy_mode`) |
+| L6 | High | GET /api/v1/tools missing — Tools page shows "Failed to load" | **Resolved** | Added list endpoint returning TOOL_CAPABILITIES with per-user enabled status |
+| L7 | Medium | Chat error events silently swallowed in UI | **Resolved** | Added toast notification on SSE error events |
+| L8 | Medium | No thread deletion in Chat UI | **Resolved** | Added hover delete button with confirmation on thread sidebar |
+| L9 | Medium | Cookie secure flag hardcoded True — breaks HTTP dev | **Resolved** | Environment-dependent (strict in prod, lax in dev) |
+| L10 | Low | Tool management page (enable/disable connections) | Open | Existing enable/disable endpoints; UI enhancement needed |
+| L11 | Low | No LangSmith/diagnostics page | Open | Feature request |
+| L12 | Low | No user management page | Open | Feature request |
+| L13 | Low | Costs not showing despite runs | Partially resolved | Runs now persist; cost recording needs UsageStats schema fix |
+

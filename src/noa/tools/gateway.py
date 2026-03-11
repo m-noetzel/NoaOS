@@ -138,6 +138,21 @@ class ToolGateway:
             await self._fire_audit(request, resp, "error")
             return resp
 
+        # 1a. Domain isolation check (§4.1, §8.3)
+        adapter = self._adapters[tool]
+        adapter_domain = getattr(adapter, "domain", None)
+        if adapter_domain is not None and request.privacy_mode:
+            if adapter_domain == "private" and request.privacy_mode == "external":
+                raise PermissionError(
+                    f"Private-domain tool '{tool}' cannot be dispatched "
+                    f"for external-domain request"
+                )
+            if adapter_domain == "external" and request.privacy_mode == "private":
+                raise PermissionError(
+                    f"External-domain tool '{tool}' cannot be dispatched "
+                    f"for private-domain request"
+                )
+
         # 1b. Capability check (MR5)
         if (
             self.capability_checker is not None

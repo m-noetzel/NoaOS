@@ -35,6 +35,7 @@ class AnthropicClient:
         messages: list[dict[str, Any]],
         max_tokens: int,
         temperature: float | None = None,
+        tools: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Build a request payload for the Anthropic Messages API."""
         request: dict[str, Any] = {
@@ -44,6 +45,8 @@ class AnthropicClient:
         }
         if temperature is not None:
             request["temperature"] = temperature
+        if tools:
+            request["tools"] = tools
         return request
 
     async def _send_request(self, request: dict[str, Any]) -> httpx.Response:
@@ -87,7 +90,7 @@ class AnthropicClient:
             try:
                 body = response.json()
                 detail = body.get("error", {}).get("message", "")
-            except Exception:
+            except Exception:  # noqa: BLE001
                 detail = response.text
             msg = f"Anthropic API error {response.status_code}: {detail}"
             raise ProviderError(msg)
@@ -129,8 +132,14 @@ class AnthropicClient:
         messages: list[dict[str, Any]],
         max_tokens: int,
         temperature: float | None = None,
+        model: str | None = None,
+        tools: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Send a completion request to Anthropic.
+
+        Args:
+            model: Optional model override (uses constructor default if None).
+            tools: Optional Anthropic-format tool definitions.
 
         Returns normalized response dict with content, tool_calls, usage.
 
@@ -141,7 +150,10 @@ class AnthropicClient:
             messages=messages,
             max_tokens=max_tokens,
             temperature=temperature,
+            tools=tools,
         )
+        if model:
+            request["model"] = model
         try:
             response = await self._send_request(request)
         except httpx.TimeoutException as exc:

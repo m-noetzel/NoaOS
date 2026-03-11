@@ -174,6 +174,20 @@ From SPEC.md §4.1:
 
 ---
 
+## L12: Write-Path User Scoping
+
+Every write path that stores user-associated data **must** set `user_id` at write time.
+
+**Rules:**
+1. Any data model with a `user_id` column must have that column populated on insert — never left null when a user context is available.
+2. Read paths that filter by `user_id` are invalid if the corresponding write path does not set it (silent data loss — facts/records become invisible to their owner).
+3. When adding a new store method or insert path, verify: "Does the write include `user_id` if the read filters by it?"
+4. Applies to all storage: ORM models, in-memory dicts, file-based stores, and caches.
+
+**Checked by:** QA review (cross-check write path vs. read path for any user-scoped resource).
+
+---
+
 ## Enforcement
 
 These invariants are checked:

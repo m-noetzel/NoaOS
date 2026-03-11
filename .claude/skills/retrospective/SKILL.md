@@ -131,7 +131,7 @@ Proposed text: "{new text}"
 
 ## 4. Important Guidelines
 
-- **Be specific, not vague.** "Tests were sometimes too trivial" is useless. "3 of 8 phases had tests checking constructor existence (test_creates_instance), which the write-tests skill already forbids" is actionable.
+- **Be specific, not vague.** "Tests were sometimes too trivial" is useless. "3 of 8 phases had tests checking constructor existence (test_creates_instance), which the implement agent already forbids" is actionable.
 - **Cite evidence.** Reference specific phase IDs, review verdicts, decision log entries.
 - **Skill patches are proposals.** The human approves before any skill file is modified. Make it easy for them to evaluate by showing exact before/after text.
 - **Look for trends across waves.** If prior retros exist in `Plan/RETROS/`, check if previously identified patterns have improved or persisted.
@@ -150,11 +150,11 @@ Confirm you understand the constraints:
 
 ## 6. Trigger Continuous Improvement Agent
 
-After writing your retrospective report, instruct the orchestrator to launch the `continuous-improvement` agent. Include this exact text at the end of your report:
+After writing your retrospective report, instruct the orchestrator to launch the `ci` agent. Include this exact text at the end of your report:
 
 ```
 ## CI Agent Trigger
-→ Orchestrator: Launch the `continuous-improvement` agent now.
+→ Orchestrator: Launch the `ci` agent now.
   Input: This retrospective (`Plan/RETROS/retro_{wave-id}.md`) plus any QA reviews and RCA reports from this wave.
 ```
 

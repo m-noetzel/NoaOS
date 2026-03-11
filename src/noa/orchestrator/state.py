@@ -34,3 +34,4 @@ class AgentState(TypedDict):
     model_config: dict[str, str]
     tool_rounds: int
     llm_usage: list[dict[str, Any]]
+    available_tools: list[dict[str, Any]]

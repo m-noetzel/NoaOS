@@ -14,16 +14,11 @@ from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 
 from noa.api.app import create_app
-from noa.auth.middleware import require_auth
+from noa.auth.middleware import AuthUser, require_auth
 
 
-def _fake_user() -> dict[str, Any]:
-    return {
-        "user_id": str(uuid.uuid4()),
-        "sub": str(uuid.uuid4()),
-        "email": "test@test.com",
-        "type": "access",
-    }
+def _fake_user() -> AuthUser:
+    return AuthUser(user_id=uuid.uuid4())
 
 
 def _make_client(

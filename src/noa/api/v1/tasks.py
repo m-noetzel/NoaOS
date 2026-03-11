@@ -16,7 +16,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from noa.auth.middleware import require_auth
+from noa.auth.middleware import AuthUser, require_auth
 from noa.scheduler.queue import Priority, TaskScheduler
 
 router = APIRouter(prefix="/api/v1/tasks", tags=["tasks"])
@@ -72,7 +72,7 @@ class NextTaskResponse(BaseModel):
 
 @router.get("")
 async def list_tasks(
-    user: dict[str, Any] = Depends(require_auth),  # noqa: B008
+    user: AuthUser = Depends(require_auth),  # noqa: B008
     scheduler: TaskScheduler = Depends(get_scheduler),  # noqa: B008
 ) -> dict[str, Any]:
     """List all tasks in the queue per §23.4."""
@@ -94,7 +94,7 @@ async def list_tasks(
 @router.post("", response_model=EnqueueResponse)
 async def enqueue_task(
     body: EnqueueRequest,
-    user: dict[str, Any] = Depends(require_auth),  # noqa: B008
+    user: AuthUser = Depends(require_auth),  # noqa: B008
     scheduler: TaskScheduler = Depends(get_scheduler),  # noqa: B008
 ) -> EnqueueResponse:
     """Enqueue a new task per §23.4."""
@@ -122,7 +122,7 @@ async def enqueue_task(
 
 @router.get("/next", response_model=NextTaskResponse)
 async def get_next_task(
-    user: dict[str, Any] = Depends(require_auth),  # noqa: B008
+    user: AuthUser = Depends(require_auth),  # noqa: B008
     scheduler: TaskScheduler = Depends(get_scheduler),  # noqa: B008
 ) -> NextTaskResponse:
     """Get the next highest-priority unblocked task per §23.4."""
@@ -135,7 +135,7 @@ async def get_next_task(
 @router.post("/{task_id}/cancel", response_model=TaskStatusResponse)
 async def cancel_task(
     task_id: str,
-    user: dict[str, Any] = Depends(require_auth),  # noqa: B008
+    user: AuthUser = Depends(require_auth),  # noqa: B008
     scheduler: TaskScheduler = Depends(get_scheduler),  # noqa: B008
 ) -> TaskStatusResponse:
     """Cancel a task and cascade-cancel dependents per §23.4."""
@@ -149,7 +149,7 @@ async def cancel_task(
 @router.post("/{task_id}/retry", response_model=TaskStatusResponse)
 async def retry_task(
     task_id: str,
-    user: dict[str, Any] = Depends(require_auth),  # noqa: B008
+    user: AuthUser = Depends(require_auth),  # noqa: B008
     scheduler: TaskScheduler = Depends(get_scheduler),  # noqa: B008
 ) -> TaskStatusResponse:
     """Retry a cancelled/failed task per §23.4."""
@@ -163,7 +163,7 @@ async def retry_task(
 @router.get("/{task_id}/status", response_model=TaskStatusResponse)
 async def get_task_status(
     task_id: str,
-    user: dict[str, Any] = Depends(require_auth),  # noqa: B008
+    user: AuthUser = Depends(require_auth),  # noqa: B008
     scheduler: TaskScheduler = Depends(get_scheduler),  # noqa: B008
 ) -> TaskStatusResponse:
     """Get task status per §23.4."""

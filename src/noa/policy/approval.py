@@ -2,12 +2,30 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
 from noa.db.models.approval import Approval
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ApprovalRule:
+    """A policy rule governing approval behaviour for a risk tier.
+
+    Optionally carries an ``allowed_tools`` list that restricts which
+    tools the orchestrator may expose to the LLM when this rule applies.
+    ``None`` means no restriction (all user-enabled tools allowed).
+    An empty list means no tools are permitted.
+    """
+
+    risk_tier: str
+    allowed_tools: list[str] | None = field(default=None)
 
 
 class ApprovalService:
@@ -24,7 +42,11 @@ class ApprovalService:
         preview_text: str | None = None,
         domain: str = "private",
     ) -> Approval:
-        """Create a pending approval request per §29.6."""
+        """Create a pending approval request per §29.6.
+
+        Also queues a push notification via APNs if the service is
+        available (§29.5).
+        """
         approval = Approval(
             id=uuid.uuid4(),
             run_id=run_id,
@@ -36,7 +58,64 @@ class ApprovalService:
         )
         self._session.add(approval)
         self._session.flush()
+
+        # Push notification hook (§29.5)
+        self._notify_push(
+            user_id=user_id,
+            notification_type="approval_required",
+            request_id=approval.id,
+            risk_tier=risk_tier,
+            domain=domain,
+        )
+
         return approval
+
+    def _notify_push(
+        self,
+        *,
+        user_id: uuid.UUID,
+        notification_type: str,
+        request_id: uuid.UUID,
+        risk_tier: str,
+        domain: str,
+    ) -> None:
+        """Schedule a push notification via APNs as a fire-and-forget task."""
+        import asyncio
+
+        try:
+            from noa.api.app_state import get_apns_service
+
+            apns = get_apns_service()
+            if apns is None:
+                return
+            if not apns.should_notify(
+                event_type=notification_type, risk_tier=risk_tier
+            ):
+                return
+
+            from noa.push.tasks import send_push_to_user
+
+            asyncio.create_task(
+                send_push_to_user(
+                    user_id=user_id,
+                    notification_type=notification_type,
+                    request_id=request_id,
+                    risk_tier=risk_tier,
+                )
+            )
+            logger.info(
+                "Push notification scheduled: type=%s user=%s request=%s",
+                notification_type,
+                user_id,
+                request_id,
+            )
+        except RuntimeError:
+            # No running event loop (e.g. sync test context) — skip push
+            logger.debug("No event loop for push notification, skipping")
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "Failed to schedule push notification", exc_info=True
+            )
 
     def decide(
         self,

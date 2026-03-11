@@ -169,11 +169,14 @@ describe("Token Storage", () => {
     localStorage.clear();
   });
 
-  it("setTokens stores both tokens and getters retrieve them", () => {
+  it("setTokens sets auth flag; getters return null (httpOnly cookies)", () => {
     setTokens("access_abc", "refresh_xyz");
 
-    expect(getAccessToken()).toBe("access_abc");
-    expect(getRefreshToken()).toBe("refresh_xyz");
+    // C6: tokens are in httpOnly cookies, not readable by JS
+    expect(getAccessToken()).toBeNull();
+    expect(getRefreshToken()).toBeNull();
+    // Auth flag is set for UI state tracking
+    expect(hasTokens()).toBe(true);
   });
 
   it("clearTokens removes both tokens", () => {

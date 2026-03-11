@@ -10,7 +10,7 @@ The plan is organized into **waves** — groups of related phases that deliver a
 
 ## Key Documents
 
-- **[FINDINGS.md](FINDINGS.md)** — 49 audit findings (49 resolved, 0 open, 0 partially resolved). Updated inline when findings are resolved.
+- **[FINDINGS.md](FINDINGS.md)** — 95 audit findings (66 resolved, 29 open). Updated inline when findings are resolved.
 - **[PHASE_DETAILS.md](PHASE_DETAILS.md)** — Detailed phase descriptions (search by phase ID).
 - **[QA_CHECKLIST.md](QA_CHECKLIST.md)** — QA criteria (M1-M8 must-haves, S1-S5 should-haves).
 
@@ -135,4 +135,66 @@ The plan is organized into **waves** — groups of related phases that deliver a
 | **PW1** | Playwright Setup & Auth Tests | **Complete** | 6 | main | ~30 min | ~10 min | QA PASS_WITH_NOTES 2026-03-07 |
 | **PW2** | Chat E2E with SSE Simulation | **Complete** | 6 | main | ~30 min | ~15 min | QA PASS_WITH_NOTES 2026-03-07 |
 | **PW3** | Settings & Navigation Tests | **Complete** | 6 | main | ~20 min | ~5 min | QA PASS_WITH_NOTES 2026-03-07 |
+| — | — **WAVE 18: TOOL MANAGEMENT & CREDENTIALS** — | — | — | — | — | — | — |
+| **TM1** | Tool Health-Check Endpoint & Credential Status | **Complete** | 20 | main | ~45 min | ~30 min | QA PASS_WITH_NOTES 2026-03-11: ToolHealthChecker (real httpx probes), CredentialStatusChecker, mask_credential, user-scoped credential store |
+| **TM2** | Tools API Enrichment (Functions, Permissions, Metadata) | **Complete** | 20 | main | ~45 min | ~25 min | QA PASS_WITH_NOTES 2026-03-11: risk_tier+domain per function, function-level capabilities, nullable function_name in DB, per-function enable/disable endpoints |
+| **TM3** | Tools UI Redesign — Dashboard & Health | **Complete** | 13 | main | ~60 min | ~20 min | Expandable cards, health indicators, CredentialModal, per-function toggles with risk badges, "Test Connection" button |
+| **TM4** | Per-Task Tool Permissions & Context Scoping | **Complete** | 13 | main | ~45 min | ~15 min | ToolScopeRegistry (email_draft/research/scheduling), filter_tools_by_allowlist intersection, ApprovalRule.allowed_tools |
+| **TM5** | Tool Registry: Add Custom Tools via UI | **Complete** | 18 | main | ~45 min | ~20 min | CustomTool model, HttpToolAdapter, schema validation, POST /tools registration, load_custom_tools from DB, name collision guard |
+| **TM6** | MCP Server Connector (Phase 2 Bridge) | **Complete** | 18 | main | ~60 min | ~20 min | Real HTTP+SSE JSON-RPC 2.0 transport, MCP auto-discovery (tools/list), domain isolation in gateway, POST /mcp-servers endpoint |
+| — | — **WAVE 19: PRODUCTION READINESS CLEANUP** — | — | — | — | — | — | — |
+| **PR1** | Backend Critical Fixes (Data Integrity) | **Complete** | 19 | main | ~60 min | ~45 min | BE-C1: runs join usage_stats (real cost/token/model/duration_ms); BE-C2: user-scoped memory (all endpoints, public persist()); BE-H2: RunService fully async (select/execute pattern) |
+| **PR2** | Frontend Critical Fixes (Broken Flows) | **Complete** | 10 | main | ~45 min | ~45 min | QA PASS_WITH_NOTES 2026-03-11: BE-H3/FE-C1 PATCH /settings; FE-H1 thread race (mutateAsync); FE-H2 RunDetail type cast removed |
+| **PR3** | iOS Critical Fixes (Broken Flows) | **In Progress** | — | — | ~60 min | — | iOS-H1: wire NetworkMonitor + queue drain; iOS-H2: cancel SSE on thread switch; iOS-H3: AuthGuard token refresh; iOS-H4: provider/model in ComposerBar |
+| **PR4** | Backend Security & Robustness | Planned | — | — | ~45 min | — | BE-H1: persist credentials (DB/vault); BE-M3: artifact path traversal guard; BE-M2: MemoryStore interface (no _persist); BE-M4: structured log context |
+| **PR5** | Frontend & iOS Polish | Planned | — | — | ~45 min | — | FE-M1: real online indicator; FE-M2: React Router redirect; FE-M3: auth'd artifact download; FE-M4: credential validation; iOS-M1-M5: lifecycle/UX fixes |
+| **PR6** | Integration Tests & Verification | Planned | — | — | ~45 min | — | E2E tests for: chat→cost flow, memory user isolation, thread CRUD, settings round-trip, privacy toggle, artifact download |
+
+---
+
+## Future Waves (7→9 Roadmap)
+
+Deferred until Wave 19 stabilizes the base. Noa is a **single-user personal assistant** — no multi-user needed for now.
+
+### Wave 20: Deployment & Reliability
+- Proper deployment pipeline (CI/CD, health gates, rollback)
+- Container isolation for workers (external/private in separate containers as spec intended)
+- Automated backup verification (restore-and-check cron)
+- HTTPS/TLS setup for Tailscale or VPS deployment
+
+### Wave 21: Observability & Ops
+- Lightweight monitoring (health dashboard, error rate tracking)
+- Alerting on failures (ntfy or similar, already partially wired)
+- Structured log aggregation and retention
+- Query performance audit (EXPLAIN ANALYZE on hot paths)
+
+### Wave 22: Polish & Extended Capabilities
+- Frontend bundle optimization (tree-shaking, lazy routes audit)
+- Advanced tool integrations (new MCP servers, custom workflows)
+- Voice UX refinement (streaming transcription, inline playback)
+- iOS widget / Shortcuts integration
+
+---
+
+## Deployment Roadmap
+
+### Stage 1 — Local Development (current)
+- Backend: Docker on Mac (`localhost:8000`)
+- iOS app: installed via Xcode, Developer Mode required
+- Networking: **Tailscale** — Mac + iPhone in private VPN mesh, stable `100.x.x.x` IP, no third-party relay
+- Environment: `NoaEnvironment.development` → Mac's Tailscale IP
+
+### Stage 2 — Personal TestFlight
+- **Apple Developer Program** (€99/year) required
+- App distributed via TestFlight — no Developer Mode, no 7-day expiry, up to 90 days per build
+- Backend still on Mac or moved to a small VPS (Hetzner CX22 ~€4/mo, fly.io free tier)
+- APNs: configure real key in Apple Developer Portal → update `APNS_KEY_PATH` / `APNS_KEY_ID` / `APNS_TEAM_ID`
+- HTTPS: Let's Encrypt or Cloudflare proxy
+
+### Stage 3 — Production / App Store
+- Backend on dedicated server with domain + TLS
+- Certificate pinning active (Release build, `CertificatePinningDelegate`)
+- `NOA_BASE_URL` set in Info.plist (production environment)
+- App Store submission or Ad Hoc distribution
+- Monitoring: structured logs, health checks (already implemented in OP1–OP5)
 

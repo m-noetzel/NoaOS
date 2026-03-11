@@ -121,6 +121,7 @@ class ProviderRouter:
         privacy_mode: str = "external",
         provider: str | None = None,
         model: str | None = None,
+        tools: list[dict[str, Any]] | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Dispatch a completion request to the appropriate provider.
@@ -131,6 +132,7 @@ class ProviderRouter:
             privacy_mode: ``"external"`` or ``"private"``.
             provider: Optional explicit provider override.
             model: Optional model override.
+            tools: Optional tool definitions (provider-specific format).
             **kwargs: Provider-specific parameters (temperature, top_p, etc.).
 
         Returns:
@@ -140,12 +142,17 @@ class ProviderRouter:
             PrivacyViolationError: If privacy constraints are violated.
             ProviderError: If the selected provider is unavailable or fails.
         """
-        selected = self.select(privacy_mode=privacy_mode, user_selected=provider)
+        selected = self.select(
+            privacy_mode=privacy_mode, user_selected=provider,
+        )
 
         client = self._clients.get(selected)
         if client is None:
             msg = f"Provider '{selected}' is not configured"
             raise ProviderError(msg)
+
+        # Build provider-specific tool definitions
+        provider_tools = self._format_tools(selected, tools)
 
         # Ollama has a different interface (model is a required param)
         if selected == "ollama":
@@ -159,12 +166,38 @@ class ProviderRouter:
             return result
 
         # External providers (Anthropic, OpenAI, Google AI)
-        result = await client.complete(
-            messages=messages,
-            max_tokens=max_tokens,
+        complete_kwargs: dict[str, Any] = {
+            "messages": messages,
+            "max_tokens": max_tokens,
             **kwargs,
-        )
+        }
+        if model:
+            complete_kwargs["model"] = model
+        if provider_tools:
+            complete_kwargs["tools"] = provider_tools
+        result = await client.complete(**complete_kwargs)
         return result
+
+    @staticmethod
+    def _format_tools(
+        provider_name: str,
+        registered_tools: list[dict[str, Any]] | None,
+    ) -> list[dict[str, Any]] | None:
+        """Format tool definitions for the selected provider."""
+        if not registered_tools:
+            return None
+
+        if provider_name in ("anthropic", "google_ai"):
+            from noa.tools.definitions import get_anthropic_tools
+            tool_names = [t["name"] for t in registered_tools]
+            return get_anthropic_tools(tool_names)
+
+        if provider_name == "openai":
+            from noa.tools.definitions import get_openai_tools
+            tool_names = [t["name"] for t in registered_tools]
+            return get_openai_tools(tool_names)
+
+        return None
 
 
 def build_llm_clients(settings: Any) -> dict[str, Any]:

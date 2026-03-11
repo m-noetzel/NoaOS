@@ -61,12 +61,12 @@ class OrchestratorRunner:
             "message_received",
             {"message": message},
         )
-        self._persist_event(run_service, run_id, event)
+        await self._persist_event(run_service, run_id, event)
         yield event
 
         # 2. Transition to running
         try:
-            run_service.update_status(run_id, "running")
+            await run_service.update_status(run_id, "running")
         except Exception:  # noqa: BLE001
             logger.warning("Failed to update run status to running")
 
@@ -75,7 +75,7 @@ class OrchestratorRunner:
             "classification_done",
             {"privacy_mode": privacy_mode, "model": model},
         )
-        self._persist_event(run_service, run_id, event)
+        await self._persist_event(run_service, run_id, event)
         yield event
 
         # 4. step_started
@@ -83,7 +83,7 @@ class OrchestratorRunner:
             "step_started",
             {"step": "agent"},
         )
-        self._persist_event(run_service, run_id, event)
+        await self._persist_event(run_service, run_id, event)
         yield event
 
         # 5. Invoke graph
@@ -93,9 +93,19 @@ class OrchestratorRunner:
                 messages.append({"role": "system", "content": system_prompt})
             messages.append({"role": "user", "content": message})
 
+            # Resolve available tools from gateway
+            from noa.orchestrator.nodes.tools import get_gateway
+            gw = get_gateway()
+            avail_tools: list[dict[str, Any]] = []
+            if gw is not None:
+                avail_tools = [
+                    {"name": t} for t in gw.list_tools()
+                ]
+
             initial_state: dict[str, Any] = {
                 "messages": messages,
                 "privacy_mode": privacy_mode,
+                "user_privacy_override": privacy_mode,
                 "selected_model": model,
                 "user_model_override": model,
                 "user_provider_override": provider,
@@ -106,6 +116,7 @@ class OrchestratorRunner:
                 "llm_usage": [],
                 "model_config": {},
                 "tool_rounds": 0,
+                "available_tools": avail_tools,
             }
 
             # A4: Load checkpoint if available (resume support)
@@ -128,7 +139,7 @@ class OrchestratorRunner:
                     "tool_called",
                     {"tool_call": tc},
                 )
-                self._persist_event(run_service, run_id, tc_event)
+                await self._persist_event(run_service, run_id, tc_event)
                 yield tc_event
 
             tool_results = result.get("tool_results", [])
@@ -137,7 +148,7 @@ class OrchestratorRunner:
                     "tool_result",
                     {"tool_result": tr},
                 )
-                self._persist_event(run_service, run_id, tr_event)
+                await self._persist_event(run_service, run_id, tr_event)
                 yield tr_event
 
             # 7. result_ready
@@ -150,27 +161,27 @@ class OrchestratorRunner:
                     "llm_usage": result.get("llm_usage", []),
                 },
             )
-            self._persist_event(run_service, run_id, event)
+            await self._persist_event(run_service, run_id, event)
             yield event
 
             # 8. Transition to completed
             try:
-                run_service.update_status(run_id, "completed")
+                await run_service.update_status(run_id, "completed")
             except Exception:  # noqa: BLE001
                 logger.warning("Failed to update run status to completed")
 
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             # Error event
             error_event = self._make_event(
                 "error",
                 {"error": str(exc), "error_type": type(exc).__name__},
             )
-            self._persist_event(run_service, run_id, error_event)
+            await self._persist_event(run_service, run_id, error_event)
             yield error_event
 
             # Transition to failed
             try:
-                run_service.update_status(run_id, "failed")
+                await run_service.update_status(run_id, "failed")
             except Exception:  # noqa: BLE001
                 logger.warning("Failed to update run status to failed")
 
@@ -187,14 +198,14 @@ class OrchestratorRunner:
         }
 
     @staticmethod
-    def _persist_event(
+    async def _persist_event(
         run_service: Any,
         run_id: str,
         event: dict[str, Any],
     ) -> None:
         """Persist an event via RunService (best-effort)."""
         try:
-            run_service.append_event(
+            await run_service.append_event(
                 run_id,
                 event["event_type"],
                 event["payload"],

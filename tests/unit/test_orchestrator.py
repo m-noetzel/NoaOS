@@ -17,6 +17,8 @@ from unittest.mock import patch
 
 import pytest
 
+pytest.importorskip("langgraph", reason="langgraph not installed")
+
 pytestmark = pytest.mark.oc1
 
 
@@ -55,6 +57,7 @@ def _make_agent_state(
         "tool_rounds": tool_rounds,
         "model_config": model_config or {},
         "llm_usage": [],
+        "available_tools": [],
     }
 
 

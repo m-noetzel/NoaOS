@@ -13,7 +13,7 @@ COPY src/ ./src/
 COPY alembic.ini ./
 COPY alembic/ ./alembic/
 
-RUN pip install --no-cache-dir ".[api,orchestrator]" && rm -rf /root/.cache
+RUN pip install --no-cache-dir -e ".[api,orchestrator]" && rm -rf /root/.cache
 
 USER noa
 

@@ -7,7 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from noa.api.deps import get_db_session
@@ -34,20 +34,29 @@ async def list_threads(
     """List all threads for the authenticated user."""
     rid = trace_id_ctx.get("")
 
+    # Subquery for message count per thread
+    msg_count_sub = (
+        select(Message.thread_id, func.count().label("cnt"))
+        .group_by(Message.thread_id)
+        .subquery()
+    )
+
     result = await session.execute(
-        select(Conversation)
+        select(Conversation, func.coalesce(msg_count_sub.c.cnt, 0).label("message_count"))
+        .outerjoin(msg_count_sub, Conversation.id == msg_count_sub.c.thread_id)
         .where(Conversation.user_id == user.user_id)
         .order_by(Conversation.created_at.desc())
         .limit(100)
     )
-    rows = result.scalars().all()
+    rows = result.all()
 
     data = [
         {
-            "id": str(row.id),
-            "title": row.title,
-            "created_at": row.created_at.isoformat(),
-            "updated_at": row.created_at.isoformat(),
+            "id": str(row.Conversation.id),
+            "title": row.Conversation.title,
+            "message_count": row.message_count,
+            "created_at": row.Conversation.created_at.isoformat(),
+            "updated_at": row.Conversation.created_at.isoformat(),
         }
         for row in rows
     ]
@@ -118,6 +127,7 @@ async def list_messages(
     data = [
         {
             "id": str(row.id),
+            "thread_id": str(row.thread_id),
             "role": row.role,
             "content": row.content,
             "created_at": row.timestamp.isoformat(),

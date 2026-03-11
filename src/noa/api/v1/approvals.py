@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from noa.api.deps import get_db_session
 from noa.api.middleware import trace_id_ctx
 from noa.api.schemas.common import success_envelope
-from noa.auth.middleware import require_auth
+from noa.auth.middleware import AuthUser, require_auth
 from noa.db.models.approval import Approval
 
 router = APIRouter(prefix="/api/v1/approvals", tags=["approvals"])
@@ -29,12 +29,12 @@ class ApprovalDecision(BaseModel):
 @router.get("/pending")
 async def list_pending_approvals(
     request: Request,
-    user: dict[str, Any] = Depends(require_auth),  # noqa: B008
+    user: AuthUser = Depends(require_auth),  # noqa: B008
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
 ) -> dict[str, Any]:
     """List pending approvals for the authenticated user."""
     rid = trace_id_ctx.get("")
-    user_id = user.user_id if hasattr(user, "user_id") else uuid.UUID(user["sub"])  # type: ignore[union-attr]
+    user_id = user.user_id
     result = await session.execute(
         select(Approval)
         .where(Approval.user_id == user_id, Approval.decision == "pending")
@@ -60,7 +60,7 @@ async def decide_approval(
     approval_id: uuid.UUID,
     body: ApprovalDecision,
     request: Request,
-    user: dict[str, Any] = Depends(require_auth),  # noqa: B008
+    user: AuthUser = Depends(require_auth),  # noqa: B008
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
 ) -> dict[str, Any]:
     """Approve or deny a pending approval per §29.6.
@@ -82,17 +82,24 @@ async def decide_approval(
             detail=f"Approval {approval_id} not found",
         )
 
+    # IDOR check: only the approval owner may decide it
+    if approval.user_id != user.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorised to decide this approval",
+        )
+
     if approval.decision != "pending":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Approval already decided: {approval.decision}",
         )
 
-    user_id = user.user_id if hasattr(user, "user_id") else uuid.UUID(user["sub"])  # type: ignore[union-attr]
     approval.decision = body.decision
     approval.decided_at = datetime.now(UTC)
-    approval.decided_by_user_id = user_id
+    approval.decided_by_user_id = user.user_id
     await session.flush()
+    await session.commit()
 
     return success_envelope(
         data={

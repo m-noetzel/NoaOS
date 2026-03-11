@@ -23,7 +23,21 @@ public actor APIClient: APIClientProtocol {
 
     private static let decoder: JSONDecoder = {
         let d = JSONDecoder()
-        d.dateDecodingStrategy = .iso8601
+        d.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            let string = try container.decode(String.self)
+            let frac = ISO8601DateFormatter()
+            frac.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let date = frac.date(from: string) {
+                return date
+            }
+            let basic = ISO8601DateFormatter()
+            basic.formatOptions = [.withInternetDateTime]
+            if let date = basic.date(from: string) {
+                return date
+            }
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Invalid date: \(string)")
+        }
         return d
     }()
 
@@ -39,6 +53,11 @@ public actor APIClient: APIClientProtocol {
     private let networkMonitor: (any NetworkMonitoring)?
     private let offlineQueue: (any OfflineQueuing)?
 
+    /// Called when a 401 cannot be recovered by token refresh.
+    /// Typically set to `authViewModel.handleUnauthorized` by the app composition root.
+    /// iOS-H3: allows the auth layer to react to unrecoverable auth failures at runtime.
+    private var onUnauthorized: (@Sendable () -> Void)?
+
     // MARK: - Init
 
     public init(
@@ -46,7 +65,8 @@ public actor APIClient: APIClientProtocol {
         tokenProvider: any TokenProviding,
         session: URLSession? = nil,
         networkMonitor: (any NetworkMonitoring)? = nil,
-        offlineQueue: (any OfflineQueuing)? = nil
+        offlineQueue: (any OfflineQueuing)? = nil,
+        onUnauthorized: (@Sendable () -> Void)? = nil
     ) {
         self.baseURL = environment.baseURL
         self.tokenProvider = tokenProvider
@@ -159,6 +179,61 @@ public actor APIClient: APIClientProtocol {
         }
 
         return try decode(T.self, from: data, statusCode: httpResponse.statusCode, headers: httpResponse)
+    }
+
+    // MARK: - Offline queue replay
+
+    /// Replays a `QueuedRequest` that was enqueued while the device was offline.
+    ///
+    /// The pre-serialised body bytes are injected directly as `httpBody` — no
+    /// double-encoding occurs. The response is discarded; callers only care whether
+    /// the request succeeds or throws.
+    ///
+    /// - Parameter request: A previously-queued write request.
+    /// - Throws: `APIError` on network or server failure.
+    public func replayRequest(_ request: QueuedRequest) async throws {
+        let token = await tokenProvider.accessToken()
+        let url = baseURL.appendingPathComponent(request.endpoint)
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = request.method
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let token {
+            urlRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        // Reuse the idempotency key that was assigned at enqueue time (§25.4).
+        urlRequest.setValue(request.id, forHTTPHeaderField: "Idempotency-Key")
+        urlRequest.httpBody = request.bodyData
+
+        let (_, response): (Data, URLResponse)
+        do {
+            (_, response) = try await session.data(for: urlRequest)
+        } catch let urlError as URLError {
+            throw APIError.networkError(underlying: urlError)
+        } catch {
+            throw APIError.networkError(underlying: error)
+        }
+
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.networkError(underlying: URLError(.badServerResponse))
+        }
+
+        switch http.statusCode {
+        case 200...299:
+            return  // success — caller dequeues the item
+        case 401:
+            throw APIError.unauthorized
+        case 403:
+            throw APIError.forbidden
+        case 404:
+            throw APIError.notFound
+        case 429:
+            let retryAfter = http.value(forHTTPHeaderField: "Retry-After")
+                .flatMap { TimeInterval($0) }
+            throw APIError.rateLimited(retryAfter: retryAfter)
+        default:
+            throw APIError.unknown(statusCode: http.statusCode)
+        }
     }
 
     // MARK: - Private helpers

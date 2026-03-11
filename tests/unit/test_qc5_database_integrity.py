@@ -409,35 +409,38 @@ class TestRunServiceAsync:
         svc = RunService(session=mock_session)
         assert svc._session is mock_session
 
-    def test_create_run_works_with_any_session(self):
-        """PLAN QC5/M12: create_run must work with any session type.
+    async def test_create_run_works_with_any_session(self):
+        """PLAN QC5/M12: create_run must work with async session.
 
-        The constructor accepts Any, so sync callers (existing tests)
-        continue to work while async callers can pass AsyncSession.
+        RunService is now fully async (BE-H2). The session must be async-compatible.
         """
+        from unittest.mock import AsyncMock, MagicMock
+
         from noa.runs.service import RunService
 
         mock_session = MagicMock()
         mock_session.add = MagicMock()
-        mock_session.flush = MagicMock()
+        mock_session.flush = AsyncMock()
         svc = RunService(session=mock_session)
         import uuid
-        run = svc.create_run(
+        run = await svc.create_run(
             user_id=uuid.uuid4(), thread_id=uuid.uuid4(),
         )
         assert run is not None
         mock_session.add.assert_called_once()
 
-    def test_append_event_works_with_any_session(self):
-        """PLAN QC5/M12: append_event must work with any session type."""
+    async def test_append_event_works_with_any_session(self):
+        """PLAN QC5/M12: append_event must work with async session."""
+        from unittest.mock import AsyncMock, MagicMock
+
         from noa.runs.service import RunService
 
         mock_session = MagicMock()
         mock_session.add = MagicMock()
-        mock_session.flush = MagicMock()
+        mock_session.flush = AsyncMock()
         svc = RunService(session=mock_session)
         import uuid
-        event = svc.append_event(
+        event = await svc.append_event(
             run_id=uuid.uuid4(),
             event_type="message_received",
             payload={"text": "hi"},

@@ -16,20 +16,21 @@ private let autoRefreshThresholdSeconds: TimeInterval = 60
 /// Not MainActor-isolated so it can be constructed and tested freely;
 /// SwiftUI's Observation framework handles UI-thread delivery automatically.
 @Observable
-public final class AuthViewModel: Sendable {
+@MainActor
+public final class AuthViewModel {
 
     // MARK: - Published state
 
     /// `true` when a valid access token is present in the Keychain.
-    public nonisolated(unsafe) var isAuthenticated: Bool = false
+    public var isAuthenticated: Bool = false
     /// Non-nil after a failed login attempt; cleared on the next successful login.
-    public nonisolated(unsafe) var errorMessage: String?
+    public var errorMessage: String?
 
     // MARK: - Private state
 
     private let authService: AuthService
     /// Expiry date of the current access token (set after login/refresh).
-    nonisolated(unsafe) var tokenExpiresAt: Date?
+    var tokenExpiresAt: Date?
 
     // MARK: - Init
 
