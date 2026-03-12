@@ -609,9 +609,7 @@ class TestApprovalDecideResponseShape:
 
         from noa.api.app import create_app
         from noa.api.deps import get_db_session
-        from noa.auth.middleware import require_auth
-
-        from noa.auth.middleware import AuthUser
+        from noa.auth.middleware import AuthUser, require_auth
 
         owner_id = uuid.uuid4()
         approval_id = uuid.uuid4()
@@ -660,9 +658,7 @@ class TestApprovalDecideResponseShape:
 
         from noa.api.app import create_app
         from noa.api.deps import get_db_session
-        from noa.auth.middleware import require_auth
-
-        from noa.auth.middleware import AuthUser
+        from noa.auth.middleware import AuthUser, require_auth
 
         owner_id = uuid.uuid4()
         approval_id = uuid.uuid4()

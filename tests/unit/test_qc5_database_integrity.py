@@ -209,7 +209,7 @@ class TestRetentionPurge:
         Integration test: real AuditService with an in-memory DB verifying
         that old records are actually removed.
         """
-        from sqlalchemy import create_engine, text
+        from sqlalchemy import create_engine
         from sqlalchemy.orm import Session
 
         from noa.audit.service import AuditService

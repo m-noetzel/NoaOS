@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import JSON, DateTime, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
@@ -20,7 +21,7 @@ class CustomTool(Base):
     base_url: Mapped[str] = mapped_column(String(512), nullable=False)
     auth_type: Mapped[str] = mapped_column(String(32), nullable=False, default="none")
     domain: Mapped[str] = mapped_column(String(32), nullable=False, default="external")
-    functions: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    functions: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
     created_by: Mapped[uuid.UUID] = mapped_column(nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

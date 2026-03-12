@@ -48,31 +48,40 @@ async def cost_summary(
 
     try:
         async with factory() as session:
-            from sqlalchemy import text
+            from sqlalchemy import func, select
+
+            from noa.db.models.usage import UsageStats
 
             # For summary, return both daily and monthly aggregates
             summaries = []
+            from datetime import UTC, datetime
+
+            now = datetime.now(UTC)
+            # Determine period start timestamps (DB-agnostic using Python datetime)
+
+            today_start = datetime(now.year, now.month, now.day, tzinfo=UTC)
+            month_start = datetime(now.year, now.month, 1, tzinfo=UTC)
+
             for p in (["daily", "monthly"] if period == "monthly" else ["daily"]):
-                result = await session.execute(
-                    text(
-                        "SELECT COALESCE(SUM(cost_usd), 0), "
-                        "COALESCE(SUM(input_tokens), 0), "
-                        "COALESCE(SUM(output_tokens), 0) "
-                        "FROM usage_stats WHERE user_id = :uid"
-                        + (
-                            " AND timestamp >= date_trunc('day', NOW())"
-                            if p == "daily"
-                            else " AND timestamp >= date_trunc('month', NOW())"
-                        )
-                    ),
-                    {"uid": uid},
+                since = today_start if p == "daily" else month_start
+                stmt = select(
+                    func.coalesce(func.sum(UsageStats.cost_usd), 0)
+                    .label("cost_usd"),
+                    func.coalesce(func.sum(UsageStats.input_tokens), 0)
+                    .label("tokens_in"),
+                    func.coalesce(func.sum(UsageStats.output_tokens), 0)
+                    .label("tokens_out"),
+                ).where(
+                    UsageStats.user_id == uid,
+                    UsageStats.timestamp >= since,
                 )
+                result = await session.execute(stmt)
                 row = result.one()
                 summaries.append({
                     "period": p,
-                    "tokens_in": int(row[1]),
-                    "tokens_out": int(row[2]),
-                    "cost_usd": float(row[0]),
+                    "tokens_in": int(row.tokens_in),
+                    "tokens_out": int(row.tokens_out),
+                    "cost_usd": float(row.cost_usd),
                 })
 
         return success_envelope(data=summaries, trace_id=rid)

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { apiRequest, WEB_DEVICE_ID } from "@/api/client";
+import { apiRequest, registerSessionExpiredHandler, WEB_DEVICE_ID } from "@/api/client";
 import type { LoginRequest, RegisterRequest } from "@/api/types";
 import { setTokens, clearTokens, hasTokens } from "./tokens";
 
@@ -16,8 +17,24 @@ const AuthContext = createContext<AuthState | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [isAuthenticated, setIsAuthenticated] = useState(() => hasTokens());
   const [isLoading, setIsLoading] = useState(false);
+
+  // FE-M2: Register a React Router navigate handler so that session expiry
+  // uses navigate("/login") instead of window.location.href, keeping React
+  // state intact (QueryClient cache, component tree, etc.).
+  useEffect(() => {
+    registerSessionExpiredHandler(() => {
+      clearTokens();
+      queryClient.clear();
+      setIsAuthenticated(false);
+      navigate("/login", { replace: true });
+    });
+    // Cleanup: clear the handler when AuthProvider unmounts so a stale closure
+    // cannot fire against a dead component tree (e.g. during hot-reload).
+    return () => { registerSessionExpiredHandler(() => {}); };
+  }, [navigate, queryClient]);
 
   useEffect(() => {
     setIsAuthenticated(hasTokens());

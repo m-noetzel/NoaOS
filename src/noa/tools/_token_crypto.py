@@ -12,10 +12,23 @@ import os
 
 
 def _derive_key() -> bytes:
-    """Derive a 32-byte Fernet key from JWT_SECRET_KEY via SHA-256."""
-    secret = os.environ.get("JWT_SECRET_KEY", "")
+    """Derive a 32-byte Fernet key via SHA-256.
+
+    Fallback chain: SECRET_KEY → JWT_SECRET → JWT_SECRET_KEY → RuntimeError.
+    SECRET_KEY is the canonical name in docker-compose.yml and config.py.
+    JWT_SECRET is the secondary name from docker-compose.yml.
+    JWT_SECRET_KEY is a legacy alias kept for test compatibility.
+    """
+    secret = (
+        os.environ.get("SECRET_KEY")
+        or os.environ.get("JWT_SECRET")
+        or os.environ.get("JWT_SECRET_KEY")
+        or ""
+    )
     if not secret:
-        raise RuntimeError("JWT_SECRET_KEY must be set for token encryption")
+        raise RuntimeError(
+            "SECRET_KEY (or JWT_SECRET) must be set for token encryption"
+        )
     digest = hashlib.sha256(secret.encode()).digest()
     return base64.urlsafe_b64encode(digest)
 

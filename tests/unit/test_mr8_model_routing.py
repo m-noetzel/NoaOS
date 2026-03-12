@@ -142,7 +142,7 @@ class TestRouterNodeModelConfig:
         result = router_node(state)
         assert "model_config" in result, "router must return model_config"
         mc = result["model_config"]
-        assert mc["agent"] == "anthropic/claude-haiku"
+        assert mc["agent"] == "openai/gpt-4.1-mini"
         assert mc["router"] == "none"
         assert mc["responder"] == "none"
 

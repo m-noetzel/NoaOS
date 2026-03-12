@@ -51,6 +51,12 @@ public final class VoiceViewModel {
 
     /// Background task polling recorder state for UI updates.
     private var pollingTask: Task<Void, Never>?
+    /// iOS-M5: Background task running the transcription upload, tracked so it
+    /// can be cancelled if the user taps the Cancel button while uploading.
+    private var uploadTask: Task<Void, Never>?
+    /// iOS-M5: Timeout applied to the upload phase (30 s). If the server doesn't
+    /// respond within this window the task is cancelled and an error is shown.
+    public static let uploadTimeoutSeconds: TimeInterval = 30
 
     // MARK: - Init
 
@@ -88,6 +94,10 @@ public final class VoiceViewModel {
     /// Transitions: recording → uploading → transcribed(text)
     ///                                    → error(message) on failure
     ///
+    /// iOS-M5: The upload runs in a tracked `uploadTask` so the user can cancel
+    /// at any time via `cancel()`. A `uploadTimeoutSeconds` watchdog automatically
+    /// cancels the task if the server doesn't respond in time.
+    ///
     /// - Parameter autoSend: If `true` and `chatViewModel` is set, calls `sendMessage` with the result.
     public func stopAndTranscribe(autoSend: Bool = false) async {
         stopPolling()
@@ -99,24 +109,41 @@ public final class VoiceViewModel {
 
         state = .uploading
 
-        do {
-            let result = try await voiceService.transcribe(audioURL: url, mode: .transcribe)
-            state = .transcribed(text: result.text)
-            if autoSend, let chatVM = chatViewModel {
-                chatVM.sendMessage(text: result.text, threadId: result.threadId)
-                // Reset back to idle after auto-sending.
-                state = .idle
+        uploadTask?.cancel()
+        uploadTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                // iOS-M5: apply a hard timeout so the UI never hangs indefinitely
+                let result = try await withTimeout(seconds: Self.uploadTimeoutSeconds) {
+                    try await self.voiceService.transcribe(audioURL: url, mode: .transcribe)
+                }
+                guard !Task.isCancelled else { return }
+                self.state = .transcribed(text: result.text)
+                if autoSend, let chatVM = self.chatViewModel {
+                    chatVM.sendMessage(text: result.text, threadId: result.threadId)
+                    self.state = .idle
+                }
+            } catch is CancellationError {
+                self.state = .error("Upload cancelled or timed out.")
+            } catch VoiceServiceError.unauthorized {
+                self.state = .error("Session expired. Please log in again.")
+            } catch {
+                guard !Task.isCancelled else { return }
+                self.state = .error(error.localizedDescription)
             }
-        } catch VoiceServiceError.unauthorized {
-            state = .error("Session expired. Please log in again.")
-        } catch {
-            state = .error(error.localizedDescription)
         }
+        await uploadTask?.value
+        uploadTask = nil
     }
 
-    /// Cancels the active recording and resets state to idle.
+    /// Cancels the active recording or in-flight upload and resets state to idle.
+    ///
+    /// iOS-M5: Also cancels the `uploadTask` so the user can abort a hanging
+    /// transcription request at any time.
     public func cancel() async {
         stopPolling()
+        uploadTask?.cancel()
+        uploadTask = nil
         await recorder.cancelRecording()
         state = .idle
         audioLevel = 0
@@ -157,5 +184,27 @@ public final class VoiceViewModel {
                 await stopAndTranscribe(autoSend: false)
             }
         }
+    }
+}
+
+// MARK: - Timeout helper
+
+/// Runs `work` with a deadline. Throws `CancellationError` if the deadline
+/// expires before `work` completes.
+///
+/// iOS-M5: Used by `VoiceViewModel.stopAndTranscribe` to cap upload latency.
+private func withTimeout<T: Sendable>(
+    seconds: TimeInterval,
+    work: @Sendable @escaping () async throws -> T
+) async throws -> T {
+    try await withThrowingTaskGroup(of: T.self) { group in
+        group.addTask { try await work() }
+        group.addTask {
+            try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            throw CancellationError()
+        }
+        let result = try await group.next()!
+        group.cancelAll()
+        return result
     }
 }

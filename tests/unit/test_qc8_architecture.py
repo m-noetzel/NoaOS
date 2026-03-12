@@ -448,7 +448,7 @@ class TestM5SSEReplay:
             run_id=run_id,
             request=mock_request,
             user=mock_user,
-            after_event_id=1,
+            after_id=None,  # BE-H4: now uses stable UUID cursor
             db=mock_db,
         )
 
@@ -457,7 +457,7 @@ class TestM5SSEReplay:
 
     @pytest.mark.asyncio
     async def test_replay_endpoint_returns_empty_for_unknown_event(self) -> None:
-        """Replay with a high event ID returns empty list.
+        """Replay with no cursor returns empty list when DB has no rows.
         Phase QC8 / M5 + HD."""
         from noa.api.v1.runs import replay_run_events
         from noa.auth.middleware import AuthUser
@@ -476,7 +476,7 @@ class TestM5SSEReplay:
             run_id=run_id,
             request=mock_request,
             user=mock_user,
-            after_event_id=999999,
+            after_id=None,  # BE-H4: now uses stable UUID cursor
             db=mock_db,
         )
 

@@ -12,7 +12,7 @@ health endpoint, JSON-only responses, and error handling (retry, timeout).
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -291,12 +291,11 @@ class TestErrorHandling:
             client, "_send_request",
             new_callable=AsyncMock,
             side_effect=ProviderError("upstream 500"),
-        ):
-            with pytest.raises(ProviderError):
-                await client.complete(
-                    messages=[{"role": "user", "content": "Hi"}],
-                    max_tokens=100,
-                )
+        ), pytest.raises(ProviderError):
+            await client.complete(
+                messages=[{"role": "user", "content": "Hi"}],
+                max_tokens=100,
+            )
 
     @pytest.mark.asyncio
     async def test_timeout_handled(self):
@@ -313,9 +312,8 @@ class TestErrorHandling:
             client, "_send_request",
             new_callable=AsyncMock,
             side_effect=httpx.TimeoutException("timed out"),
-        ):
-            with pytest.raises(ProviderError, match="[Tt]imeout"):
-                await client.complete(
-                    messages=[{"role": "user", "content": "Hi"}],
-                    max_tokens=100,
-                )
+        ), pytest.raises(ProviderError, match="[Tt]imeout"):
+            await client.complete(
+                messages=[{"role": "user", "content": "Hi"}],
+                max_tokens=100,
+            )

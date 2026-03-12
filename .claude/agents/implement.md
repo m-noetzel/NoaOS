@@ -49,6 +49,17 @@ Read the phase entry in `Plan/PHASE_DETAILS.md` (search by phase ID). Then read 
 - Every integration point where data crosses a boundary
 - What "working" looks like — not what classes exist, but what the user can do
 
+### Step 1b: Pre-Phase Test Plan (CI-023 — mandatory)
+
+Before writing any code, write a brief test plan (5-10 lines) covering:
+- **Spec sections / phase ID** being tested
+- **Happy-path scenarios**: what does success look like for the user?
+- **Negative-path scenarios**: invalid input, unauthorized access, boundary violations
+- **Integration scenarios**: full flow from UI/API through DB and back
+- **Tool auth model**: if the phase involves tools, which auth model (OAuth/API key/token)?
+
+This plan does not need to be documented externally — it guides what tests you will write. But it must exist in your head (and optionally in a quick comment) before you write line 1 of implementation code.
+
 ### Step 2: Build the feature
 
 Build code and tests together, iterating naturally. There is no artificial red/green ceremony. Write code, write tests, wire things up, verify as you go. The order is whatever makes sense for the feature.
@@ -88,7 +99,7 @@ Nothing is done until it's reachable from the running application:
 
 ```bash
 # All tests pass
-docker exec noa-dev python -m pytest tests/unit/test_{name}.py -v
+docker exec noa-dev python -m pytest tests/ -q
 
 # Static analysis
 docker exec noa-dev python -m ruff check src/
@@ -150,6 +161,7 @@ Before declaring done:
 - **Phase plan has a contradiction or gap**: STOP, report it before building the wrong thing
 - **Security concern discovered**: STOP immediately, escalate
 - **Feature requires SPEC.md changes**: STOP, propose to orchestrator
+- **Change safety**: If implementing this phase requires modifying >15 files or adding a new Python/npm/Swift dependency — STOP and confirm with the orchestrator before proceeding.
 
 ---
 

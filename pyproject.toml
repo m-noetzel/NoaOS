@@ -36,15 +36,42 @@ dev = [
     "pytest>=8.2,<10.0",
     "pytest-asyncio>=0.25,<1.0",
     "pytest-cov>=6.0,<7.0",
+    "pytest-repeat>=0.9,<1.0",
+    "mutmut>=2.4,<3.0",
     "pyyaml>=6.0,<7.0",
     "ruff>=0.8,<1.0",
     "mypy>=1.13,<2.0",
     "httpx>=0.28.0,<1.0",
     "aiosqlite>=0.20,<1.0",
+    "testcontainers[postgres]>=4.8,<5.0",
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/noa"]
+
+[tool.coverage.run]
+source = ["src/noa"]
+omit = ["*/migrations/*", "*/alembic/*", "*/__pycache__/*"]
+
+[tool.coverage.report]
+fail_under = 70
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@abstractmethod",
+]
+
+[tool.coverage.html]
+directory = "htmlcov"
+
+[tool.mutmut]
+paths_to_mutate = "src/noa/auth/,src/noa/orchestrator/nodes/router.py,src/noa/tools/gateway.py"
+tests_dir = "tests/unit/"
+runner = "python -m pytest tests/unit/ -x -q --tb=no"
+# Limit to critical paths only — full codebase mutation is too slow for CI
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -79,6 +106,7 @@ markers = [
     "ios2: Phase iOS2 — Voice Upload & Processing",
     "ios3: Phase iOS3 — Xcode Scaffold & Networking Layer",
     "ios4: Phase iOS4 — Keychain Storage & Auth Flow",
+    "slow: marks tests as slow (deselect with '-m not slow')",
 ]
 asyncio_mode = "auto"
 
@@ -94,6 +122,19 @@ ignore = [
 # E722: bare except — catches `except:` without exception type
 # BLE001: blind exception — catches `except Exception:` without re-raise/logging
 # Both are ERRORS, not warnings — enforced at merge time
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+    "E501",   # line length — test verbosity is acceptable
+    "N806",   # variable naming — test helpers use non-snake-case freely
+    "S105",   # hardcoded passwords in tests — intentional test fixtures
+    "S106",   # hardcoded passwords as args in tests — intentional
+    "F841",   # local variable assigned but never used — test setup patterns
+    "BLE001", # blind exception catch — acceptable in test error-path assertions
+]
+"tests/integration/**/*.py" = [
+    "I001",   # import sort — lazy imports inside function bodies need specific order
+]
 
 [tool.mypy]
 python_version = "3.11"
@@ -112,4 +153,8 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["yaml"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["jwt", "jwt.*"]
 ignore_missing_imports = true

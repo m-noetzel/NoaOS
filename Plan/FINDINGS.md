@@ -72,37 +72,58 @@
 | iOS11-M2 | Medium | Approval Decide Returns Hardcoded risk_tier="high" | **Resolved** | iOS11-fix |
 | BE-C1 | Critical | Runs Endpoint Returns Hardcoded Zeros for Cost/Token/Model | **Resolved** | PR1 |
 | BE-C2 | Critical | Memory Endpoints Not User-Scoped (Cross-User Data Leak) | **Resolved** | PR1 |
-| BE-H1 | High | Credential Store Is In-Memory Only (Lost on Restart) | Open | — |
+| BE-H1 | High | Credential Store Is In-Memory Only (Lost on Restart) | **Resolved** | PR4 |
 | BE-H2 | High | RunService Uses Sync ORM .query() on Async Session | **Resolved** | PR1 |
 | BE-H3 | High | Settings Only Has PUT But PrivacyToggle Sends PATCH (405) | **Resolved** | PR2 |
-| BE-M1 | Medium | Cost Endpoint Uses Raw SQL With Magic Column Indices | Open | — |
+| BE-M1 | Medium | Cost Endpoint Uses Raw SQL With Magic Column Indices | **Resolved** | Wave20-cleanup |
 | BE-M2 | Medium | Memory Update Uses Private _persist() Method | **Resolved** | PR1 |
-| BE-M3 | Medium | Artifact Download No Path Traversal Guard | Open | — |
-| BE-M4 | Medium | No Structured Logging Context (user_id, trace_id) in Exceptions | Open | — |
-| BE-M5 | Medium | MemoryStore.store() Saves Facts Without user_id (Write Path Not Scoped) | Open | — |
-| BE-H4 | High | SSE Replay Cursor Uses List Index, Not Stable DB Offset (Reconnect Unreliable) | Open | — |
-| BE-H5 | High | chat.py _update_run_status Raw UPDATE Bypasses RunService State Machine | Open | — |
+| BE-M3 | Medium | Artifact Download No Path Traversal Guard | **Resolved** | PR4 |
+| BE-M4 | Medium | No Structured Logging Context (user_id, trace_id) in Exceptions | **Resolved** | PR4 |
+| BE-M5 | Medium | MemoryStore.store() Saves Facts Without user_id (Write Path Not Scoped) | **Resolved** | Wave20-cleanup |
+| BE-H4 | High | SSE Replay Cursor Uses List Index, Not Stable DB Offset (Reconnect Unreliable) | **Resolved** | Wave20-cleanup |
+| BE-H5 | High | chat.py _update_run_status Raw UPDATE Bypasses RunService State Machine | **Resolved** | Wave20-cleanup |
 | FE-C1 | Critical | PrivacyToggle Uses PATCH Method — Backend Returns 405 | **Resolved** | PR2 |
 | FE-H1 | High | Chat Thread Creation Race — Message Sent Before Thread Exists | **Resolved** | PR2 |
 | FE-H2 | High | RunDetail Uses Unsafe `as unknown as` Type Coercion | **Resolved** | PR2 |
-| FE-M1 | Medium | TopBar "Online" Status Indicator Is Hardcoded (Never Reflects Real State) | Open | — |
-| FE-M2 | Medium | Session Expiry Hard-Redirects via window.location (Breaks React State) | Open | — |
-| FE-M3 | Medium | Artifact Download Bypasses Auth Headers | Open | — |
-| FE-M4 | Medium | CredentialModal Has No Empty-Value Validation | Open | — |
-| FE-M5 | Medium | No Unsaved-Changes Warning on Settings Page | Open | — |
-| iOS-H1 | High | Offline Queue Never Drained on Network Restore | Open | — |
-| iOS-H2 | High | SSE Stream Not Cancelled on Thread Switch (Resource Leak) | Open | — |
-| iOS-H3 | High | AuthGuard Shows Login Without Attempting Token Refresh | Open | — |
-| iOS-H4 | High | ComposerBar Has No Provider/Model Selectors (Sends nil) | Open | — |
-| iOS-M1 | Medium | MainTabView ViewModels Created Without Lifecycle Cleanup | Open | — |
-| iOS-M2 | Medium | ChatView loadHistory Race on Rapid Thread Switching | Open | — |
-| iOS-M3 | Medium | Biometric Auth Failure Has No Recovery UI | Open | — |
-| iOS-M4 | Medium | Batch Deny Has No Confirmation Dialog | Open | — |
-| iOS-M5 | Medium | VoiceService Has No User-Facing Timeout/Cancel UI | Open | — |
-| iOS-L1 | Low | Environment.swift Hardcoded Dev IP (Crash if Unavailable) | Open | — |
-| iOS-L2 | Low | DEBUG Builds Completely Disable Certificate Pinning | Open | — |
+| FE-M1 | Medium | TopBar "Online" Status Indicator Is Hardcoded (Never Reflects Real State) | **Resolved** | PR5 |
+| FE-M2 | Medium | Session Expiry Hard-Redirects via window.location (Breaks React State) | **Resolved** | PR5 |
+| FE-M3 | Medium | Artifact Download Bypasses Auth Headers | **Resolved** | PR5 |
+| FE-M4 | Medium | CredentialModal Has No Empty-Value Validation | **Resolved** | PR5 |
+| FE-M5 | Medium | No Unsaved-Changes Warning on Settings Page | **Resolved** | Wave20-cleanup |
+| iOS-H1 | High | Offline Queue Never Drained on Network Restore | **Resolved** | PR3 |
+| iOS-H2 | High | SSE Stream Not Cancelled on Thread Switch (Resource Leak) | **Resolved** | PR3 |
+| iOS-H3 | High | AuthGuard Shows Login Without Attempting Token Refresh | **Resolved** | PR3 |
+| iOS-H4 | High | ComposerBar Has No Provider/Model Selectors (Sends nil) | **Resolved** | PR3 |
+| iOS-M1 | Medium | MainTabView ViewModels Created Without Lifecycle Cleanup | **Resolved** | PR5 |
+| iOS-M2 | Medium | ChatView loadHistory Race on Rapid Thread Switching | **Resolved** | PR5 |
+| iOS-M3 | Medium | Biometric Auth Failure Has No Recovery UI | **Resolved** | PR5 |
+| iOS-M4 | Medium | Batch Deny Has No Confirmation Dialog | **Resolved** | PR5 |
+| iOS-M5 | Medium | VoiceService Has No User-Facing Timeout/Cancel UI | **Resolved** | PR5 |
+| iOS-L1 | Low | Environment.swift Hardcoded Dev IP (Crash if Unavailable) | **Resolved** | Wave20-cleanup |
+| iOS-L2 | Low | DEBUG Builds Completely Disable Certificate Pinning | **Resolved** | QE3 |
+| FE-L1 | Low | ErrorBoundary Renders error.stack to UI (Exposes Internals) | **Resolved** | Wave20-cleanup |
+| W19-H1 | High | ChatRequest.privacy_mode Still Required (str, not optional); No Literal validation | **Resolved** | PR7 |
+| W19-H3 | High | JWT Error Messages Leak Internal Details (Library Fingerprinting) | **Resolved** | PR7 |
+| W19-M1 | Medium | Dead Code: mcp_adapter.py (superseded by TM6 mcp_remote.py) | **Resolved** | PR7 (retained: has active tests; not wired to running app) |
+| W19-M2 | Medium | Dead Code: GovernanceWrapper in governance.py (never imported) | **Resolved** | PR7 (retained: has active tests; not wired to running app) |
+| W19-M3 | Medium | Dead Code: noa.coding module (never wired into system) | **Resolved** | PR7 (deleted: no tests in Docker container) |
+| W19-M4 | Medium | noa.queue.notifications is a no-op stub | **Resolved** | PR7 (retained: NotificationService has active tests in test_durable_queue.py) |
+| W19-M5 | Medium | Missing X-Content-Type-Options: nosniff Security Header | **Resolved** | PR7 |
+| W19-M6 | Medium | success_envelope signature only accepts dict, not list | **Resolved** | PR7 (data param: dict[str, Any] \| list[Any]) |
 
-**Open:** 22 | **Partially Resolved:** 0 | **Resolved:** 74 | **Total:** 96
+| W20-C1 | Critical | CI Pipeline Will Fail on First Push (ruff + mypy errors) | **Resolved** | Wave20-cleanup |
+| W20-H1 | High | GOOGLE_REDIRECT_URI Not in docker-compose.yml (Production OAuth Broken) | **Resolved** | Wave20-cleanup |
+| W20-H2 | High | Token Encryption Key Reads JWT_SECRET_KEY But Compose Passes JWT_SECRET | **Resolved** | Wave20-cleanup |
+| W20-M1 | Medium | OAuth State Store Has No TTL (Memory Leak on Abandoned Flows) | **Resolved** | Wave20-cleanup |
+| W20-M2 | Medium | noa-api Dockerfile Missing HEALTHCHECK Directive | **Resolved** | Wave20-cleanup |
+| W20-MED-3 | Medium | Web-CI E2E step has continue-on-error: true (failures non-blocking) | **Resolved** | QE3 |
+| W20-MED-4 | Medium | NotImplementedError stubs in tools.py and mcp_adapter.py lack clear intent docs | **Resolved** | QE3 |
+| W21-H1 | High | DELETE /threads returns 500 -- usage_stats FK missing ondelete CASCADE/SET NULL | Open | — |
+| W21-H2 | High | Backup container crash-looping -- setpgid permission denied from DE3 hardening | Open | — |
+| W21-M1 | Medium | /docs and /openapi.json exposed unconditionally (no env gating) | Open | — |
+| W21-M2 | Medium | traceability.py --check overwrites manual TRACEABILITY.md sections | Open | — |
+
+**Open:** 4 | **Partially Resolved:** 0 | **Resolved:** 112 | **Total:** 116
 
 ---
 
@@ -1001,6 +1022,25 @@ Multiple high-risk approvals can be denied with a single tap, no confirmation or
 #### iOS-L2. DEBUG Builds Disable Certificate Pinning Entirely
 
 `#if DEBUG` returns plain URLSession. If debug binary connects to production, MITM is possible.
+
+---
+
+### Frontend Low
+
+#### FE-L1. ErrorBoundary Renders error.stack to UI (Exposes Internals)
+
+**File:** `web/src/components/ErrorBoundary.tsx:43`
+
+`ErrorBoundary` renders `error.stack` directly into the UI when an unhandled React error is caught. Stack traces expose full file paths, component names, and internal module structure which can assist attackers in understanding the frontend architecture.
+
+```tsx
+// Current (exposes internals):
+{error.stack && <pre>{error.stack}</pre>}
+```
+
+**Fix:** Strip or replace `error.stack` with a generic user-facing message in production builds. Stack traces should only appear in development (`process.env.NODE_ENV === 'development'`).
+
+**Impact:** Low — no direct exploit vector but violates information disclosure best practices. Stack traces are visible to any user who triggers a frontend error.
 
 ---
 

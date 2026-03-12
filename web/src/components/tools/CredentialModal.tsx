@@ -1,5 +1,4 @@
 import React, { useState } from "react";
-import { Switch } from "@/components/ui/switch";
 
 interface CredentialModalProps {
   toolName: string;
@@ -10,13 +9,27 @@ interface CredentialModalProps {
 
 export default function CredentialModal({ toolName, open, onClose, onSave }: CredentialModalProps) {
   const [apiKey, setApiKey] = useState("");
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   if (!open) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave(apiKey);
+    // FE-M4: Reject empty or whitespace-only API keys client-side
+    const trimmed = apiKey.trim();
+    if (!trimmed) {
+      setValidationError("API key cannot be empty.");
+      return;
+    }
+    setValidationError(null);
+    onSave(trimmed);
     setApiKey("");
+  };
+
+  const handleClose = () => {
+    setValidationError(null);
+    setApiKey("");
+    onClose();
   };
 
   return (
@@ -36,15 +49,28 @@ export default function CredentialModal({ toolName, open, onClose, onSave }: Cre
             <input
               type="password"
               value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
+              onChange={(e) => {
+                setApiKey(e.target.value);
+                if (validationError) setValidationError(null);
+              }}
               className="mt-1 block w-full rounded border px-3 py-2 text-sm"
               placeholder="Enter API key"
+              aria-describedby={validationError ? "credential-validation-error" : undefined}
             />
           </label>
+          {validationError && (
+            <p
+              id="credential-validation-error"
+              className="text-sm text-destructive mt-1"
+              role="alert"
+            >
+              {validationError}
+            </p>
+          )}
           <div className="flex justify-end gap-2 mt-4">
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleClose}
               className="px-4 py-2 text-sm rounded border hover:bg-muted"
             >
               Cancel

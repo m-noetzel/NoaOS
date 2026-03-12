@@ -19,6 +19,7 @@ import Queue from "@/pages/Queue";
 import Memory from "@/pages/Memory";
 import Artifacts from "@/pages/Artifacts";
 import Settings from "@/pages/Settings";
+import GoogleCallback from "@/pages/GoogleCallback";
 import NotFound from "@/pages/NotFound";
 import ErrorBoundary from "@/components/ErrorBoundary";
 
@@ -68,6 +69,7 @@ const App = () => (
                 <Route path="/cost" element={<ProtectedRoute><Cost /></ProtectedRoute>} />
                 <Route path="/tools" element={<ProtectedRoute><Tools /></ProtectedRoute>} />
                 <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+                <Route path="/auth/google/callback" element={<GoogleCallback />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </Suspense>

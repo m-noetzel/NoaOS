@@ -53,7 +53,10 @@
 
 ## Process Notes
 
-- CI agent should run after EVERY QA review — this is mandatory per CLAUDE.md
+- CI agent runs at **wave boundary only** (after retrospective, before next-wave planning) — NOT after individual QA reviews
+- Signal input: read `Plan/CI/signals.md` first — qa-review appends one row per phase; use it to prioritize which reviews to drill into
 - P1 proposals = human gate (pause and notify)
-- Always check backlog for existing proposals before creating duplicates
-- When verifying past fix effectiveness, grep for the problem pattern in recent phases
+- Evidence threshold: P1/P2 require 2+ occurrences **within last 3 waves** or 1 critical+gate-gap (gate must explicitly reference the issue class); P3 requires 1+ plausibly systemic occurrence within last 3 waves
+- Always check backlog for existing proposals before creating duplicates; explicitly justify non-duplication per proposal
+- Use `low|medium|high` for impact and implementation burden — never fabricate hour counts
+- Memory stores only stable validated patterns — per-wave counts belong in backlog/signal log, not memory

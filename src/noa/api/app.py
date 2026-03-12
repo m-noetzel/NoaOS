@@ -8,6 +8,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
 
+import httpx
 from fastapi import FastAPI
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.cors import CORSMiddleware
@@ -132,7 +133,9 @@ def wire_llm_pipeline(settings: Any) -> None:
         graph = build_graph().compile()
 
         # A4: Use PostgresCheckpointer when DB is available
+        from typing import Any as _Any
         sf = get_session_factory()
+        checkpointer: _Any
         if sf is not None:
             from noa.orchestrator.checkpointer import PostgresCheckpointer
             checkpointer = PostgresCheckpointer(session_factory=sf)
@@ -148,6 +151,32 @@ def wire_llm_pipeline(settings: Any) -> None:
         logger.warning(
             "Failed to build OrchestratorRunner — chat will not work",
         )
+
+
+async def _probe_worker(url: str, name: str) -> bool:
+    """Probe a worker health endpoint at startup.
+
+    Returns True if the worker is healthy, False if unreachable or unhealthy.
+    Never raises — startup must always proceed.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(url)
+            healthy = resp.status_code < 500
+            if not healthy:
+                logger.warning(
+                    "Worker %s returned HTTP %s — marking degraded",
+                    name,
+                    resp.status_code,
+                )
+            return healthy
+    except httpx.TransportError as exc:
+        logger.warning(
+            "Worker %s unreachable at startup (%s) — marking degraded",
+            name,
+            exc,
+        )
+        return False
 
 
 @asynccontextmanager
@@ -183,6 +212,26 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     checker = HealthChecker(poll_url=private_url)
     set_health_checker(checker)
     await checker.start()
+
+    # DE3: Startup probe — log WARNING and set workers_degraded if any worker is down
+    private_worker_url = os.environ.get(
+        "PRIVATE_WORKER_HEALTH_URL", "http://private-worker:8001/health"
+    )
+    external_worker_url = os.environ.get(
+        "EXTERNAL_WORKER_HEALTH_URL", "http://external-worker:8002/health"
+    )
+    private_ok = await _probe_worker(private_worker_url, "private-worker")
+    external_ok = await _probe_worker(external_worker_url, "external-worker")
+    app.state.workers_degraded = not (private_ok and external_ok)
+    if app.state.workers_degraded:
+        logger.warning(
+            "One or more workers unreachable at startup — "
+            "private_ok=%s external_ok=%s",
+            private_ok,
+            external_ok,
+        )
+    else:
+        logger.info("All workers healthy at startup")
 
     # Configure structured JSON logging (§28.3)
     from noa.logging_config import configure_logging
@@ -229,11 +278,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             from noa.api.app_state import set_apns_service
             from noa.push.apns import APNsService
 
+            # All required fields are non-empty (checked via `missing` above)
             apns = APNsService(
-                key_id=settings.apns_key_id,
-                team_id=settings.apns_team_id,
-                key_path=settings.apns_key_path,
-                bundle_id=settings.apns_bundle_id,
+                key_id=settings.apns_key_id or "",
+                team_id=settings.apns_team_id or "",
+                key_path=settings.apns_key_path or "",
+                bundle_id=settings.apns_bundle_id or "",
             )
             apns_http_client = httpx.AsyncClient(http2=True, timeout=10.0)
             apns.initialize(apns_http_client)
@@ -259,10 +309,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
         sf = get_session_factory()
         if sf is not None:
+            from sqlalchemy.orm import Session as _SyncSession
+
             from noa.audit.service import AuditService
             from noa.policy.approval import ApprovalService
 
-            session = sf()
+            session: _SyncSession = sf()  # type: ignore[assignment]
             audit_svc = AuditService(session=session)
             approval_svc = ApprovalService(session=session)
 
@@ -317,11 +369,16 @@ def create_app() -> FastAPI:
             exc_info=True,
         )
 
+    _is_production = os.environ.get("ENVIRONMENT", "").lower() == "production"
     app = FastAPI(
         title="Noa",
         description="Noa — governed personal AI agent",
         version="0.1.0",
         lifespan=lifespan,
+        # M2: Hide OpenAPI docs in production — reduces attack surface
+        docs_url=None if _is_production else "/docs",
+        redoc_url=None if _is_production else "/redoc",
+        openapi_url=None if _is_production else "/openapi.json",
     )
 
     # A1: Register app instance for app.state-backed DI
@@ -334,6 +391,10 @@ def create_app() -> FastAPI:
         "CORS_ALLOWED_ORIGINS",
         "http://localhost:5173,http://localhost:5174,http://localhost:4173,http://localhost:8000",
     ).split(",")
+    # DE2: Add NOA_DOMAIN HTTPS origin when set (required for OAuth2 redirect URIs)
+    noa_domain = os.environ.get("NOA_DOMAIN", "").strip()
+    if noa_domain and noa_domain != "localhost":
+        allowed_origins_raw.append(f"https://{noa_domain}")
     # M2: Reject wildcard origins — credentials require explicit origins
     allowed_origins = [
         o.strip() for o in allowed_origins_raw
@@ -351,7 +412,7 @@ def create_app() -> FastAPI:
     )
     app.add_middleware(RequestIDMiddleware)
 
-    # Content-Security-Policy header middleware (M4)
+    # Content-Security-Policy and security headers middleware (M4, M5)
     class CSPMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request: Any, call_next: Any) -> Any:  # noqa: ANN401
             response = await call_next(request)
@@ -363,6 +424,7 @@ def create_app() -> FastAPI:
                 "connect-src 'self'; "
                 "frame-ancestors 'none'"
             )
+            response.headers["X-Content-Type-Options"] = "nosniff"
             return response
 
     app.add_middleware(CSPMiddleware)

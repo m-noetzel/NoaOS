@@ -3,6 +3,7 @@
 Extracts and validates Bearer tokens from the Authorization header.
 """
 
+import logging
 import uuid
 from dataclasses import dataclass
 from typing import Any
@@ -13,6 +14,8 @@ from jose import JWTError, jwt
 
 from noa.auth.jwt import ALGORITHM
 from noa.config import Settings
+
+logger = logging.getLogger(__name__)
 
 _bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -65,9 +68,10 @@ async def require_auth(
             token, settings.secret_key, algorithms=[ALGORITHM]
         )
     except JWTError as exc:
+        logger.debug("JWT decode error: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid token: {exc}",
+            detail="Invalid token",
             headers={"WWW-Authenticate": "Bearer"},
         ) from exc
 

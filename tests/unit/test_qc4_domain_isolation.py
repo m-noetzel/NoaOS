@@ -18,10 +18,9 @@ from __future__ import annotations
 
 import ast
 import importlib
-import os
 import pathlib
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -171,11 +170,8 @@ class TestSharedModuleLocation:
         imports = []
         tree = ast.parse(memory_path.read_text(), filename=str(memory_path))
         for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and node.module:
-                if "MAX_N_RESULTS" in [
-                    a.name for a in (node.names or [])
-                ]:
-                    imports.append(node.module)
+            if isinstance(node, ast.ImportFrom) and node.module and "MAX_N_RESULTS" in [a.name for a in (node.names or [])]:
+                imports.append(node.module)
 
         for imp in imports:
             assert not imp.startswith("noa.private_worker"), (

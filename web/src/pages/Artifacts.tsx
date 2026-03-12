@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { apiRequest } from "@/api/client";
+import { apiRequest, BASE_URL } from "@/api/client";
+import { getAccessToken } from "@/auth/tokens";
 import type { Artifact } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,6 +8,45 @@ import { Button } from "@/components/ui/button";
 import { Download, Eye } from "lucide-react";
 import { useState } from "react";
 import DOMPurify from "dompurify";
+
+/**
+ * FE-M3: Downloads an artifact using fetch with Authorization header, then
+ * triggers a browser download via a temporary blob URL.  This prevents
+ * unauthenticated access to protected files (plain <a href> bypasses auth).
+ */
+async function downloadArtifact(artifactId: string, filename: string): Promise<void> {
+  const token = getAccessToken();
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const response = await fetch(`${BASE_URL}/api/v1/artifacts/${artifactId}/download`, {
+    headers,
+    credentials: "include",
+  });
+
+  if (!response.ok) {
+    throw new Error(`Download failed: ${response.status}`);
+  }
+
+  const blob = await response.blob();
+  const blobUrl = URL.createObjectURL(blob);
+  try {
+    const link = document.createElement("a");
+    link.href = blobUrl;
+    link.download = filename;
+    // Append to body so Firefox's download attribute fires reliably,
+    // then remove immediately after click.
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  } finally {
+    // Revoke in the next animation frame — gives the browser one render
+    // cycle (~16ms) to start the download pipeline before cleanup.
+    requestAnimationFrame(() => URL.revokeObjectURL(blobUrl));
+  }
+}
 
 const PAGE_LIMIT = 20;
 
@@ -62,10 +102,9 @@ export default function Artifacts() {
                       variant="outline"
                       className="gap-1"
                       onClick={() => {
-                        const link = document.createElement("a");
-                        link.href = `/api/v1/artifacts/${art.id}/download`;
-                        link.download = art.name;
-                        link.click();
+                        downloadArtifact(art.id, art.name).catch((err: unknown) => {
+                          console.error("Artifact download failed:", err);
+                        });
                       }}
                     >
                       <Download className="h-3.5 w-3.5" /> Download

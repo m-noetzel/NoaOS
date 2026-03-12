@@ -9,7 +9,7 @@ Spec refs: SPEC.md §2.1 (static allowlists), §8.3 (inter-domain communication)
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
@@ -63,7 +63,7 @@ async def _fetch_tools_list(
             f"MCP server error: {err.get('message', 'unknown')}"
         )
 
-    return body.get("result", [])
+    return cast(list[dict[str, Any]], body.get("result", []))
 
 
 async def discover_tools(

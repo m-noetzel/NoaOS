@@ -104,11 +104,26 @@ public struct VoiceRecordButton: View {
         .onDisappear { pulseScale = 1.0 }
     }
 
-    /// Uploading state: spinner.
+    /// Uploading state: spinner + cancel button (iOS-M5).
+    ///
+    /// Allowing the user to cancel is critical when the server hangs — without a
+    /// cancel affordance the UI appears frozen and the user has no recovery path.
     private var uploadingView: some View {
-        ProgressView()
-            .controlSize(.small)
-            .accessibilityLabel("Transcribing voice message")
+        HStack(spacing: 8) {
+            ProgressView()
+                .controlSize(.small)
+                .accessibilityLabel("Transcribing voice message")
+
+            Button {
+                Task { await viewModel.cancel() }
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 20))
+                    .foregroundStyle(Color.secondary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Cancel transcription upload")
+        }
     }
 
     /// Error state: warning icon; tap to dismiss.

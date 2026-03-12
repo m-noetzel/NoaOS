@@ -27,6 +27,8 @@ class AgentState(TypedDict):
     selected_model: str
     user_model_override: str | None
     user_provider_override: str | None
+    user_privacy_override: str | None
+    requested_tools: list[str] | None
     tool_calls: list[dict[str, Any]]
     tool_results: list[dict[str, Any]]
     response: str | None

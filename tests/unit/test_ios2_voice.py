@@ -12,7 +12,7 @@ integration. They are written BEFORE implementation and must all fail initially.
 from __future__ import annotations
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -107,7 +107,11 @@ class TestTranscriptionService:
     @pytest.mark.asyncio
     async def test_transcribe_propagates_api_error(self):
         """PHASE iOS2: OpenAIWhisperProvider raises TranscriptionError on Whisper API failure."""
-        from noa.voice.transcription import OpenAIWhisperProvider, TranscriptionService, TranscriptionError
+        from noa.voice.transcription import (
+            OpenAIWhisperProvider,
+            TranscriptionError,
+            TranscriptionService,
+        )
 
         mock_response = MagicMock()
         mock_response.status_code = 500
@@ -219,8 +223,8 @@ class TestVoiceEndpointTranscribeOnly:
     @pytest.mark.asyncio
     async def test_transcribe_returns_json_response(self):
         """PHASE iOS2: Transcription-only mode returns JSON with text field."""
-        from noa.voice.transcription import OpenAIWhisperProvider, TranscriptionService
         from noa.voice.schemas import TranscriptionResult
+        from noa.voice.transcription import OpenAIWhisperProvider, TranscriptionService
 
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -276,8 +280,9 @@ class TestVoiceConfig:
 
     def test_whisper_model_default(self):
         """PHASE iOS2: WHISPER_MODEL setting exists with a default value."""
-        from noa.config import Settings
         import os
+
+        from noa.config import Settings
 
         os.environ.setdefault("SECRET_KEY", "test-key")
         os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///test.db")
@@ -287,8 +292,9 @@ class TestVoiceConfig:
 
     def test_max_audio_size_default(self):
         """PHASE iOS2: MAX_AUDIO_SIZE_MB setting defaults to 25."""
-        from noa.config import Settings
         import os
+
+        from noa.config import Settings
 
         os.environ.setdefault("SECRET_KEY", "test-key")
         os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///test.db")
@@ -328,9 +334,9 @@ class TestTranscriptionIntegration:
     @pytest.mark.asyncio
     async def test_full_transcription_flow(self):
         """PHASE iOS2: Validate → transcribe → result, with only HTTP mocked."""
-        from noa.voice.validation import validate_audio
-        from noa.voice.transcription import TranscriptionService
         from noa.voice.schemas import TranscriptionResult
+        from noa.voice.transcription import TranscriptionService
+        from noa.voice.validation import validate_audio
 
         # Step 1: Validate audio (real code)
         audio_data = _fake_audio_bytes(size=2048)

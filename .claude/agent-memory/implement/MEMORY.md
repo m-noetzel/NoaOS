@@ -27,6 +27,59 @@
 - @Observable + @MainActor for ViewModels
 - ServiceFactory.swift is the composition root
 
+## Frontend Patterns (confirmed in PR5)
+
+### Module-level callback registration for cross-boundary decoupling
+When a module (`client.ts`) cannot import React hooks but needs to trigger React navigation, use a module-level callback registration pattern:
+```ts
+let _onSessionExpired: (() => void) | null = null;
+export function registerSessionExpiredHandler(handler: () => void): void { _onSessionExpired = handler; }
+function redirectToLogin(): void { if (_onSessionExpired) { _onSessionExpired(); } else { window.location.href = "/login"; } }
+```
+The React context wires up the handler in `useEffect`. Falls back to direct navigation in tests/non-React contexts.
+
+### Authenticated artifact downloads
+Never use `<a href>` for protected resources. Use `fetch` with `Authorization: Bearer` header, create blob URL, click programmatically, revoke after timeout:
+```ts
+const blobUrl = URL.createObjectURL(blob);
+try { link.click(); } finally { setTimeout(() => URL.revokeObjectURL(blobUrl), 1000); }
+```
+
+### iOS ASWebAuthenticationSession protocol pattern (GO3)
+For OAuth flows that use ASWebAuthenticationSession, define a `WebAuthSessionProviding` protocol:
+```swift
+public protocol WebAuthSessionProviding: Sendable {
+    func authenticate(url: URL, callbackURLScheme: String) async throws -> URL
+}
+```
+The live adapter wraps `ASWebAuthenticationSession` with a `withCheckedThrowingContinuation`. The mock can inject any URL/error without triggering real browser flows. The `actor` service takes `any WebAuthSessionProviding` — no `@MainActor` needed on the service itself.
+
+The live `ASWebAuthSessionAdapter` is iOS-only (use `#if canImport(AuthenticationServices) && !os(macOS)`) so the SPM package compiles on macOS without AuthenticationServices framework.
+
+Callback scheme: use `"noaapp"`. Backend redirects to `noaapp://oauth/callback?google=connected` when `X-Noa-iOS-Redirect` header is set.
+
+### iOS BiometricError pattern matching
+`BiometricError.unknown` has an associated value, so `==` comparison doesn't work. Use pattern matching:
+```swift
+if case .userCancelled = error as? BiometricError { /* deliberate cancel */ }
+```
+Only set `isBiometricError = true` for non-cancel errors (`.authenticationFailed`, `.lockedOut`, etc.) — `.userCancelled` is intentional, don't show retry.
+
+### iOS upload timeout with structured concurrency
+Race work task against sleep task using `withThrowingTaskGroup`:
+```swift
+try await withThrowingTaskGroup(of: T.self) { group in
+    group.addTask { try await work() }
+    group.addTask { try await Task.sleep(...); throw CancellationError() }
+    let result = try await group.next()!
+    group.cancelAll()
+    return result
+}
+```
+
+### Vitest module mocks for components with sub-dependencies
+For components that import other components unavailable in jsdom, use `vi.doMock` in `beforeEach` (not `vi.mock` at module level) to avoid hoisting issues. Use named exports consistently.
+
 ## Recurring Pitfalls (confirmed across multiple phases)
 
 ### 1. Dead-end stores
@@ -58,6 +111,17 @@ iOS `APIClient` expects specific JSON shapes. When modifying backend responses, 
 - Mock only: external HTTP APIs (httpx), filesystem, network
 - Never mock: internal services, DB, function under test
 - At least 1 integration test per phase exercising full flow
+
+## Postgres Integration Test Pattern (confirmed QE4)
+
+- `tests/integration/conftest.py` uses `TEST_DATABASE_URL` env var (dev container: `postgresql+asyncpg://noa:kindness@postgres:5432/noa_test`)
+- Falls back to testcontainers when `TEST_DATABASE_URL` unset (CI with Docker-in-Docker support)
+- `noa-dev` container does NOT have Docker socket — testcontainers doesn't work there
+- `pg_url` fixture is **session-scoped** (runs Alembic migrations once, drops+recreates `alembic_version` table)
+- `pg_app` fixture is **function-scoped** (calls `app_state.reset_all()` before+after each test)
+- Run integration tests: `docker exec -e TEST_DATABASE_URL="postgresql+asyncpg://noa:kindness@postgres:5432/noa_test" noa-dev python -m pytest tests/integration/ -v --tb=short --ignore=tests/integration/test_mr7_smoke.py --ignore=tests/integration/test_network_isolation.py`
+- pyproject.toml per-file-ignores for `tests/integration/**/*.py` includes `I001` (import sort — lazy imports inside functions need specific ordering)
+- Schema drift pitfall: ORM models added in a wave without a migration will fail integration tests but pass SQLite unit tests (create_all bypasses Alembic). Always check `alembic/versions/` when adding DB columns.
 
 ## Test Patterns That Fail QA
 

@@ -10,11 +10,15 @@ POST /api/v1/auth/reset-password  — reset password with token
 
 from __future__ import annotations
 
+import logging
+import os
+import secrets
+import time
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,9 +26,11 @@ from noa.api.deps import get_db_session
 from noa.api.middleware import trace_id_ctx
 from noa.api.schemas.common import success_envelope
 from noa.auth.jwt import TokenError
-from noa.auth.middleware import require_auth
+from noa.auth.middleware import AuthUser, require_auth
 from noa.auth.service import AccountLockedError, AuthError, AuthService
 from noa.config import Environment, Settings
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
@@ -167,7 +173,7 @@ async def login(
     # preserving the envelope. JSONResponse subclasses Response so _set_auth_cookies
     # works identically — both expose set_cookie() (C6).
     resp = JSONResponse(content=envelope)
-    _set_auth_cookies(resp, result)  # type: ignore[arg-type]
+    _set_auth_cookies(resp, result)
     return resp
 
 
@@ -196,7 +202,12 @@ async def refresh(
             refresh_token=refresh_token,
             device_id=did,
         )
-    except (AuthError, TokenError) as exc:
+    except TokenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token",
+        ) from exc
+    except AuthError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=str(exc),
@@ -291,3 +302,328 @@ async def reset_password(
             detail=str(exc),
         ) from exc
     return success_envelope(data=result, trace_id=rid)
+
+
+# ---------------------------------------------------------------------------
+# Google OAuth2 Routes — SPEC.md §12.1, §12.2, §11.1, §5.3
+# ---------------------------------------------------------------------------
+
+# In-memory CSRF state store: {state_token: {"user_id", "platform", "expires"}}
+# Single-user system — short-lived, never persisted.
+# TTL: 600 seconds (10 minutes); expired entries pruned on each authorize call.
+_oauth_states: dict[str, dict[str, Any]] = {}
+_OAUTH_STATE_TTL = 600.0  # seconds
+
+
+def _prune_expired_oauth_states() -> None:
+    """Remove expired OAuth state entries to prevent unbounded growth."""
+    now = time.time()
+    expired = [k for k, v in _oauth_states.items() if v.get("expires", 0) < now]
+    for k in expired:
+        _oauth_states.pop(k, None)
+
+
+def _get_google_scopes() -> list[str]:
+    """Combined Calendar + Gmail scopes per §12.1 and §12.2."""
+    from noa.tools.google_auth import CALENDAR_SCOPES, GMAIL_SCOPES
+
+    return CALENDAR_SCOPES + GMAIL_SCOPES
+
+
+def _get_live_google_client() -> Any:
+    """Get the live GoogleAuthClient from app state.
+
+    Tries the direct accessor first (set by google_auth module at startup).
+    Falls back to gateway adapter traversal for backwards compatibility.
+    """
+    from noa.api.app_state import get_app
+
+    # Try direct accessor first — set by _set_live_google_client() below
+    app = get_app()
+    if app is not None:
+        client = getattr(app.state, "google_auth_client", None)
+        if client is not None:
+            return client
+
+    # Fallback: traverse gateway adapters (fragile, kept for compatibility)
+    from noa.api.app_state import get_gateway
+
+    gateway = get_gateway()
+    if gateway is not None and hasattr(gateway, "_adapters"):
+        for name in ("calendar", "gmail"):
+            adapter = gateway._adapters.get(name)
+            if adapter is not None and hasattr(adapter, "_tool"):
+                tool = adapter._tool
+                if hasattr(tool, "_api_client") and hasattr(
+                    tool._api_client, "_auth_client"
+                ):
+                    client = tool._api_client._auth_client
+                    # Cache for next call
+                    if app is not None:
+                        app.state.google_auth_client = client
+                    return client
+    return None
+
+
+@router.get("/google/authorize")
+async def google_authorize(
+    auth_user: AuthUser = Depends(require_auth),  # noqa: B008
+    platform: str | None = Query(default=None),
+) -> dict[str, Any]:
+    """Generate Google OAuth2 authorization URL with CSRF state.
+
+    Args:
+        platform: Optional client platform. Pass "ios" from iOS clients so the
+                  callback redirects to noaapp:// instead of the web settings page.
+
+    Returns:
+        JSON: {"auth_url": "https://accounts.google.com/..."}
+
+    Requires JWT authentication. The state parameter is stored server-side
+    and verified on callback to prevent CSRF (§5.3).
+    """
+    client_id = os.environ.get("GOOGLE_CLIENT_ID", "")
+    client_secret = os.environ.get("GOOGLE_CLIENT_SECRET", "")
+    redirect_uri = os.environ.get(
+        "GOOGLE_REDIRECT_URI",
+        "http://localhost:8000/api/v1/auth/google/callback",
+    )
+
+    if not (client_id and client_secret):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Google OAuth2 not configured — "
+                "set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET"
+            ),
+        )
+
+    from noa.tools.google_auth import GoogleAuthClient
+
+    client = GoogleAuthClient(
+        client_id=client_id,
+        client_secret=client_secret,
+        redirect_uri=redirect_uri,
+    )
+
+    scopes = _get_google_scopes()
+
+    # Prune expired states and generate a new CSRF state token
+    _prune_expired_oauth_states()
+    state = secrets.token_urlsafe(32)
+    _oauth_states[state] = {
+        "user_id": str(auth_user.user_id),
+        "platform": platform or "web",
+        "expires": time.time() + _OAUTH_STATE_TTL,
+    }
+
+    # Append state to auth URL
+    from urllib.parse import urlencode
+
+    base_url = client.get_auth_url(scopes)
+    auth_url = base_url + "&" + urlencode({"state": state})
+
+    rid = trace_id_ctx.get("")
+    return success_envelope(data={"auth_url": auth_url}, trace_id=rid)
+
+
+@router.get("/google/callback")
+async def google_callback(
+    request: Request,
+    code: str | None = Query(default=None),
+    state: str | None = Query(default=None),
+    error: str | None = Query(default=None),
+    session: AsyncSession = Depends(get_db_session),  # noqa: B008
+) -> Any:
+    """Handle Google OAuth2 callback: exchange code, persist tokens, redirect.
+
+    On success: redirects to {NOA_DOMAIN}/settings?google=connected
+    On error: returns 400.
+
+    CSRF state is verified before code exchange (§5.3).
+    Tokens are encrypted before DB storage (§11.1).
+    """
+    # Handle OAuth2 error response
+    if error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Google OAuth2 error: {error}",
+        )
+
+    if not code:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing authorization code",
+        )
+
+    # Verify CSRF state (peek before consuming — consume only after service check)
+    # Also reject expired states (TTL enforcement)
+    state_entry = _oauth_states.get(state) if state else None
+    if state_entry is None or state_entry.get("expires", 0) < time.time():
+        if state and state in _oauth_states:
+            _oauth_states.pop(state, None)  # Clean up expired entry
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired OAuth2 state parameter",
+        )
+
+    client_id = os.environ.get("GOOGLE_CLIENT_ID", "")
+    client_secret = os.environ.get("GOOGLE_CLIENT_SECRET", "")
+    redirect_uri = os.environ.get(
+        "GOOGLE_REDIRECT_URI",
+        "http://localhost:8000/api/v1/auth/google/callback",
+    )
+
+    if not (client_id and client_secret):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Google OAuth2 not configured",
+        )
+
+    # Consume state only after confirming service is available
+    # state is non-None: state_entry not None only when state is truthy
+    assert state is not None  # noqa: S101
+    state_data = _oauth_states.pop(state)
+    user_id_str = state_data["user_id"]
+    client_platform = state_data.get("platform", "web")
+    user_id = uuid.UUID(user_id_str)
+
+    from noa.tools.google_auth import GoogleAuthClient, GoogleAuthError
+
+    client = GoogleAuthClient(
+        client_id=client_id,
+        client_secret=client_secret,
+        redirect_uri=redirect_uri,
+    )
+
+    try:
+        tokens = await client.exchange_code(code)
+    except (GoogleAuthError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Token exchange failed: {exc}",
+        ) from exc
+
+    # Persist encrypted tokens to DB (§11.1)
+    from sqlalchemy import select as sa_select
+
+    from noa.db.models.google_credential import GoogleCredential
+    from noa.tools._token_crypto import encrypt_token
+
+    enc_access = encrypt_token(tokens["access_token"])
+    enc_refresh = encrypt_token(tokens["refresh_token"])
+
+    stmt = sa_select(GoogleCredential).where(GoogleCredential.user_id == user_id)
+    db_result = await session.execute(stmt)
+    cred = db_result.scalar_one_or_none()
+
+    if cred is not None:
+        cred.access_token_enc = enc_access
+        cred.refresh_token_enc = enc_refresh
+    else:
+        cred = GoogleCredential(
+            user_id=user_id,
+            access_token_enc=enc_access,
+            refresh_token_enc=enc_refresh,
+        )
+        session.add(cred)
+
+    await session.commit()
+
+    # Update live client if available
+    live_client = _get_live_google_client()
+    if live_client is not None:
+        live_client.set_tokens(
+            access_token=tokens["access_token"],
+            refresh_token=tokens["refresh_token"],
+        )
+
+    logger.info("Google OAuth2 tokens persisted for user %s", user_id)
+
+    # Redirect based on client platform
+    if client_platform == "ios":
+        # iOS ASWebAuthenticationSession intercepts this custom-scheme URL
+        redirect_url = "noaapp://oauth/callback?google=connected"
+    else:
+        noa_domain = os.environ.get("NOA_DOMAIN", "localhost:8000")
+        local_hosts = ("localhost:8000", "localhost")
+        scheme = "https" if noa_domain not in local_hosts else "http"
+        redirect_url = f"{scheme}://{noa_domain}/settings?google=connected"
+
+    return RedirectResponse(url=redirect_url, status_code=status.HTTP_302_FOUND)
+
+
+@router.get("/google/status")
+async def google_status(
+    auth_user: AuthUser = Depends(require_auth),  # noqa: B008
+    session: AsyncSession = Depends(get_db_session),  # noqa: B008
+) -> dict[str, Any]:
+    """Return Google OAuth2 connection status for the authenticated user.
+
+    Returns:
+        JSON: {"connected": bool, "scopes": [...]}
+    """
+    from sqlalchemy import select as sa_select
+
+    from noa.db.models.google_credential import GoogleCredential
+
+    stmt = sa_select(GoogleCredential).where(
+        GoogleCredential.user_id == auth_user.user_id
+    )
+    result = await session.execute(stmt)
+    cred = result.scalar_one_or_none()
+
+    connected = cred is not None
+    scopes = _get_google_scopes() if connected else []
+
+    rid = trace_id_ctx.get("")
+    return success_envelope(
+        data={"connected": connected, "scopes": scopes},
+        trace_id=rid,
+    )
+
+
+@router.delete("/google/disconnect", status_code=status.HTTP_200_OK)
+async def google_disconnect(
+    auth_user: AuthUser = Depends(require_auth),  # noqa: B008
+    session: AsyncSession = Depends(get_db_session),  # noqa: B008
+) -> dict[str, Any]:
+    """Delete Google OAuth2 credentials for the authenticated user.
+
+    Removes the DB row and clears tokens from the live client.
+    Returns 404 if no credentials exist.
+    """
+    from sqlalchemy import select as sa_select
+
+    from noa.db.models.google_credential import GoogleCredential
+
+    stmt = sa_select(GoogleCredential).where(
+        GoogleCredential.user_id == auth_user.user_id
+    )
+    result = await session.execute(stmt)
+    cred = result.scalar_one_or_none()
+
+    if cred is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No Google credentials found",
+        )
+
+    await session.delete(cred)
+    await session.commit()
+
+    # Clear tokens from live client
+    live_client = _get_live_google_client()
+    if live_client is not None:
+        import asyncio
+
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(live_client.clear_tokens())
+        except RuntimeError:
+            pass
+
+    logger.info("Google OAuth2 credentials disconnected for user %s", auth_user.user_id)
+
+    rid = trace_id_ctx.get("")
+    return success_envelope(data={"disconnected": True}, trace_id=rid)

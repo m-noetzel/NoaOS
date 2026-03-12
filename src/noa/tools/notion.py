@@ -8,7 +8,7 @@ before display per §16.3.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import nh3
 
@@ -75,7 +75,7 @@ class NotionTool:
         method = getattr(self, function, None)
         if method is None:
             raise ValueError(f"Unknown function: {function}")
-        return await method(**args)
+        return cast(dict[str, Any], await method(**args))
 
     async def search_pages(
         self,
@@ -90,7 +90,7 @@ class NotionTool:
         Returns:
             List of page summary dicts.
         """
-        return await self._client.search_pages(query=query)
+        return cast(list[dict[str, Any]], await self._client.search_pages(query=query))
 
     async def read_page(
         self,
@@ -107,7 +107,9 @@ class NotionTool:
         Returns:
             Page dict with sanitized content.
         """
-        result = await self._client.read_page(page_id=page_id)
+        result: dict[str, Any] = cast(
+            dict[str, Any], await self._client.read_page(page_id=page_id)
+        )
 
         # Sanitize content per §16.3
         if "content" in result:
@@ -132,11 +134,11 @@ class NotionTool:
         Returns:
             Dict with created page ID.
         """
-        return await self._client.create_page(
+        return cast(dict[str, Any], await self._client.create_page(
             parent_id=parent_id,
             title=title,
             content=content,
-        )
+        ))
 
     async def update_page(
         self,
@@ -153,7 +155,7 @@ class NotionTool:
         Returns:
             Dict with updated page data.
         """
-        return await self._client.update_page(
+        return cast(dict[str, Any], await self._client.update_page(
             page_id=page_id,
             content=content,
-        )
+        ))

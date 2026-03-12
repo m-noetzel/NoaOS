@@ -10,7 +10,7 @@ The plan is organized into **waves** — groups of related phases that deliver a
 
 ## Key Documents
 
-- **[FINDINGS.md](FINDINGS.md)** — 95 audit findings (66 resolved, 29 open). Updated inline when findings are resolved.
+- **[FINDINGS.md](FINDINGS.md)** — 112 audit findings (109 resolved, 3 open). Updated inline when findings are resolved.
 - **[PHASE_DETAILS.md](PHASE_DETAILS.md)** — Detailed phase descriptions (search by phase ID).
 - **[QA_CHECKLIST.md](QA_CHECKLIST.md)** — QA criteria (M1-M8 must-haves, S1-S5 should-haves).
 
@@ -145,30 +145,41 @@ The plan is organized into **waves** — groups of related phases that deliver a
 | — | — **WAVE 19: PRODUCTION READINESS CLEANUP** — | — | — | — | — | — | — |
 | **PR1** | Backend Critical Fixes (Data Integrity) | **Complete** | 19 | main | ~60 min | ~45 min | BE-C1: runs join usage_stats (real cost/token/model/duration_ms); BE-C2: user-scoped memory (all endpoints, public persist()); BE-H2: RunService fully async (select/execute pattern) |
 | **PR2** | Frontend Critical Fixes (Broken Flows) | **Complete** | 10 | main | ~45 min | ~45 min | QA PASS_WITH_NOTES 2026-03-11: BE-H3/FE-C1 PATCH /settings; FE-H1 thread race (mutateAsync); FE-H2 RunDetail type cast removed |
-| **PR3** | iOS Critical Fixes (Broken Flows) | **In Progress** | — | — | ~60 min | — | iOS-H1: wire NetworkMonitor + queue drain; iOS-H2: cancel SSE on thread switch; iOS-H3: AuthGuard token refresh; iOS-H4: provider/model in ComposerBar |
-| **PR4** | Backend Security & Robustness | Planned | — | — | ~45 min | — | BE-H1: persist credentials (DB/vault); BE-M3: artifact path traversal guard; BE-M2: MemoryStore interface (no _persist); BE-M4: structured log context |
-| **PR5** | Frontend & iOS Polish | Planned | — | — | ~45 min | — | FE-M1: real online indicator; FE-M2: React Router redirect; FE-M3: auth'd artifact download; FE-M4: credential validation; iOS-M1-M5: lifecycle/UX fixes |
-| **PR6** | Integration Tests & Verification | Planned | — | — | ~45 min | — | E2E tests for: chat→cost flow, memory user isolation, thread CRUD, settings round-trip, privacy toggle, artifact download |
+| **PR3** | iOS Critical Fixes (Broken Flows) | **Complete** | 218 Swift | main | ~60 min | ~120 min | QA PASS_WITH_NOTES 2026-03-11 (cycle 2): iOS-H1 drain wiring, iOS-H2 SSE cancel on thread switch, iOS-H3 handleUnauthorized, iOS-H4 inline model picker; backend ChatRequest model/provider now optional |
+| **PR4** | Backend Security & Robustness | **Complete** | 23 Python | main | ~45 min | ~50 min | BE-H1: ProviderRouter reloaded after credential update; BE-M3: path traversal guard in artifact download; BE-M2: MemoryStore public persist() interface verified; BE-M4: structured log context (user_id, run_id, trace_id) in orchestrator |
+| **PR5** | Frontend & iOS Polish | **Complete** | 12 web + 233 Swift | main | ~45 min | ~90 min | QA PASS_WITH_NOTES 2026-03-11: FE-M1–M4 + iOS-M1–M5 all resolved; AuthContext cleanup, blob URL requestAnimationFrame, biometric retry guard |
+| **PR6** | Integration Tests & Verification | **Complete** | 22 Python + 8 Swift | main | ~75 min | ~90 min | 22 ASGI-based Python integration tests (thread CRUD, settings round-trip, memory isolation, auth flow, artifact auth, approval flow, privacy mode). 8 live Swift tests against Docker backend (LB1–LB8: login, 401 guard, thread create/list, approval list, chat auth, offline queue drain, health, dup registration). FE-L1 finding added. |
+| **PR7** | Wave 19 Audit Fix Cleanup | **Complete** | 20 Python | main | ~45 min | ~60 min | H1: privacy_mode Optional+Literal in ChatRequest (iOS 422 fix); H3: JWT error sanitized to "Invalid token"; M3: noa.coding deleted (no tests); M5: X-Content-Type-Options nosniff header; M6: success_envelope accepts list\|dict; L1: threads.py line length; L14 added to ARCH_INVARIANTS; CI-025 added to CLAUDE.md. M1/M2/M4 retained (have active tests). |
+| — | — **WAVE 20: DEPLOYMENT & RELIABILITY + GOOGLE OAUTH2** — | — | — | — | — | — | — |
+| **DE1** | CI/CD Pipeline | **Complete** | 74 | main | ~60 min | ~90 min | QA PASS_WITH_NOTES (cycle 2): ci.yml (3 jobs + Postgres service), cd.yml (ghcr.io push), web-ci.yml (E2E), ios-ci.yml (swift test), pre-push hook, gate tests |
+| **DE2** | TLS & Reverse Proxy | **Complete** | 22 | main | ~60 min | ~20 min | QA PASS_WITH_NOTES: Caddyfile + compose + CORS + docs, 22 tests |
+| **DE3** | Worker Container Hardening | **Complete** | 18 | main | ~45 min | ~20 min | QA PASS_WITH_NOTES: cap_drop/security_opt/limits on all services, Dockerfile HEALTHCHECK, _probe_worker tests |
+| **DE4** | Backup Verification Automation | **Complete** | 20 | main | ~45 min | ~30 min | QA PASS_WITH_NOTES: verify_backup.sh (gpg→tmpfs→pg_restore→table check), GET /health/backup (ok/stale/failed/never_run), backups:ro mount |
+| **GO1** | Google OAuth2 Backend | **Complete** | 28 | main | ~75 min | ~60 min | QA PASS_WITH_NOTES 2026-03-12: 4 OAuth routes (authorize/callback/status/disconnect), CSRF state, encrypted token storage, DB-first loading, env fallback |
+| **GO2** | Web UI: Connect Google | **Complete** | 15 | main | ~45 min | ~40 min | Settings Google section (status/connect/disconnect), GoogleCallback page, /auth/google/callback route. 15 frontend tests. |
+| **GO3** | iOS: OAuth2 via ASWebAuthenticationSession | **Complete** | 15 | main | ~60 min | ~50 min | GoogleAuthService (actor, WebAuthSessionProviding protocol), SettingsViewModel (@Observable), SettingsView (Google section with connect/disconnect/status), MainTabView updated. 203 Swift tests total (+15). |
+| **Wave20-cleanup** | Pre-Wave-21 Findings Cleanup & CI Proposals | **Complete** | — | main | ~90 min | ~120 min | Fixed W20-C1/H1/H2/M1/M2, BE-H4/H5/M1/M5, FE-L1/M5, iOS-L1; applied CI-001–033 proposals; ruff gate expanded to tests/; per-file-ignores added. 109/112 findings resolved. |
+| — | — **WAVE 21: PIPELINE EXCELLENCE & QUALITY INFRASTRUCTURE** — | — | — | — | — | — | — |
+| **QE1** | CI Backlog Triage & Process Gate Application | **Complete** | 39 | main | ~45 min | ~20 min | All 33 CI proposals triaged (APPLIED/REJECTED/DEFERRED/RESOLVED); zero PROPOSED remaining; 39 verification tests confirm all gates in target files |
+| **QE2** | Mypy Zero & Type Safety Enforcement | **Complete** | 25 | main | ~60 min | 60 min | 0 mypy errors (166 files); CI gate enforced (no continue-on-error); 25 tests |
+| **QE3** | Open Findings Closure | **Complete** | 5 | main | ~30 min | ~20 min | QA PASS_WITH_NOTES: FINDINGS.md at 0 open; iOS-L2 #warning added; W20-MED-3 continue-on-error removed; W20-MED-4 stubs documented |
+| **QE4** | Postgres Integration Tests | **Complete** | 30 | main | ~90 min | 90 min | QA PASS_WITH_NOTES: testcontainers + TEST_DATABASE_URL fallback; 30 integration tests across 6 suites; 2 schema drift migrations (010, 011) caught by tests |
+| **QE5** | Requirements Traceability Matrix | **Complete** | 30 | main | ~45 min | ~17 min | QA PASS_WITH_NOTES: traceability.py, TRACEABILITY.md (97/128 covered, 9 Phase-2 deferred orphans), CI step with continue-on-error |
+| **QE6** | Test Quality Infrastructure (Coverage, Mutation, Flaky Detection) | **Complete** | 16 | main | ~60 min | ~7 min | QA PASS_WITH_NOTES: pytest-cov (84% baseline, 70% threshold), mutmut config (auth/router/gateway), pytest-repeat nightly CI job |
 
 ---
 
-## Future Waves (7→9 Roadmap)
+## Future Waves
 
-Deferred until Wave 19 stabilizes the base. Noa is a **single-user personal assistant** — no multi-user needed for now.
+Noa is a **single-user personal assistant** — no multi-user needed for now.
 
-### Wave 20: Deployment & Reliability
-- Proper deployment pipeline (CI/CD, health gates, rollback)
-- Container isolation for workers (external/private in separate containers as spec intended)
-- Automated backup verification (restore-and-check cron)
-- HTTPS/TLS setup for Tailscale or VPS deployment
-
-### Wave 21: Observability & Ops
+### Wave 22: Observability & Ops
 - Lightweight monitoring (health dashboard, error rate tracking)
 - Alerting on failures (ntfy or similar, already partially wired)
 - Structured log aggregation and retention
 - Query performance audit (EXPLAIN ANALYZE on hot paths)
 
-### Wave 22: Polish & Extended Capabilities
+### Wave 23: Polish & Extended Capabilities
 - Frontend bundle optimization (tree-shaking, lazy routes audit)
 - Advanced tool integrations (new MCP servers, custom workflows)
 - Voice UX refinement (streaming transcription, inline playback)

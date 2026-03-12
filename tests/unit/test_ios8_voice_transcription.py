@@ -55,6 +55,7 @@ class TestTranscriptionServiceRefactored:
         # accept a provider kwarg.  After iOS8 the signature must support provider dispatch.
         # This test will fail (AssertionError) until the service is refactored.
         import inspect
+
         from noa.voice.transcription import TranscriptionService
 
         sig = inspect.signature(TranscriptionService.transcribe)
@@ -67,6 +68,7 @@ class TestTranscriptionServiceRefactored:
     def test_transcription_service_no_longer_requires_api_key_at_init(self):
         """PLAN Phase iOS8: Refactored TranscriptionService init must not take api_key as positional arg."""
         import inspect
+
         from noa.voice.transcription import TranscriptionService
 
         sig = inspect.signature(TranscriptionService.__init__)
@@ -89,14 +91,18 @@ class TestTranscriptionProviderABC:
 
     def test_provider_abc_cannot_be_instantiated_directly(self):
         """PLAN Phase iOS8: TranscriptionProvider ABC must not be directly instantiable."""
-        from noa.voice.transcription import TranscriptionProvider  # type: ignore[attr-defined]
+        from noa.voice.transcription import (
+            TranscriptionProvider,  # type: ignore[attr-defined]
+        )
 
         with pytest.raises(TypeError):
             TranscriptionProvider()  # type: ignore[abstract]
 
     def test_concrete_provider_must_implement_transcribe(self):
         """PLAN Phase iOS8: A concrete subclass that omits transcribe() cannot be instantiated."""
-        from noa.voice.transcription import TranscriptionProvider  # type: ignore[attr-defined]
+        from noa.voice.transcription import (
+            TranscriptionProvider,  # type: ignore[attr-defined]
+        )
 
         class IncompleteProvider(TranscriptionProvider):  # type: ignore[misc]
             pass  # does NOT implement transcribe()
@@ -116,7 +122,9 @@ class TestOpenAIWhisperProvider:
     @pytest.mark.asyncio
     async def test_transcribe_returns_text_from_whisper(self):
         """PLAN Phase iOS8: OpenAIWhisperProvider.transcribe() returns the text from Whisper API."""
-        from noa.voice.transcription import OpenAIWhisperProvider  # type: ignore[attr-defined]
+        from noa.voice.transcription import (
+            OpenAIWhisperProvider,  # type: ignore[attr-defined]
+        )
 
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -137,7 +145,9 @@ class TestOpenAIWhisperProvider:
     @pytest.mark.asyncio
     async def test_transcribe_sends_bearer_token_to_openai(self):
         """PLAN Phase iOS8: OpenAIWhisperProvider includes Authorization: Bearer in request headers."""
-        from noa.voice.transcription import OpenAIWhisperProvider  # type: ignore[attr-defined]
+        from noa.voice.transcription import (
+            OpenAIWhisperProvider,  # type: ignore[attr-defined]
+        )
 
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -168,7 +178,10 @@ class TestOpenAIWhisperProvider:
     @pytest.mark.asyncio
     async def test_transcribe_raises_transcription_error_on_api_failure(self):
         """PLAN Phase iOS8: OpenAIWhisperProvider raises TranscriptionError on HTTP error."""
-        from noa.voice.transcription import OpenAIWhisperProvider, TranscriptionError  # type: ignore[attr-defined]
+        from noa.voice.transcription import (  # type: ignore[attr-defined]
+            OpenAIWhisperProvider,
+            TranscriptionError,
+        )
 
         mock_response = MagicMock()
         mock_response.raise_for_status.side_effect = Exception("502 Bad Gateway")
@@ -196,7 +209,9 @@ class TestWhisperCppProvider:
     @pytest.mark.asyncio
     async def test_transcribe_posts_to_whisper_cpp_url(self):
         """PLAN Phase iOS8: WhisperCppProvider POSTs to WHISPER_CPP_URL/transcribe endpoint."""
-        from noa.voice.transcription import WhisperCppProvider  # type: ignore[attr-defined]
+        from noa.voice.transcription import (
+            WhisperCppProvider,  # type: ignore[attr-defined]
+        )
 
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -223,7 +238,9 @@ class TestWhisperCppProvider:
     @pytest.mark.asyncio
     async def test_transcribe_parses_text_field_from_response(self):
         """PLAN Phase iOS8: WhisperCppProvider parses {"text": "..."} from whisper.cpp response."""
-        from noa.voice.transcription import WhisperCppProvider  # type: ignore[attr-defined]
+        from noa.voice.transcription import (
+            WhisperCppProvider,  # type: ignore[attr-defined]
+        )
 
         expected = "buy groceries and milk"
 
@@ -248,7 +265,10 @@ class TestWhisperCppProvider:
     @pytest.mark.asyncio
     async def test_transcribe_raises_transcription_error_on_connection_failure(self):
         """PLAN Phase iOS8: WhisperCppProvider raises TranscriptionError when local service is unreachable."""
-        from noa.voice.transcription import WhisperCppProvider, TranscriptionError  # type: ignore[attr-defined]
+        from noa.voice.transcription import (  # type: ignore[attr-defined]
+            TranscriptionError,
+            WhisperCppProvider,
+        )
 
         mock_client = AsyncMock()
         mock_client.post.side_effect = Exception("Connection refused")
@@ -266,7 +286,9 @@ class TestWhisperCppProvider:
     @pytest.mark.asyncio
     async def test_whisper_cpp_uses_base_url_from_env(self):
         """PLAN Phase iOS8: WhisperCppProvider reads WHISPER_CPP_URL env var when not provided explicitly."""
-        from noa.voice.transcription import WhisperCppProvider  # type: ignore[attr-defined]
+        from noa.voice.transcription import (
+            WhisperCppProvider,  # type: ignore[attr-defined]
+        )
 
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -303,7 +325,9 @@ class TestTranscriptionServiceProviderDispatch:
     @pytest.mark.asyncio
     async def test_openai_provider_selected_when_setting_is_openai(self):
         """PLAN Phase iOS8: provider='openai' routes to OpenAIWhisperProvider."""
-        from noa.voice.transcription import TranscriptionService  # type: ignore[attr-defined]
+        from noa.voice.transcription import (
+            TranscriptionService,  # type: ignore[attr-defined]
+        )
 
         openai_provider = AsyncMock()
         from noa.voice.schemas import TranscriptionResult
@@ -329,7 +353,9 @@ class TestTranscriptionServiceProviderDispatch:
     @pytest.mark.asyncio
     async def test_whisper_cpp_provider_selected_when_setting_is_whisper_cpp(self):
         """PLAN Phase iOS8: provider='whisper_cpp' routes to WhisperCppProvider."""
-        from noa.voice.transcription import TranscriptionService  # type: ignore[attr-defined]
+        from noa.voice.transcription import (
+            TranscriptionService,  # type: ignore[attr-defined]
+        )
 
         openai_provider = AsyncMock()
 
@@ -355,7 +381,9 @@ class TestTranscriptionServiceProviderDispatch:
     @pytest.mark.asyncio
     async def test_openai_is_default_provider_when_not_specified(self):
         """PLAN Phase iOS8: TranscriptionService defaults to 'openai' provider when none is specified."""
-        from noa.voice.transcription import TranscriptionService  # type: ignore[attr-defined]
+        from noa.voice.transcription import (
+            TranscriptionService,  # type: ignore[attr-defined]
+        )
 
         openai_provider = AsyncMock()
         from noa.voice.schemas import TranscriptionResult
@@ -380,7 +408,9 @@ class TestTranscriptionServiceProviderDispatch:
     @pytest.mark.asyncio
     async def test_unknown_provider_raises_value_error(self):
         """PLAN Phase iOS8: Passing an unrecognised provider name raises ValueError, not a silent no-op."""
-        from noa.voice.transcription import TranscriptionService  # type: ignore[attr-defined]
+        from noa.voice.transcription import (
+            TranscriptionService,  # type: ignore[attr-defined]
+        )
 
         openai_provider = AsyncMock()
         whisper_cpp_provider = AsyncMock()
@@ -413,6 +443,7 @@ class TestTranscriptionConfig:
         monkeypatch.delenv("TRANSCRIPTION_PROVIDER", raising=False)
 
         from importlib import reload
+
         import noa.config as cfg
         reload(cfg)
 
@@ -426,6 +457,7 @@ class TestTranscriptionConfig:
         monkeypatch.delenv("WHISPER_CPP_URL", raising=False)
 
         from importlib import reload
+
         import noa.config as cfg
         reload(cfg)
 
@@ -439,6 +471,7 @@ class TestTranscriptionConfig:
         monkeypatch.setenv("TRANSCRIPTION_PROVIDER", "whisper_cpp")
 
         from importlib import reload
+
         import noa.config as cfg
         reload(cfg)
 
@@ -461,7 +494,9 @@ class TestVoiceEndpointProviderFlex:
         # provider=whisper_cpp, it must proceed without error.
         # We validate this at the TranscriptionService level: dispatching to whisper_cpp
         # must NOT require an openai_api_key to be set.
-        from noa.voice.transcription import TranscriptionService  # type: ignore[attr-defined]
+        from noa.voice.transcription import (
+            TranscriptionService,  # type: ignore[attr-defined]
+        )
 
         whisper_cpp_provider = AsyncMock()
         from noa.voice.schemas import TranscriptionResult
@@ -531,8 +566,8 @@ class TestProviderDispatchIntegration:
     async def test_whisper_cpp_provider_full_path_with_mocked_http(self):
         """PLAN Phase iOS8: Full path — WhisperCppProvider → TranscriptionService → result."""
         from noa.voice.transcription import (  # type: ignore[attr-defined]
-            WhisperCppProvider,
             TranscriptionService,
+            WhisperCppProvider,
         )
 
         mock_response = MagicMock()

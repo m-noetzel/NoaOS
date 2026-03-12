@@ -74,3 +74,13 @@
 - **NEVPNStatusProvider `@unchecked Sendable`** is acceptable -- no mutable state, NEVPNManager not Sendable in Apple SDK.
 - **Placeholder SPKI hash** in PinnedCertificates.swift must be replaced before deployment. T6 catches empty set but not wrong hash.
 - **iOS11 overload risk:** Must wire CertificatePinningDelegate, compose 12+ actors, add VPNStatusBanner, write E2E tests, accessibility, dark mode, error states, app icon, launch screen. Estimated 45min but likely much longer.
+- **cancelStream() issue RESOLVED in PR3:** cancelStreamAndClear() now called from MainTabView.onChange(of: selectedThreadId). Old entry about "cancelStream() never called from views" is fixed.
+- Totals after PR3: 182 tests (170 XCTest + 12 swift-testing), 11 new from PR3.
+- **RESOLVED (PR3 cycle 2): ChatRequest contract mismatch.** Backend chat.py:33-34 now has `model: str | None = None` and `provider: str | None = None`. iOS omits these keys (JSONEncoder skips nil), Pydantic accepts missing keys as None, router node falls through to _EXTERNAL_MODEL default. Verified via smoke test.
+- **Runner.run() model default is dead code.** chat.py always passes `model=body.model` explicitly (even when None), bypassing the `model: str = "anthropic/claude-haiku"` default on runner.py:42. Actual fallback is in nodes/router.py:56 (_EXTERNAL_MODEL).
+- **Swift JSONEncoder omits nil Optional keys** -- does NOT encode them as `null`. This means missing keys, not null values, which Pydantic treats as missing required fields. Always verify optional Swift fields against backend field optionality. **Lesson from PR3:** when adding new optional fields to iOS models, always check that the corresponding Pydantic model has `field: type | None = None` (not just `field: type`). The mismatch is invisible at compile time and only surfaces as HTTP 422 at runtime.
+- **NoaApp.swift** (ios/NoaApp/NoaApp/) is the app entry point with @main. Wires all actors via ServiceFactory. ContentView wraps AuthGuard -> MainTabView.
+- Totals after GO3: 216 tests (204 XCTest + 12 swift-testing), 16 new from GO3 (9 GoogleAuthServiceTests + 7 SettingsViewModelTests).
+- **Google OAuth2 backend response shapes (VERIFIED GO3):** authorize returns `{auth_url}` inside envelope, status returns `{connected, scopes}`, disconnect returns `{disconnected}`. APIClient.get() extracts from envelope `.data` automatically.
+- **ASWebAuthSessionAdapter gated behind `#if canImport(AuthenticationServices) && !os(macOS)`** -- only compiles on iOS device target, not in macOS test runs. Tests use MockWebAuthSession.
+- **Backend `platform=ios` redirect untested** -- _seed_state accepts platform but no test calls it with "ios". Code at auth.py:507-509 redirects to `noaapp://` for iOS. Simple path but has zero coverage.

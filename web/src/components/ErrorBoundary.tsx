@@ -37,11 +37,9 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
             An unexpected error occurred. Please try again.
           </p>
           {this.state.error && (
-            <pre className="text-xs text-left bg-destructive/10 text-destructive p-3 rounded-md mb-4 max-w-lg overflow-auto whitespace-pre-wrap">
+            <p className="text-sm text-muted-foreground mb-4">
               {this.state.error.message}
-              {"\n\n"}
-              {this.state.error.stack}
-            </pre>
+            </p>
           )}
           <button
             onClick={this.handleRetry}

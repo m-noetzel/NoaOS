@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 import { apiRequest } from "@/api/client";
 import type { UserSettings, PrivacyMode } from "@/api/types";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -8,6 +9,127 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
+
+// ---------------------------------------------------------------------------
+// GoogleAuthSection — GO2
+// ---------------------------------------------------------------------------
+
+interface GoogleStatus {
+  connected: boolean;
+  scopes: string[];
+}
+
+function GoogleAuthSection() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [isConnecting, setIsConnecting] = useState(false);
+
+  const { data: statusRes, isLoading: statusLoading } = useQuery({
+    queryKey: ["google-status"],
+    queryFn: () => apiRequest<GoogleStatus>("/api/v1/auth/google/status"),
+  });
+
+  const status = statusRes?.data;
+
+  const disconnectMutation = useMutation({
+    mutationFn: () =>
+      apiRequest("/api/v1/auth/google/disconnect", { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["google-status"] });
+      toast({ title: "Google account disconnected" });
+    },
+    onError: (err: Error) => {
+      toast({
+        title: "Failed to disconnect",
+        description: err.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleConnect = useCallback(async () => {
+    setIsConnecting(true);
+    try {
+      const res = await apiRequest<{ auth_url: string }>(
+        "/api/v1/auth/google/authorize",
+      );
+      const authUrl = res.data?.auth_url;
+      if (authUrl) {
+        window.location.href = authUrl;
+      } else {
+        toast({
+          title: "Failed to start Google OAuth",
+          description: "No auth URL returned",
+          variant: "destructive",
+        });
+        setIsConnecting(false);
+      }
+    } catch (err) {
+      toast({
+        title: "Failed to start Google OAuth",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+      setIsConnecting(false);
+    }
+  }, [toast]);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm">Google Account</CardTitle>
+        <CardDescription>
+          Connect your Google account to enable Calendar and Gmail tools
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {statusLoading ? (
+          <p className="text-sm text-muted-foreground">Checking status…</p>
+        ) : status?.connected ? (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <span
+                className="inline-block h-2 w-2 rounded-full bg-green-500"
+                aria-label="connected"
+              />
+              <span className="text-sm font-medium">Connected</span>
+            </div>
+            {status.scopes.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                Scopes: {status.scopes.join(", ")}
+              </p>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => disconnectMutation.mutate()}
+              disabled={disconnectMutation.isPending}
+            >
+              {disconnectMutation.isPending ? "Disconnecting…" : "Disconnect"}
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <span
+                className="inline-block h-2 w-2 rounded-full bg-muted-foreground"
+                aria-label="not connected"
+              />
+              <span className="text-sm text-muted-foreground">Not connected</span>
+            </div>
+            <Button
+              size="sm"
+              onClick={handleConnect}
+              disabled={isConnecting}
+            >
+              {isConnecting ? "Connecting…" : "Connect Google"}
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 /** Models grouped by provider (UI-H2) */
 export const PROVIDER_MODELS: Record<string, { value: string; label: string }[]> = {
@@ -31,6 +153,19 @@ export const PROVIDER_MODELS: Record<string, { value: string; label: string }[]>
 export default function Settings() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Refresh Google status if returning from OAuth callback
+  useEffect(() => {
+    if (searchParams.get("google") === "connected") {
+      queryClient.invalidateQueries({ queryKey: ["google-status"] });
+      // Clean up the query param without a navigation
+      const next = new URLSearchParams(searchParams);
+      next.delete("google");
+      setSearchParams(next, { replace: true });
+      toast({ title: "Google account connected" });
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { data: settingsRes } = useQuery({
     queryKey: ["settings"],
@@ -47,6 +182,9 @@ export default function Settings() {
   const [budgetError, setBudgetError] = useState<string | null>(null);
   const [ollamaUrl, setOllamaUrl] = useState("http://private-worker:11434");
   const [initialized, setInitialized] = useState(false);
+  // FE-M5: Track unsaved changes to warn before navigation
+  const [isDirty, setIsDirty] = useState(false);
+  const savedRef = useRef(false);
 
   useEffect(() => {
     if (settings) {
@@ -65,12 +203,29 @@ export default function Settings() {
       setMonthlyBudget(String(settings.budget_monthly_usd || 200));
       setOllamaUrl(settings.ollama_base_url || "http://private-worker:11434");
       setInitialized(true);
+      setIsDirty(false);
     }
   }, [settings]);
+
+  // FE-M5: Warn on browser unload if there are unsaved changes
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isDirty && !savedRef.current) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [isDirty]);
+
+  // FE-M5: Mark form as dirty on any field change
+  const markDirty = () => { setIsDirty(true); savedRef.current = false; };
 
   // When provider changes, reset model to first valid model for that provider (UI-H2)
   const handleProviderChange = (newProvider: string) => {
     setProvider(newProvider);
+    markDirty();
     const models = PROVIDER_MODELS[newProvider];
     if (models && models.length > 0) {
       const currentModelValid = models.some((m) => m.value === model);
@@ -118,6 +273,8 @@ export default function Settings() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["settings"] });
+      savedRef.current = true;
+      setIsDirty(false);
       toast({ title: "Settings saved" });
     },
     onError: (err: Error) => {
@@ -173,7 +330,7 @@ export default function Settings() {
 
           <div className="space-y-1.5">
             <Label className="text-xs">Default Model</Label>
-            <Select value={model} onValueChange={setModel}>
+            <Select value={model} onValueChange={(v) => { setModel(v); markDirty(); }}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -187,7 +344,7 @@ export default function Settings() {
 
           <div className="space-y-1.5">
             <Label className="text-xs">Default Privacy Mode</Label>
-            <Select value={privacy} onValueChange={(v) => setPrivacy(v as PrivacyMode)}>
+            <Select value={privacy} onValueChange={(v) => { setPrivacy(v as PrivacyMode); markDirty(); }}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -208,11 +365,11 @@ export default function Settings() {
         <CardContent className="space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="daily-budget" className="text-xs">Daily Budget (USD)</Label>
-            <Input id="daily-budget" type="number" min="0" step="0.01" value={dailyBudget} onChange={(e) => setDailyBudget(e.target.value)} />
+            <Input id="daily-budget" type="number" min="0" step="0.01" value={dailyBudget} onChange={(e) => { setDailyBudget(e.target.value); markDirty(); }} />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="monthly-budget" className="text-xs">Monthly Budget (USD)</Label>
-            <Input id="monthly-budget" type="number" min="0" step="0.01" value={monthlyBudget} onChange={(e) => setMonthlyBudget(e.target.value)} />
+            <Input id="monthly-budget" type="number" min="0" step="0.01" value={monthlyBudget} onChange={(e) => { setMonthlyBudget(e.target.value); markDirty(); }} />
           </div>
           {budgetError && (
             <p className="text-sm text-destructive">{budgetError}</p>
@@ -240,13 +397,17 @@ export default function Settings() {
             <Input
               placeholder="http://private-worker:11434"
               value={ollamaUrl}
-              onChange={(e) => setOllamaUrl(e.target.value)}
+              onChange={(e) => { setOllamaUrl(e.target.value); markDirty(); }}
             />
           </div>
         </CardContent>
       </Card>
 
-      <Button onClick={handleSave}>Save Settings</Button>
+      <GoogleAuthSection />
+
+      <Button onClick={handleSave}>
+        {isDirty ? "Save Settings *" : "Save Settings"}
+      </Button>
     </div>
   );
 }

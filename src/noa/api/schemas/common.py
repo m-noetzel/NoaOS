@@ -22,12 +22,14 @@ class Envelope(BaseModel):
     """
 
     ok: bool
-    data: dict[str, Any] | None = None
+    data: dict[str, Any] | list[Any] | None = None
     error: ErrorDetail | None = None
     trace_id: str = Field(default="")
 
 
-def success_envelope(data: dict[str, Any], trace_id: str) -> dict[str, Any]:
+def success_envelope(
+    data: dict[str, Any] | list[Any], trace_id: str
+) -> dict[str, Any]:
     """Build a success envelope dict."""
     return {
         "ok": True,

@@ -21,7 +21,13 @@ class AuditService:
     """Business logic for audit log operations."""
 
     def __init__(self, session: Session | None = None) -> None:
-        self._session = session
+        self._session: Session | None = session
+
+    def _require_session(self) -> Session:
+        """Return the sync session, raising if not configured."""
+        if self._session is None:
+            raise RuntimeError("AuditService: no sync session configured")
+        return self._session
 
     def create_entry(
         self,
@@ -52,8 +58,9 @@ class AuditService:
         # Compute previous entry hash from the latest entry in the chain.
         # Use FOR UPDATE to prevent race conditions (C3): two concurrent
         # inserts must not read the same "latest" entry.
+        session = self._require_session()
         latest: AuditLog | None = (
-            self._session.query(AuditLog)
+            session.query(AuditLog)
             .order_by(AuditLog.timestamp.desc(), AuditLog.id.desc())
             .with_for_update()
             .first()
@@ -85,8 +92,8 @@ class AuditService:
             classification_reasoning=classification_reasoning,
             previous_entry_hash=previous_hash,
         )
-        self._session.add(entry)
-        self._session.flush()
+        session.add(entry)
+        session.flush()
         return entry
 
     async def create_entry_async(
@@ -161,8 +168,9 @@ class AuditService:
 
     def query_by_trace_id(self, trace_id: uuid.UUID) -> list[AuditLog]:
         """Return all audit entries matching the given trace_id."""
+        session = self._require_session()
         results: list[AuditLog] = (
-            self._session.query(AuditLog)
+            session.query(AuditLog)
             .filter(AuditLog.trace_id == trace_id)
             .order_by(AuditLog.timestamp)
             .all()
@@ -179,13 +187,14 @@ class AuditService:
         import asyncio
 
         def _sync_purge() -> int:
+            s = self._require_session()
             cutoff = datetime.now(UTC) - timedelta(days=retention_days)
             count: int = (
-                self._session.query(AuditLog)
+                s.query(AuditLog)
                 .filter(AuditLog.timestamp < cutoff)
                 .delete(synchronize_session="fetch")
             )
-            self._session.flush()
+            s.flush()
             return count
 
         # SQLite in-memory DBs can't be used across threads
@@ -198,11 +207,12 @@ class AuditService:
 
     def purge_expired(self, retention_days: int = 90) -> int:
         """Sync variant of purge — for backward compatibility."""
+        session = self._require_session()
         cutoff = datetime.now(UTC) - timedelta(days=retention_days)
         count: int = (
-            self._session.query(AuditLog)
+            session.query(AuditLog)
             .filter(AuditLog.timestamp < cutoff)
             .delete(synchronize_session="fetch")
         )
-        self._session.flush()
+        session.flush()
         return count

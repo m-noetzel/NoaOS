@@ -13,8 +13,6 @@ import logging
 import re
 import uuid
 
-import pytest
-
 from noa.logging_config import (
     PII_PATTERNS,
     JsonFormatter,

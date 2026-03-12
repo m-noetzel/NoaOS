@@ -50,6 +50,8 @@ def _make_agent_state(
         "selected_model": selected_model,
         "user_model_override": None,
         "user_provider_override": None,
+        "user_privacy_override": None,
+        "requested_tools": None,
         "tool_calls": tool_calls or [],
         "tool_results": tool_results or [],
         "response": response,

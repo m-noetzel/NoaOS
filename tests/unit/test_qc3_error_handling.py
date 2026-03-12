@@ -185,7 +185,6 @@ class TestExceptionHandlingQuality:
             caplog.at_level(logging.WARNING),
         ):
             # We need to trigger the lifespan. Import and invoke it.
-            from noa.api.app import app
 
             # The lifespan context manager should log a warning when DB init fails
             # but not crash. We look for a WARNING-level record.
@@ -212,8 +211,8 @@ class TestCostEndpointErrorCodes:
     async def test_cost_summary_returns_500_on_db_error(self) -> None:
         """FINDINGS.md M8: cost_summary must return 500 (not 200) when the
         database raises OperationalError."""
-        from sqlalchemy.exc import OperationalError
         from fastapi import HTTPException
+        from sqlalchemy.exc import OperationalError
 
         mock_factory = MagicMock()
         mock_session = AsyncMock()
@@ -243,8 +242,8 @@ class TestCostEndpointErrorCodes:
     async def test_cost_records_returns_500_on_db_error(self) -> None:
         """FINDINGS.md M8: cost_records must return 500 (not 200) when the
         database raises OperationalError."""
-        from sqlalchemy.exc import OperationalError
         from fastapi import HTTPException
+        from sqlalchemy.exc import OperationalError
 
         mock_factory = MagicMock()
         mock_session = AsyncMock()

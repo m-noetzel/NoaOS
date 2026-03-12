@@ -17,3 +17,7 @@ build/
 .agent_locks/
 .claude/worktrees/
 .npm-cache/
+htmlcov/
+.mutmut-cache/
+.coverage
+.coverage.*

@@ -23,6 +23,11 @@ public final class ApprovalDetailViewModel {
     public var errorMessage: String? = nil
     /// True after a successful decide() call; triggers navigation back.
     public var isDone: Bool = false
+    /// iOS-M3: True when the last error was a retryable biometric failure.
+    /// Used to show a "Try Again" action in the error alert.
+    public var isBiometricError: Bool = false
+    /// iOS-M3: The pending decision to retry after biometric prompt.
+    public var pendingDecision: ApprovalStatus? = nil
 
     // MARK: - Data
 
@@ -58,6 +63,8 @@ public final class ApprovalDetailViewModel {
     public func decide(_ decision: ApprovalStatus) async {
         isSubmitting = true
         errorMessage = nil
+        isBiometricError = false
+        pendingDecision = nil
 
         // Biometric gate: only for high-risk approvals (§29.3 item 4)
         if approval.riskTier == .high {
@@ -66,7 +73,17 @@ public final class ApprovalDetailViewModel {
                     reason: "Authenticate to confirm this high-risk action"
                 )
             } catch {
+                let isCancelled: Bool = {
+                    if case .userCancelled = error as? BiometricError { return true }
+                    return false
+                }()
                 errorMessage = biometricErrorMessage(error)
+                // iOS-M3: mark as biometric error so View can offer "Try Again",
+                // unless the user explicitly cancelled.
+                if !isCancelled {
+                    isBiometricError = true
+                    pendingDecision = decision
+                }
                 isSubmitting = false
                 return
             }

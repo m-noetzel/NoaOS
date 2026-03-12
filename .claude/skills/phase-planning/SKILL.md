@@ -118,8 +118,14 @@ Choose a prefix that reflects the feature area. Keep IDs short (2-4 chars + numb
 | Pipeline step (ingestion/retrieval) | ~30-45 min |
 | Integration + wiring existing components | ~20-30 min |
 | Config/settings change | ~15-20 min |
+| **Infrastructure phase** (Dockerfile, GitHub Actions, Caddyfile, shell scripts) | **~20-30 min** (CI-032) |
+| **Multi-platform phase** (backend + iOS or backend + frontend in same phase) | **apply 1.5x–2x multiplier** (CI-024) |
 
 Prefix estimates with `~` to indicate approximation. These are agent working time, not human time.
+
+**CI-032:** Infrastructure phases (files that configure external systems rather than implement logic) default to 20–30 min. Do not apply the 45–60 min bracket to Dockerfile, CI YAML, Caddyfile, or shell script phases.
+
+**CI-024:** Multi-platform phases (touching both backend and iOS, or both backend and frontend in a single phase) routinely run 1.5–2x over estimate. Apply this multiplier to the base estimate when planning cross-platform work.
 
 ---
 

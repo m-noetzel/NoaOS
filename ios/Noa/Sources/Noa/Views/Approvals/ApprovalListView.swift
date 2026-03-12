@@ -12,6 +12,9 @@ public struct ApprovalListView: View {
     let approvalService: any ApprovalServicing
     let biometricService: any BiometricAuthenticating
 
+    /// iOS-M4: confirmation dialog state for batch deny.
+    @State private var showBatchDenyConfirmation: Bool = false
+
     public init(
         viewModel: ApprovalListViewModel,
         approvalService: any ApprovalServicing,
@@ -50,7 +53,8 @@ public struct ApprovalListView: View {
                             count: viewModel.selectedIds.count,
                             isProcessing: viewModel.isBatchProcessing,
                             onApprove: { Task { await viewModel.batchApprove() } },
-                            onDeny: { Task { await viewModel.batchDeny() } }
+                            // iOS-M4: show confirmation before executing batch deny
+                            onDeny: { showBatchDenyConfirmation = true }
                         )
                     }
                 }
@@ -68,6 +72,19 @@ public struct ApprovalListView: View {
         }
         .task { await viewModel.load() }
         .refreshable { await viewModel.load() }
+        // iOS-M4: Batch deny confirmation alert
+        .confirmationDialog(
+            "Deny \(viewModel.selectedIds.count) Approval\(viewModel.selectedIds.count == 1 ? "" : "s")?",
+            isPresented: $showBatchDenyConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Deny All", role: .destructive) {
+                Task { await viewModel.batchDeny() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will deny \(viewModel.selectedIds.count) selected approval\(viewModel.selectedIds.count == 1 ? "" : "s"). This action cannot be undone.")
+        }
         .alert("Error", isPresented: Binding(
             get: { viewModel.errorMessage != nil },
             set: { if !$0 { viewModel.errorMessage = nil } }

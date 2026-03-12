@@ -239,6 +239,7 @@ describe("UI-C3: Logout clears React Query cache", () => {
       apiRequest: vi.fn().mockResolvedValue({ ok: true, data: null, error: null, trace_id: "t" }),
       BASE_URL: "",
       WEB_DEVICE_ID: "test",
+      registerSessionExpiredHandler: vi.fn(),
     }));
 
     vi.resetModules();
@@ -278,6 +279,7 @@ describe("UI-C3: Logout clears React Query cache", () => {
       apiRequest: vi.fn().mockResolvedValue({ ok: true, data: null, error: null, trace_id: "t" }),
       BASE_URL: "",
       WEB_DEVICE_ID: "test",
+      registerSessionExpiredHandler: vi.fn(),
     }));
 
     vi.resetModules();
@@ -320,6 +322,7 @@ describe("UI-C3: Logout clears React Query cache", () => {
       apiRequest: vi.fn().mockResolvedValue({ ok: true, data: null, error: null, trace_id: "t" }),
       BASE_URL: "",
       WEB_DEVICE_ID: "test",
+      registerSessionExpiredHandler: vi.fn(),
     }));
 
     vi.resetModules();

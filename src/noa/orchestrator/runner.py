@@ -39,9 +39,11 @@ class OrchestratorRunner:
         run_service: Any,
         run_id: str,
         privacy_mode: str = "external",
-        model: str = "anthropic/claude-haiku",
+        model: str | None = None,
         provider: str | None = None,
         system_prompt: str | None = None,
+        user_id: str | None = None,
+        trace_id: str | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Execute the graph and yield structured events.
 
@@ -52,10 +54,28 @@ class OrchestratorRunner:
             privacy_mode: "external" or "private".
             model: Model identifier.
             provider: Optional provider override.
+            user_id: Authenticated user ID for structured logging.
+            trace_id: Request trace ID for structured logging.
 
         Yields:
             Event dicts with event_type, payload, timestamp.
         """
+        # BE-M4: Structured log context for queryable logs
+        log_ctx = {
+            "run_id": run_id,
+            "user_id": user_id or "unknown",
+            "trace_id": trace_id or "unknown",
+        }
+        logger.info(
+            "Run started: run_id=%s user_id=%s trace_id=%s privacy_mode=%s model=%s",
+            run_id,
+            user_id or "unknown",
+            trace_id or "unknown",
+            privacy_mode,
+            model or "default",
+            extra=log_ctx,
+        )
+
         # 1. message_received
         event = self._make_event(
             "message_received",
@@ -68,7 +88,11 @@ class OrchestratorRunner:
         try:
             await run_service.update_status(run_id, "running")
         except Exception:  # noqa: BLE001
-            logger.warning("Failed to update run status to running")
+            logger.warning(
+                "Failed to update run status to running: run_id=%s",
+                run_id,
+                extra=log_ctx,
+            )
 
         # 3. classification_done (pre-graph — we know the privacy_mode)
         event = self._make_event(
@@ -126,6 +150,12 @@ class OrchestratorRunner:
                     initial_state.update(saved)
                     logger.info("Resumed from checkpoint for run %s", run_id)
 
+            logger.debug(
+                "Invoking graph: run_id=%s tools=%d",
+                run_id,
+                len(avail_tools),
+                extra=log_ctx,
+            )
             result = await self._graph.ainvoke(initial_state)
 
             # A4: Save checkpoint after successful execution
@@ -165,16 +195,40 @@ class OrchestratorRunner:
             yield event
 
             # 8. Transition to completed
+            logger.info(
+                "Run completed: run_id=%s user_id=%s trace_id=%s",
+                run_id,
+                user_id or "unknown",
+                trace_id or "unknown",
+                extra=log_ctx,
+            )
             try:
                 await run_service.update_status(run_id, "completed")
             except Exception:  # noqa: BLE001
-                logger.warning("Failed to update run status to completed")
+                logger.warning(
+                    "Failed to update run status to completed: run_id=%s",
+                    run_id,
+                    extra=log_ctx,
+                )
 
         except Exception as exc:  # noqa: BLE001
-            # Error event
+            logger.error(
+                "Run failed: run_id=%s user_id=%s trace_id=%s error=%s",
+                run_id,
+                user_id or "unknown",
+                trace_id or "unknown",
+                str(exc),
+                extra=log_ctx,
+            )
+            # Error event — send a generic message to the client (str(exc) may
+            # contain internal details like API keys or DB connection strings).
+            # The full error is already captured in the server log above.
             error_event = self._make_event(
                 "error",
-                {"error": str(exc), "error_type": type(exc).__name__},
+                {
+                    "error": "An error occurred processing your request.",
+                    "error_type": type(exc).__name__,
+                },
             )
             await self._persist_event(run_service, run_id, error_event)
             yield error_event
@@ -183,7 +237,11 @@ class OrchestratorRunner:
             try:
                 await run_service.update_status(run_id, "failed")
             except Exception:  # noqa: BLE001
-                logger.warning("Failed to update run status to failed")
+                logger.warning(
+                    "Failed to update run status to failed: run_id=%s",
+                    run_id,
+                    extra=log_ctx,
+                )
 
     @staticmethod
     def _make_event(

@@ -9,9 +9,7 @@ Finding refs: FINDINGS.md C3, C6, H6, H7, H10, M2, M4
 
 from __future__ import annotations
 
-import re
 import uuid
-from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -359,8 +357,9 @@ class TestNotionSanitization:
 
     def test_sanitizer_uses_nh3_not_regex(self):
         """Sanitizer must use nh3 library, not regex."""
-        from noa.tools import notion
         import inspect
+
+        from noa.tools import notion
 
         source = inspect.getsource(notion._sanitize_content)
         assert "nh3" in source or "nh3" in inspect.getsource(notion), (

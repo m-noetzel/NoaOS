@@ -59,8 +59,17 @@ def get_gateway() -> ToolGateway | None:
 
 
 def execute_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:  # noqa: ARG001
-    """Fallback tool executor. Patched in tests; real dispatch uses registry."""
-    msg = "execute_tool requires real tool backends (not yet wired)"
+    """Fallback tool executor. Patched in tests; real dispatch uses registry.
+
+    In production this function is never called because all tool dispatch flows through
+    ToolGateway (set via set_gateway) or ToolRegistry (set via set_registry). If this
+    raises, it means the tool gateway wiring is missing — check that set_gateway() and
+    set_registry() are called during app startup in app.py.
+    """
+    msg = (
+        "execute_tool is a fallback guard — check tool gateway wiring "
+        "(set_gateway/set_registry must be called at app startup)"
+    )
     raise NotImplementedError(msg)
 
 

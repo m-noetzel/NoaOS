@@ -32,6 +32,11 @@ def set_app(app: Any) -> None:
     _app_instance = app
 
 
+def get_app() -> Any | None:
+    """Return the registered FastAPI app instance."""
+    return _app_instance
+
+
 def _get_from_app(key: str) -> Any:
     """Try to read from app.state first."""
     if _app_instance is not None:

@@ -7,6 +7,27 @@ const USE_MOCKS = import.meta.env.VITE_USE_MOCKS === "true";
 
 const WEB_DEVICE_ID = "web-client";
 
+/**
+ * FE-M2: Module-level navigation callback.
+ * The AuthProvider registers a React Router `navigate` function here so
+ * that the API client can redirect to /login without blowing away React state
+ * via `window.location.href`.  Falls back to `window.location.href` if
+ * nothing has registered (e.g. in unit tests).
+ */
+let _onSessionExpired: (() => void) | null = null;
+
+export function registerSessionExpiredHandler(handler: () => void): void {
+  _onSessionExpired = handler;
+}
+
+function redirectToLogin(): void {
+  if (_onSessionExpired) {
+    _onSessionExpired();
+  } else {
+    window.location.href = "/login";
+  }
+}
+
 let isRefreshing = false;
 let refreshPromise: Promise<boolean> | null = null;
 
@@ -105,7 +126,7 @@ export async function apiRequest<T>(
       response = await makeRequest();
     } else {
       clearTokens();
-      window.location.href = "/login";
+      redirectToLogin();
       throw new Error("Session expired");
     }
   }

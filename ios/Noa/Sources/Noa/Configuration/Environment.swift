@@ -17,8 +17,16 @@ public enum NoaEnvironment: Sendable {
     public var baseURL: URL {
         switch self {
         case .development:
+            // iOS-L1: Use NOA_DEV_URL from Info.plist if set, fall back to localhost.
+            // Set NOA_DEV_URL in your scheme's environment or Info.plist to your
+            // Tailscale IP (e.g. http://100.x.x.x:8000). Never hardcode IPs here.
+            if let urlString = Bundle.main.object(forInfoDictionaryKey: "NOA_DEV_URL") as? String,
+               !urlString.isEmpty,
+               let url = URL(string: urlString) {
+                return url
+            }
             // swiftlint:disable:next force_unwrapping
-            return URL(string: "http://100.106.15.98:8000")!
+            return URL(string: "http://localhost:8000")!
         case .production:
             guard
                 let urlString = Bundle.main.object(forInfoDictionaryKey: "NOA_BASE_URL") as? String,

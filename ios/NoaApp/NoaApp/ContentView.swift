@@ -6,6 +6,7 @@ struct ContentView: View {
     let chatService: ChatService
     let approvalService: ApprovalService
     let biometricService: BiometricService
+    let settingsViewModel: SettingsViewModel
 
     var body: some View {
         AuthGuard(viewModel: authViewModel) {
@@ -13,7 +14,8 @@ struct ContentView: View {
                 authViewModel: authViewModel,
                 chatService: chatService,
                 approvalService: approvalService,
-                biometricService: biometricService
+                biometricService: biometricService,
+                settingsViewModel: settingsViewModel
             )
         }
     }

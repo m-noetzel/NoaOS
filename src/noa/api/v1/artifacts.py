@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import os
 import uuid
 from pathlib import Path
 from typing import Any
@@ -18,7 +20,48 @@ from noa.auth.middleware import AuthUser, require_auth
 from noa.db.models.artifact import Artifact
 from noa.db.models.run import Run
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/v1/artifacts", tags=["artifacts"])
+
+# Allowed base directory for artifact files — resolved once at module load.
+# Override via ARTIFACTS_DIR env var; defaults to /data/artifacts inside the container.
+_ARTIFACTS_BASE = Path(
+    os.environ.get("ARTIFACTS_DIR", "/data/artifacts")
+).resolve()
+
+
+def _validate_artifact_path(storage_ref: str) -> Path:
+    """Resolve *storage_ref* and verify it is under the allowed artifacts directory.
+
+    Raises HTTPException 400 if the path escapes the base directory (path
+    traversal attempt) or contains a ``..`` component.
+
+    Returns the resolved Path on success.
+    """
+    # Fast pre-check: reject any raw ref containing '..'
+    if ".." in storage_ref:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid artifact path",
+        )
+    resolved = Path(storage_ref).resolve()
+    # Verify the resolved path is inside the allowed base directory.
+    # Path.is_relative_to() was added in Python 3.9.
+    try:
+        resolved.relative_to(_ARTIFACTS_BASE)
+    except ValueError as exc:
+        logger.warning(
+            "Path traversal attempt blocked: storage_ref=%r resolved=%s base=%s",
+            storage_ref,
+            resolved,
+            _ARTIFACTS_BASE,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid artifact path",
+        ) from exc
+    return resolved
 
 
 @router.get("")
@@ -77,7 +120,8 @@ async def download_artifact(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Artifact {artifact_id} not found",
         )
-    path = Path(artifact.storage_ref)
+    # BE-M3: Validate path is within the allowed artifacts directory
+    path = _validate_artifact_path(artifact.storage_ref)
     if not path.exists():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

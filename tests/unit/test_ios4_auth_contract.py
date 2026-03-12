@@ -64,11 +64,10 @@ class TestAuthTokenShape:
         This test verifies the backend auth endpoint response includes `expires_in`.
         It FAILS until the auth endpoint serialisation includes this field.
         """
-        from noa.auth.service import AuthService as BackendAuthService  # noqa: F401
-
         # The login endpoint must return a dict with `expires_in`
         # We verify this by calling the backend schema directly
         from noa.api.v1.auth import router as auth_router
+        from noa.auth.service import AuthService as BackendAuthService  # noqa: F401
 
         # Verify the router handles /login and its response model includes expires_in
         routes = {r.path: r for r in auth_router.routes}

@@ -99,25 +99,25 @@ class SettingsService:
         row = await self._repo.get_by_user_id(user_id)
         if row is None:
             # Return defaults with masked env-var keys
-            result = dict(_DEFAULTS)
+            defaults_result: dict[str, Any] = dict(_DEFAULTS)
             for field in _SECRET_FIELDS:
                 env_val = self.get_effective_key(field, db_value=None)
-                result[field] = self.mask_key(env_val)
-            return result
+                defaults_result[field] = self.mask_key(env_val)
+            return defaults_result
 
-        result: dict[str, Any] = {}
+        row_result: dict[str, Any] = {}
         for field in _ALL_FIELDS:
             db_value = getattr(row, field, None)
             if field in _SECRET_FIELDS:
                 effective = self.get_effective_key(field, db_value=db_value)
-                result[field] = self.mask_key(effective)
+                row_result[field] = self.mask_key(effective)
             else:
                 # Decimal → float for JSON serialization
-                val = db_value
+                val: Any = db_value
                 if hasattr(val, "as_integer_ratio"):
                     val = float(val)
-                result[field] = val
-        return result
+                row_result[field] = val
+        return row_result
 
     async def update_settings(
         self, user_id: uuid.UUID, updates: dict[str, Any],

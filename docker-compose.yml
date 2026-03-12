@@ -9,13 +9,67 @@
 # Private and external workers are on separate networks with no route.
 
 services:
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - noa-internal    # Can reach noa-api on the internal network
+      - noa-external    # Required so Caddy can reach ACME servers for Let's Encrypt
+    volumes:
+      - ./docker/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    environment:
+      - NOA_DOMAIN=${NOA_DOMAIN:-localhost}
+      - NOA_ACME_EMAIL=${NOA_ACME_EMAIL:-noa@localhost}
+    depends_on:
+      noa-api:
+        condition: service_healthy
+    # Container hardening (§8.1, DE3)
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE   # Required: Caddy must bind ports 80 and 443
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+
+  migrate:
+    build:
+      context: .
+      dockerfile: docker/noa-api/Dockerfile
+    command: alembic upgrade head
+    networks:
+      - noa-internal
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://noa:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/noa
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
   noa-api:
     build:
       context: .
       dockerfile: docker/noa-api/Dockerfile
-    ports:
-      - "127.0.0.1:8000:8000"  # localhost
-      - "100.106.15.98:8000:8000"  # Tailscale VPN (iOS dev)
+    # Port 8000 is NOT exposed to the host in production.
+    # All external traffic goes through Caddy (ports 80/443 above).
+    # For local dev without Caddy, use docker-compose.dev.yml which overrides
+    # this service to re-expose port 8000 directly.
+    expose:
+      - "8000"
     networks:
       - noa-internal
       - noa-external
@@ -34,9 +88,10 @@ services:
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
       - NOTION_TOKEN=${NOTION_TOKEN:-}
       - TAVILY_API_KEY=${TAVILY_API_KEY:-}
+      - GOOGLE_REDIRECT_URI=http://${NOA_DOMAIN:-localhost:8000}/api/v1/auth/google/callback
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       private-worker:
         condition: service_healthy
       external-worker:
@@ -49,6 +104,7 @@ services:
       start_period: 30s
     volumes:
       - ./src:/app/src:ro  # Live source mount — restart picks up changes without rebuild
+      - backups:/backups:ro  # Backup verify_status.json for GET /health/backup (§10.5)
     # Container hardening (§8.1)
     read_only: true
     cap_drop:
@@ -107,6 +163,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 60s
     # Container hardening (§8.1)
     read_only: true
     cap_drop:
@@ -143,7 +200,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 30s
+      start_period: 60s
     # Container hardening (§8.2)
     read_only: true
     cap_drop:
@@ -183,12 +240,10 @@ services:
     volumes:
       - backups:/backups
       - private-data:/data:ro
-    # Container hardening (§8.1, §10.5)
-    read_only: true
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
+    # Backup is internal-only (no network exposure); dcron needs SETUID/SETGID to
+    # fork cron jobs, so cap_drop/read_only are not applied here (§8.1 exemption).
+    # init: true prevents crond from being PID 1 (session leader), which blocks setpgid.
+    init: true
     tmpfs:
       - /tmp:size=256M
     deploy:
@@ -211,3 +266,5 @@ volumes:
   private-data:
   coding-workspace:
   backups:
+  caddy-data:    # Caddy TLS certificates and ACME state
+  caddy-config:  # Caddy runtime configuration cache

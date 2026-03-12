@@ -21,7 +21,7 @@ def create_async_engine_from_config(
     url = settings.database_url
     # SQLite (used in tests) does not support connection pool parameters.
     is_sqlite = url.startswith("sqlite")
-    kwargs: dict = {
+    kwargs: dict[str, object] = {
         "echo": settings.noa_env.value == "development",
         "pool_pre_ping": not is_sqlite,
     }

@@ -52,6 +52,7 @@ public enum ServiceFactory {
 
         #if DEBUG
         // No pinning in debug: localhost uses plain HTTP, no real server certificate.
+        #warning("DEBUG build: certificate pinning is disabled — do not connect to production endpoints")
         return URLSession(configuration: config)
         #else
         let delegate = CertificatePinningDelegate(pinnedSPKIHashes: PinnedCertificates.spkiHashes)
@@ -68,6 +69,7 @@ public enum ServiceFactory {
         config.timeoutIntervalForResource = 150  // > backend timeout so server-side 504 surfaces first
 
         #if DEBUG
+        #warning("DEBUG build: certificate pinning is disabled — do not connect to production endpoints")
         return URLSession(configuration: config)
         #else
         let delegate = CertificatePinningDelegate(pinnedSPKIHashes: PinnedCertificates.spkiHashes)
@@ -89,14 +91,16 @@ public enum ServiceFactory {
         environment: NoaEnvironment = .current,
         tokenProvider: any TokenProviding,
         networkMonitor: (any NetworkMonitoring)? = nil,
-        offlineQueue: (any OfflineQueuing)? = nil
+        offlineQueue: (any OfflineQueuing)? = nil,
+        onUnauthorized: (@Sendable () -> Void)? = nil
     ) -> APIClient {
         APIClient(
             environment: environment,
             tokenProvider: tokenProvider,
             session: makePinnedSession(),
             networkMonitor: networkMonitor,
-            offlineQueue: offlineQueue
+            offlineQueue: offlineQueue,
+            onUnauthorized: onUnauthorized
         )
     }
 
@@ -111,7 +115,6 @@ public enum ServiceFactory {
     ///   - offlineQueue: The `OfflineQueuing` instance whose `drain()` is called on reconnect.
     ///   - apiClient: The `APIClient` used as the drain executor (replays queued requests).
     /// - Returns: A started `NetworkMonitorService` instance.
-    @discardableResult
     public static func makeNetworkMonitor(
         draining offlineQueue: any OfflineQueuing,
         via apiClient: APIClient

@@ -148,3 +148,27 @@
 - The `.transcribed` state renders an invisible `Color.clear` view and fires `onTranscribed` in `.onAppear`.
 - This is a side-effect-in-body pattern that SwiftUI may re-trigger on redraws or identity changes.
 - Preferred: use `.onChange(of: viewModel.state)` in the parent or an `@Observable` sink.
+
+## iOS PR3 Critical Fixes — Patterns & Pitfalls (2026-03-11)
+
+### weak capture in onUnauthorized closure (composition root)
+- `NoaApp` creates `authVM` (a class) then captures it strongly in the `onUnauthorized: { @Sendable in ... }` closure stored on `APIClient`.
+- `NoaApp` strongly holds both `authVM` and `apiClient` (via `networkMonitor` chain).
+- No cycle today because `AuthViewModel` doesn't hold `APIClient`, but `[weak authVM]` is the correct defensive pattern for any closure stored on a dependency.
+- Pattern to enforce: any closure that captures a class and is stored on a service object should use `[weak]`.
+
+### Unstructured Task in ServiceFactory.makeNetworkMonitor — no cancellation path
+- `makeNetworkMonitor` spawns an outer unstructured `Task` to call `monitor.startMonitoring(...)`.
+- The task is not stored or cancelled anywhere; `stopMonitoring()` is documented but never called on app lifecycle events.
+- `@discardableResult` on `makeNetworkMonitor` allows callers to drop the monitor reference — only the stored `Task` closure keeps it alive.
+- Pattern: composition root methods that start background tasks should return structured cancellation tokens or require the caller to call a stop method in a lifecycle hook.
+
+### Vacuous test for task cancellation (T4 in PR3Tests)
+- Test created an independent Task (not assigned to viewModel.streamTask) then called cancelStreamAndClear(), verifying the task did not append. The ViewModel's internal streamTask was nil the whole time.
+- The actual in-flight stream cancellation path was not exercised at all.
+- Pattern: when testing cancellation of a ViewModel's private Task, always trigger the Task through the public API (sendMessage etc.) with a slow mock, then cancel — don't create a parallel task.
+
+### LLMProviders catalogue: model IDs must be verified against backend
+- `claude-opus-4-6` in LLMProviders.swift is not a valid Anthropic model ID (looks like reviewer model ID leaked in).
+- `google_ai` provider ID must match what the backend's PROVIDER_MODELS dict uses as key.
+- Pattern: any compile-time string catalogue that maps to external service identifiers needs a comment citing where the source of truth lives, and ideally a unit test that validates the IDs against a backend-sourced list or at minimum against the web frontend's constants.

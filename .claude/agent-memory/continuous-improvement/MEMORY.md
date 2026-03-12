@@ -3,69 +3,97 @@
 ## Project Context
 - Codebase: NoaOS (governed personal AI agent, Python backend + Swift iOS + React frontend)
 - Planning artifacts under Plan/. CI analyses go in Plan/CI/.
-- IMPROVEMENT_BACKLOG.md is the living tracker (CI-001 through CI-015 as of 2026-03-11 PR2 cycle).
+- IMPROVEMENT_BACKLOG.md is the living tracker (CI-001 through CI-041 as of 2026-03-12 Wave 21 boundary).
 
-## Backlog State (as of 2026-03-11 PR2 cycle)
-- CI-001 to CI-007: PROPOSED 2026-03-07, none applied yet (from Insights Report analysis)
-- CI-008, CI-010, CI-011: PROPOSED 2026-03-11 (from PR1 QA cycle), not applied
-- CI-009: APPLIED 2026-03-11 (L12 Write-Path User Scoping in ARCH_INVARIANTS.md)
-- CI-012 to CI-015: PROPOSED 2026-03-11 (from PR2 QA cycle), not applied
-- CI-013 is P1 (human gate required): FINDINGS.md Currency Gate (M5b)
+## Backlog State (as of 2026-03-12 Wave 21 boundary)
+
+All CI-001 through CI-033 are APPLIED, RESOLVED, or DEFERRED (fully triaged by QE1).
+
+New proposals from Wave 21 analysis (all PROPOSED, pending human approval):
+- CI-034 (P1, human gate): Wave-close cross-phase smoke test — CLAUDE.md Wave Boundary section
+- CI-035 (P2): QA S3b deployment config security checks — QA_CHECKLIST.md
+- CI-036 (P2): M2d generator idempotency gate — QA_CHECKLIST.md
+- CI-037 (P2): M5d QA note disposition gate — CLAUDE.md + QA_CHECKLIST.md
+- CI-038 (P2): M1b pre-phase test plan QA enforcement gate — QA_CHECKLIST.md
+- CI-039 (P2): Integration test delete/cascade coverage rule — CLAUDE.md
+- CI-040 (P3): Dev container TEST_DATABASE_URL — docker-compose.dev.yml
+- CI-041 (P3): Nightly mutation test CI job (jwt.py) — ci.yml
+
+## Outstanding P1 Human Gate (as of Wave 21 boundary)
+- CI-034 (P1): Wave-close cross-phase smoke test — apply to CLAUDE.md before Wave 22 begins.
+
+## Confirmed Effective Gates (stable, no longer watching)
+- CI-009 (L12 Write-Path User Scoping): No violations in Waves 20+21.
+- CI-013 (M5b Findings Currency): FINDINGS.md at 0 open going into Wave 21 audit. Pattern fully reversed from Wave 19.
+- CI-015 (Findings Sync): No stale findings at wave close.
+- CI-016 (S5 Integration Baseline): QE4 delivered 55 real Postgres integration tests. S5 OPEN legitimate-exemption rate normal.
+- CI-030 (Ruff on tests/): Zero test-file violations in Wave 21 (audit confirmed).
+- CI-031 (M7 app.state write-only): No new dead-end stores in Wave 21.
+- CI-033 (Pre-QA Deliverable Check): No completeness FAIL verdicts in Wave 21.
+
+## Not Effective — Needs Enforcement Upgrade
+- CI-023 (Pre-Phase Test Plan): Applied to implement.md. 0/6 Wave 21 phases produced test plans. 25 consecutive phases without a test plan. CI-038 (M1b QA gate) required to enforce.
+
+## Partially Effective
+- CI-028 (M2c Source-Inspection Gate): QE6 had 15/16 source-inspection tests — gate passed on one behavioral companion. Threshold may be too loose for infra phases.
+- CI-032 (Infra Estimate Bracket): QE4 accurate; QE5 (0.38x) and QE6 (0.12x) still severely compressed due to fuzzy scope.
 
 ## Confirmed Systemic Patterns
 
-### Pattern: AsyncMock on Sync SQLAlchemy Methods (16+ files)
-- `session = AsyncMock()` used throughout tests. `session.add()` is sync; calling it on AsyncMock emits RuntimeWarning.
-- Correct pattern: `session = MagicMock(spec=AsyncSession)` with `session.execute = AsyncMock(...)` and `session.flush = AsyncMock(...)`.
-- Addressed by CI-008 (M4b gate). Not yet applied.
-- PR2 test file continues pattern: test_pr2_frontend_fixes.py lines 95, 128, 158, 199.
+### Pattern: Cross-Phase Interaction Bugs (NEW — Wave 21)
+- W21-H1: DELETE /threads 500 (FK cascade on usage_stats; QE4 integration tests covered create/read but not delete with child data).
+- W21-H2: Backup container crash-loop from cap_drop (DE3 + DE4 interaction untested end-to-end).
+- Addressed by CI-034 (wave-close smoke test, P1) and CI-039 (delete coverage rule, P2).
 
-### Pattern: Write-Path Missing user_id (Store Without Scoping)
-- Storage calls omit user_id; read path filters by user_id. The two paths are disconnected.
-- Instances: MemoryStore.store() (BE-M5, handlers.py:35), _credential_store dict (TM1).
-- CI-009 (L12) APPLIED. CI-011 (M3b QA check) PROPOSED. BE-M5 fix scheduled for PR4.
+### Pattern: PASS_WITH_NOTES as Steady State (19 consecutive verdicts)
+- Wave 19 PR phases (7), Wave 20 (7), Wave 21 (5 reviewed). Zero PASS or FAIL in recent history.
+- Notes are not dispositioned — accumulate as dropped debt. Addressed by CI-037 (M5d note disposition gate).
 
-### Pattern: S5 Integration Smoke Test Persistently OPEN
-- S5 OPEN in 18 of 26 reviewed QA reports (PR1 + PR2 added to prior 17/25 count).
-- Wave 19 consecutive OPEN count: PR1=1, PR2=2. Trigger threshold (CI-010) = 3 consecutive.
-- If PR3 returns S5 OPEN, escalate CI-010 to P1 immediately.
+### Pattern: Pre-Phase Test Plan Absent (25 consecutive phases)
+- CI-023 applied to implement.md but has zero effect without QA enforcement gate.
+- Addressed by CI-038 (M1b gate in QA_CHECKLIST.md).
 
-### Pattern: Source-Text-Scanning Tests as Behavioral Proxies (4+ phases)
-- Python tests read .tsx source files and assert string presence/absence.
-- Appears in: QC6, QC7, iOS11, PR2. At least 4 phases affected.
-- These verify source edits were made but do not execute code paths.
-- Addressed by CI-012 (S5b Frontend Fix Behavioral Coverage Gate). PROPOSED, not applied.
+### Pattern: Security Config Gaps (2 waves)
+- W21-M2: /docs exposed unconditionally. W20-F: JWT env-var name mismatch.
+- Both caught only at system audit, not QA. Addressed by CI-035 (S3b checklist).
 
-### Pattern: FINDINGS.md Drift (new, P1)
-- FINDINGS.md accumulated 7 stale entries across PR1 + PR2 (3 from PR1, 4 from PR2).
-- Stale entries: BE-C1, BE-C2, BE-H2 (resolved PR1), BE-H3, FE-C1, FE-H1, FE-H2 (resolved PR2).
-- No QA gate enforces FINDINGS.md currency before phase completion.
-- Addressed by CI-013 (M5b QA gate, P1) and CI-015 (CLAUDE.md pipeline step). PROPOSED.
+### Pattern: Tooling Generator Non-Idempotency (NEW — Wave 21)
+- QE5 traceability.py destructively overwrites TRACEABILITY.md on --check run.
+- Breaks QE6 test that expects manual mutation baseline section.
+- Addressed by CI-036 (M2d gate).
 
-### Pattern: Vacuous Mock-Read-Back Assertions
-- Test mocks session.execute to return a fixed row for both write and read; assertion on read-back proves nothing about write logic.
-- Instance: test_patch_settings_preserves_unspecified_fields (PR2).
-- Addressed by CI-014 (M2b Write-Path Test Fidelity gate). PROPOSED, not applied.
+### Pattern: Source-Inspection Tests Dominating Infra Phases
+- QE6: 15/16 tests are source-inspection. CI-028 (M2c) gate passed because 1 behavioral companion existed.
+- Pattern: QC6, QC7, iOS11, PR2, PR7 (×2), QE6. Now 7+ phases.
 
-## Gate Effectiveness
-- ruff E722/BLE001: Effective for new code. Pre-existing violations grandfathered with noqa.
-- M6 (bare except): Passing cleanly in Wave 18-19 phases.
-- M7 (wiring): Consistent PASS across all reviewed phases.
-- S5 (integration smoke): Persistently weak — Wave 19 OPEN count 2/2 so far. Watch PR3.
-- L12 (ARCH_INVARIANTS Write-Path Scoping): Applied. No new violations in PR2.
+## Gate Effectiveness Summary (Wave 21)
+- ruff (src/ + tests/): Effective. 0 violations in Wave 21 audit.
+- mypy: Effective — zero errors across 166 files (QE2 achievement, now stable).
+- M5b (Findings Currency): Effective — 0 open at wave close.
+- S5 (Integration Baseline): Effective — 55/56 real Postgres integration tests passing.
+- M7 (wiring + app.state write-only): Effective.
+- M8b (cross-language optionality): N/A in Wave 21 (no iOS-backend phases).
+- CI-023 pre-phase test plan: NOT EFFECTIVE. 0/6 compliance. Needs M1b QA gate.
 
 ## Key File Paths
 - IMPROVEMENT_BACKLOG.md: /Users/martin2020/Projekte/NoaOS/Plan/CI/IMPROVEMENT_BACKLOG.md
-- FINDINGS.md: /Users/martin2020/Projekte/NoaOS/Plan/FINDINGS.md
+- FINDINGS.md: /Users/martin2020/Projekte/NoaOS/Plan/FINDINGS.md (0 open, 112 resolved)
 - ARCH_INVARIANTS.md: /Users/martin2020/Projekte/NoaOS/Plan/ARCH_INVARIANTS.md
 - QA_CHECKLIST.md: /Users/martin2020/Projekte/NoaOS/Plan/QA_CHECKLIST.md
-- MemoryStore: /Users/martin2020/Projekte/NoaOS/src/noa/private_worker/memory_store.py
-- handlers.py (write path): /Users/martin2020/Projekte/NoaOS/src/noa/private_worker/handlers.py
-- settings.py (PUT/PATCH duplication): /Users/martin2020/Projekte/NoaOS/src/noa/api/v1/settings.py
+- Wave 21 analysis: /Users/martin2020/Projekte/NoaOS/Plan/CI/analysis_2026-03-12_wave21.md
 
-## Next CI Run Focus
-- Check if CI-001 to CI-015 have been applied (most still PROPOSED as of last check).
-- CRITICAL: PR3 S5 result determines whether CI-010 escalates to P1 (threshold = 3 consecutive OPEN).
-- Watch for additional "mock-read-back" vacuous assertion instances in PR3-PR6 upsert tests.
-- Watch for more source-text-scanning tests in PR3 (iOS fixes likely to use this pattern again).
-- FINDINGS.md drift: verify 7 stale entries are updated before Wave 19 system-auditor runs.
+## Wave 21 Key Facts
+- 6 phases (QE1-QE6), all PASS_WITH_NOTES, ~145 new tests, wave total ~214 min actual vs 330 min estimated (0.65x).
+- System audit score: 7.5/10. Two High findings (H1 FK cascade, H2 backup crash-loop), both cross-phase interaction bugs.
+- QE2 achievement: mypy zero across 166 files — first wave with both ruff and mypy clean simultaneously.
+- QE4 achievement: 55 real Postgres integration tests using testcontainers.
+- QE5: traceability.py, 97/128 spec sections covered, 9 legitimate Phase-2 orphans.
+- QE6: pytest-cov (84% coverage, 70% threshold), mutmut configured (no CI execution), flaky detection nightly job.
+
+## Next CI Run Focus (Wave 22 boundary)
+- Verify CI-034 (wave-close smoke test) applied before Wave 22 ends.
+- Watch for: compliance with CI-038 (M1b test plan gate) if applied before Wave 22.
+- Watch for: W21-H1 fix (thread DELETE FK cascade) — should be covered by CI-039 delete test rule.
+- Watch for: W21-H2 fix (backup cap_drop) — should be verified by CI-034 smoke test item 5.
+- Watch for: CI-037 (QA note disposition) — will this change PASS_WITH_NOTES rate?
+- Trend: PASS_WITH_NOTES 19 consecutive verdicts. Watch whether CI-037 changes this.

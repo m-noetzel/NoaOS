@@ -54,14 +54,17 @@ def _register_web_search(gateway: ToolGateway) -> None:
 
 
 def _register_google_tools(gateway: ToolGateway) -> None:
-    """Register calendar + gmail if Google OAuth credentials are set."""
+    """Register calendar + gmail if Google OAuth credentials are available.
+
+    Loads tokens from DB (google_credentials table) first, falling back to
+    GOOGLE_REFRESH_TOKEN env var. Skips registration if no credentials exist.
+    """
     client_id = os.environ.get("GOOGLE_CLIENT_ID", "")
     client_secret = os.environ.get("GOOGLE_CLIENT_SECRET", "")
-    refresh_token = os.environ.get("GOOGLE_REFRESH_TOKEN", "")
 
-    if not (client_id and client_secret and refresh_token):
+    if not (client_id and client_secret):
         logger.info(
-            "Google credentials not set — skipping calendar + gmail"
+            "Google OAuth2 client_id/secret not set — skipping calendar + gmail"
         )
         return
 
@@ -70,7 +73,11 @@ def _register_google_tools(gateway: ToolGateway) -> None:
     def _persist_google_tokens(
         *, access_token: str, refresh_token: str
     ) -> None:
-        """Sync callback to persist Google refresh token to DB (encrypted).  M10."""
+        """Sync callback to persist Google tokens to DB (encrypted).  M10.
+
+        Uses the authenticated user's row in google_credentials.
+        Falls back to env-var GOOGLE_REFRESH_TOKEN for backward compat.
+        """
         if not refresh_token:
             return
         # Always update env as fallback
@@ -97,21 +104,17 @@ def _register_google_tools(gateway: ToolGateway) -> None:
                 from noa.db.models.google_credential import GoogleCredential
 
                 async with sf() as session:
+                    # Update whichever row exists (single-user system)
                     stmt = select(GoogleCredential).limit(1)
                     result = await session.execute(stmt)
                     cred = result.scalar_one_or_none()
                     if cred is not None:
                         cred.access_token_enc = enc_access
                         cred.refresh_token_enc = enc_refresh
-                    else:
-                        import uuid
-                        cred = GoogleCredential(
-                            user_id=uuid.UUID(int=0),  # single-user system
-                            access_token_enc=enc_access,
-                            refresh_token_enc=enc_refresh,
-                        )
-                        session.add(cred)
-                    await session.commit()
+                        await session.commit()
+                    # If no row exists, skip — tokens will be persisted when the
+                    # user completes the OAuth2 flow via /google/callback
+                    logger.debug("Google tokens updated in DB")
 
             try:
                 loop = asyncio.get_running_loop()
@@ -127,15 +130,78 @@ def _register_google_tools(gateway: ToolGateway) -> None:
         client_secret=client_secret,
         redirect_uri=os.environ.get(
             "GOOGLE_REDIRECT_URI",
-            "http://localhost:8000/auth/google/callback",
+            "http://localhost:8000/api/v1/auth/google/callback",
         ),
         on_token_change=_persist_google_tokens,
     )
-    # Pre-set the refresh token so the client can auto-refresh
-    auth.set_tokens(access_token="", refresh_token=refresh_token)
+
+    # Load tokens from DB first (GO1), falling back to env var
+    _load_google_tokens_at_startup(auth)
 
     _register_calendar(gateway, auth)
     _register_gmail(gateway, auth)
+
+
+def _load_google_tokens_at_startup(auth: object) -> None:
+    """Attempt to load Google tokens from DB at registration time.
+
+    Runs asynchronously as a fire-and-forget task. Falls back to
+    GOOGLE_REFRESH_TOKEN env var if DB is unavailable or empty.
+    """
+    import asyncio
+
+    from noa.api.app_state import get_session_factory
+
+    sf = get_session_factory()
+
+    # Env var fallback — always set if available so the client can refresh
+    refresh_token_env = os.environ.get("GOOGLE_REFRESH_TOKEN", "")
+    if refresh_token_env:
+        auth.set_tokens(  # type: ignore[attr-defined]
+            access_token="", refresh_token=refresh_token_env
+        )
+        logger.info("Google tokens loaded from env var (fallback)")
+
+    if sf is None:
+        return
+
+    async def _load_from_db() -> None:
+        from noa.tools.google_auth import load_tokens_from_db
+
+        try:
+            async with sf() as session:
+                from sqlalchemy import select
+
+                from noa.db.models.google_credential import GoogleCredential
+
+                # Load the most recently updated credential row
+                stmt = (
+                    select(GoogleCredential)
+                    .order_by(GoogleCredential.updated_at.desc())
+                    .limit(1)
+                )
+                result = await session.execute(stmt)
+                cred = result.scalar_one_or_none()
+                if cred is not None:
+                    loaded = await load_tokens_from_db(
+                        session=session,
+                        user_id=cred.user_id,
+                        auth_client=auth,  # type: ignore[arg-type]
+                    )
+                    if loaded:
+                        logger.info(
+                            "Google tokens loaded from DB at startup for user %s",
+                            cred.user_id,
+                        )
+        except Exception:  # noqa: BLE001
+            logger.warning("Failed to load Google tokens from DB at startup")
+
+    # Fire-and-forget: runs when the event loop is available
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(_load_from_db())
+    except RuntimeError:
+        pass  # No event loop at startup — DB load will be skipped
 
 
 def _register_calendar(

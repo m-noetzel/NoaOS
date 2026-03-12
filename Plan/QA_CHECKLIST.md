@@ -49,6 +49,30 @@ Every QA review evaluates against these criteria. PASS requires ALL must-haves g
 - [ ] If the phase creates an endpoint, the endpoint is reachable (not orphaned)
 - [ ] If the phase creates a worker handler, it is connected to a route
 - [ ] Code is callable from the running system, not just tested in isolation
+- [ ] **CI-031**: Any `app.state.{var}` assignment in this phase has at least one consumer (endpoint, middleware, or background task). A write with no reader is a dead-end store violation.
+
+### M2b: Write-Path Test Fidelity (CI-014)
+- [ ] Tests that assert data is stored or preserved do not mock both the write and read operations with the same fixed return value (vacuous assertion). If session.execute is mocked, the mock must return different values for write vs. read calls, or use a real DB.
+
+### M3b: Write-Path User Scoping (CI-011)
+- [ ] Every new write-path storage call (ORM insert, dict write, file write) that stores user-associated data includes `user_id` at write time. Grep: `session.add(`, `.store(`, `_store[` — verify `user_id` is set.
+
+### M4b: Mock Interface Accuracy (CI-008)
+- [ ] Tests that use `AsyncMock(spec=AsyncSession)` (or equivalent) must not call sync methods like `.add()` as `await` calls (or vice versa). Use `MagicMock(spec=AsyncSession)` with selective `AsyncMock` for async methods only.
+
+### M5b: Findings Currency (CI-013)
+- [ ] For every finding that this phase resolves: update the finding's row in `Plan/FINDINGS.md` (Status → `**Resolved**`, Resolved By → phase ID) before marking the phase complete
+- [ ] Update the Open/Resolved counts at the bottom of the table
+
+### M5c: Related-Issue Scope Completeness (CI-026)
+- [ ] When this phase fixes a pattern (e.g., missing user_id on write paths, missing `= None` defaults), check whether sibling instances of the same pattern were also fixed or explicitly deferred with a FINDINGS entry. A fix that leaves identical issues unaddressed in the same phase is an incomplete fix.
+
+### M2c: Source-Inspection Test Gate (CI-028)
+- [ ] If any test inspects source code (reads a `.py` or `.tsx` file and asserts string presence), it must have a behavioral companion test that actually executes the code path, OR include a comment citing a future phase that will add behavioral coverage.
+
+### M8b: Cross-Language Field Optionality (CI-017)
+- [ ] For every endpoint consumed by iOS or the web client: all request fields the client may omit must have `= None` defaults in the Pydantic model (never bare `field: str` for optional data)
+- [ ] Verify by checking each new/modified `BaseModel` against what the client actually sends
 
 ### M8: Domain Isolation (Import Boundaries)
 - [ ] No imports from `noa.private_worker` in `noa.external_worker` (or vice versa)
@@ -81,6 +105,13 @@ Every QA review evaluates against these criteria. PASS requires ALL must-haves g
 - [ ] At least one test per phase calls the main function/endpoint without mocking internal dependencies
 - [ ] Async functions are tested with real `await` (not just mocked return values)
 - [ ] Cross-module interactions tested (e.g., service → repository → model)
+
+### S5b: Frontend Fix Behavioral Coverage (CI-012)
+- [ ] Source-text-scanning tests (read .tsx/.py and assert string presence) must be accompanied by at least one behavioral test that executes the code path, OR include a `# TODO: behavioral coverage in phase <ID>` comment with a FINDINGS entry.
+
+### S5 Escalation Rule (CI-010, CI-029)
+- If S5 is OPEN for 3+ consecutive phases in a wave (excluding audit-fix phases and CI/CD-only phases), the CI agent must propose a dedicated integration-test phase (P1).
+- Audit-fix phases (phases whose primary purpose is fixing findings rather than adding new features) are exempt from this streak counter.
 
 ---
 

@@ -378,33 +378,41 @@ class TestArtifactsRealDB:
         """download_artifact raises 404 when storage_ref path doesn't exist."""
         from fastapi import HTTPException
 
+        import noa.api.v1.artifacts as artifacts_mod
         from noa.api.v1.artifacts import download_artifact
         from noa.db.models.artifact import Artifact
 
-        artifact = Artifact(
-            id=uuid.uuid4(),
-            run_id=uuid.uuid4(),
-            type="file",
-            name="gone.txt",
-            mime_type="text/plain",
-            size_bytes=0,
-            storage_ref=str(tmp_path / "nonexistent.txt"),
-            created_at=datetime.now(UTC),
-        )
-
-        mock_session = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = artifact
-        mock_session.execute = AsyncMock(return_value=mock_result)
-
-        async def _run() -> None:
-            await download_artifact(
-                artifact_id=artifact.id,
-                request=_mock_request(),
-                user=_make_auth_user(),
-                session=mock_session,
+        # Set the allowed base to tmp_path so the path traversal guard passes,
+        # but the file itself doesn't exist (triggering the 404 path).
+        original_base = artifacts_mod._ARTIFACTS_BASE
+        artifacts_mod._ARTIFACTS_BASE = tmp_path
+        try:
+            artifact = Artifact(
+                id=uuid.uuid4(),
+                run_id=uuid.uuid4(),
+                type="file",
+                name="gone.txt",
+                mime_type="text/plain",
+                size_bytes=0,
+                storage_ref=str(tmp_path / "nonexistent.txt"),
+                created_at=datetime.now(UTC),
             )
 
-        with pytest.raises(HTTPException) as exc_info:
-            asyncio.run(_run())
-        assert exc_info.value.status_code == 404
+            mock_session = AsyncMock()
+            mock_result = MagicMock()
+            mock_result.scalar_one_or_none.return_value = artifact
+            mock_session.execute = AsyncMock(return_value=mock_result)
+
+            async def _run() -> None:
+                await download_artifact(
+                    artifact_id=artifact.id,
+                    request=_mock_request(),
+                    user=_make_auth_user(),
+                    session=mock_session,
+                )
+
+            with pytest.raises(HTTPException) as exc_info:
+                asyncio.run(_run())
+            assert exc_info.value.status_code == 404
+        finally:
+            artifacts_mod._ARTIFACTS_BASE = original_base

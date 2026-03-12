@@ -67,7 +67,7 @@ async def require_auth(
     # We compare against _SELF_REF which was captured at definition time —
     # we cannot use ``require_auth`` here because Python resolves globals
     # from the module namespace, which is exactly what patch() replaces.
-    current = getattr(_THIS, "require_auth", None)
+    current: Any = getattr(_THIS, "require_auth", None)
     if current is not _SELF_REF:
         # Module attribute was patched — call the replacement directly
         result = current()
@@ -75,7 +75,7 @@ async def require_auth(
             return await result
         return result
     # Normal path: delegate to the real auth
-    return await _real_require_auth(  # type: ignore[call-arg]
+    return await _real_require_auth(
         request=request, credentials=credentials, settings=settings,
     )
 
@@ -90,7 +90,7 @@ async def get_db_session() -> Any:
 
     Same pattern as require_auth: checks if module attr was monkey-patched.
     """
-    current = getattr(_THIS, "get_db_session", None)
+    current: Any = getattr(_THIS, "get_db_session", None)
     if current is not _DB_SELF_REF:
         # Patched path — test double may return a value or async generator
         result = current()

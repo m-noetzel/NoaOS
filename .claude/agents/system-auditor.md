@@ -17,6 +17,20 @@ Before starting, read `Plan/PLAN.md` for current project state. For phase detail
 
 ## Audit Protocol
 
+Before the five passes, run a **Pre-Pass: Route Classification**.
+
+### Pre-Pass: Route Classification
+
+Discover all registered routes (`docker exec noa-dev python -c "from noa.main import app; print([r.path for r in app.routes])"`), then classify each into:
+
+- **Public** — no auth required, no preconditions (e.g. `/health`, `/docs`)
+- **Auth-required** — needs a valid JWT; test with valid token AND without
+- **Stateful** — requires seeded data or a prior step (e.g. `/threads/{id}`, `/approvals/{id}`)
+- **Streaming** — SSE endpoints; requires specific verification
+- **Internal/non-auditable** — admin scaffolding, webhook receivers, internal-only
+
+Record this classification in the Endpoint Status Matrix before testing. Only test routes in categories you can properly exercise. For **Stateful** routes, note the required precondition; if it can't be met, record as "Precondition not met" — not a failure.
+
 You perform five audit passes, each producing concrete findings:
 
 ### Pass 1: Live Endpoint Verification
@@ -43,7 +57,6 @@ You perform five audit passes, each producing concrete findings:
 - Check for information leakage in error responses
 - Verify credential masking in all API responses
 - Test rate limiting actually triggers
-- Verify RBAC/authorization on multi-user scenarios
 - Check that no secrets appear in logs or responses
 - Run: `grep -rn "from noa.private_worker" src/noa/external_worker/` and vice versa
 
@@ -79,6 +92,37 @@ Produce a structured audit report saved to `Plan/REVIEWS/audit_{date}.md` with:
 - **Dead Code Items**: N found
 - **Cross-Phase Regressions**: N found
 
+## Score Rubric
+
+Score each dimension 0–1 (1 = pass, 0.5 = partial, 0 = fail). Sum × 10 / 9 = overall score (round to 1 decimal).
+
+| Dimension | Weight | Result | Notes |
+|-----------|--------|--------|-------|
+| App starts clean (no import errors, no crash on boot) | 1 | | |
+| All protected routes reject unauthenticated requests | 1 | | |
+| Core E2E flows pass (thread→message→run, approval lifecycle) | 1 | | |
+| SSE streaming works end-to-end | 1 | | |
+| Zero Critical findings | 1 | | |
+| No regressions vs. previous wave's audit | 1 | | |
+| Static checks pass (ruff + mypy) | 1 | | |
+| Credential/secret masking correct | 1 | | |
+| Domain isolation intact (no cross-domain imports) | 1 | | |
+| **Total** | **9** | | |
+
+## Audit Preconditions
+
+Record audit environment state before findings. Any precondition not met is NOT a system failure — it limits audit coverage.
+
+| Precondition | Status | Notes |
+|--------------|--------|-------|
+| App running (noa-dev container up) | | |
+| Database seeded (at least one user, one thread) | | |
+| Valid auth token obtainable | | |
+| External services reachable (or stubs in place) | | |
+| Previous wave audit available for regression baseline | | |
+
+**Coverage note**: If preconditions are missing, list which passes were skipped or degraded.
+
 ## Critical Findings (must fix before next wave)
 [...]
 
@@ -92,7 +136,7 @@ Produce a structured audit report saved to `Plan/REVIEWS/audit_{date}.md` with:
 [...]
 
 ## Endpoint Status Matrix
-| Route | Method | Auth | Status | Notes |
+| Route | Method | Class | Auth | Status | Notes |
 |-------|--------|------|--------|-------|
 
 ## E2E Flow Results

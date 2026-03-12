@@ -72,6 +72,7 @@ public actor APIClient: APIClientProtocol {
         self.tokenProvider = tokenProvider
         self.networkMonitor = networkMonitor
         self.offlineQueue = offlineQueue
+        self.onUnauthorized = onUnauthorized
         if let session {
             self.session = session
         } else {
@@ -148,6 +149,9 @@ public actor APIClient: APIClientProtocol {
             do {
                 newToken = try await tokenProvider.refreshAccessToken()
             } catch {
+                // Refresh failed — session is unrecoverable. Notify the auth layer
+                // so AuthGuard can transition to the login screen. iOS-H3.
+                onUnauthorized?()
                 throw APIError.unauthorized
             }
             let retryRequest = try buildRequest(
@@ -164,8 +168,9 @@ public actor APIClient: APIClientProtocol {
             guard let retryHTTP = retryResponse as? HTTPURLResponse else {
                 throw APIError.networkError(underlying: URLError(.badServerResponse))
             }
-            // If still 401 after one refresh, surface the error — do NOT retry again.
+            // If still 401 after one refresh, session is unrecoverable. iOS-H3.
             if retryHTTP.statusCode == 401 {
+                onUnauthorized?()
                 throw APIError.unauthorized
             }
             return try decode(T.self, from: retryData, statusCode: retryHTTP.statusCode, headers: retryHTTP)

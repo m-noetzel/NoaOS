@@ -110,7 +110,7 @@ async def agent_node(state: AgentState) -> dict[str, Any]:
     if mc and "agent" in mc:
         model = mc["agent"]
     else:
-        model = state.get("selected_model", "anthropic/claude-haiku")
+        model = state.get("selected_model", "openai/gpt-4.1-mini")
     privacy_mode = state.get("privacy_mode", "external")
 
     available_tools = state.get("available_tools") or []

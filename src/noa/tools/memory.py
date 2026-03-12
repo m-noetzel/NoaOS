@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, cast
 
 from noa.constants import MAX_N_RESULTS
 
@@ -51,7 +51,7 @@ class MemoryTool:
         method = getattr(self, function, None)
         if method is None:
             raise ValueError(f"Unknown function: {function}")
-        return await method(**args)
+        return cast(dict[str, Any], await method(**args))
 
     async def remember(
         self,

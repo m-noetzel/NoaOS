@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any
+from typing import Any, cast
 
 import httpx
 from fastapi import FastAPI
@@ -106,6 +106,6 @@ def create_external_app(settings: Any = None) -> FastAPI:
                 status_code=502,
                 content={"error": str(exc)},
             )
-        return result
+        return cast(dict[str, Any], result)
 
     return app

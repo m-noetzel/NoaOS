@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any
+from typing import Any, cast
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +72,7 @@ class GmailTool:
         method = getattr(self, function, None)
         if method is None:
             raise ValueError(f"Unknown function: {function}")
-        return await method(**args)
+        return cast(dict[str, Any], await method(**args))
 
     async def search_emails(
         self,
@@ -89,10 +89,10 @@ class GmailTool:
         Returns:
             List of email summary dicts.
         """
-        return await self._client.search_emails(
+        return cast(list[dict[str, Any]], await self._client.search_emails(
             query=query,
             max_results=max_results,
-        )
+        ))
 
     async def read_email(
         self,
@@ -107,7 +107,7 @@ class GmailTool:
         Returns:
             Full email dict with from, to, subject, body, date.
         """
-        return await self._client.read_email(email_id=email_id)
+        return cast(dict[str, Any], await self._client.read_email(email_id=email_id))
 
     async def send_email(
         self,
@@ -127,11 +127,11 @@ class GmailTool:
             Send confirmation dict with id and status.
         """
         _validate_email_recipient(to)
-        result = await self._client.send_email(
+        result: dict[str, Any] = cast(dict[str, Any], await self._client.send_email(
             to=to,
             subject=subject,
             body=body,
-        )
+        ))
 
         # Log confirmation before reporting success per §16.3
         logger.info(
@@ -161,8 +161,8 @@ class GmailTool:
             Draft dict with id and status.
         """
         _validate_email_recipient(to)
-        return await self._client.draft_email(
+        return cast(dict[str, Any], await self._client.draft_email(
             to=to,
             subject=subject,
             body=body,
-        )
+        ))

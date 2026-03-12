@@ -188,6 +188,33 @@ Every write path that stores user-associated data **must** set `user_id` at writ
 
 ---
 
+## L13: Default Resolution at API Boundary (CI-018)
+
+When a request field is optional (e.g., `model: str | None = None`), the API boundary must resolve `None` to a concrete default before passing the value to interior components.
+
+**Rules:**
+1. API endpoints that accept optional model/provider/mode fields must substitute a configured default before dispatching to the orchestrator or service layer.
+2. Interior components (runner, router, tool gateway) must never receive `None` for fields they treat as required.
+3. If the default is user-configurable, read it from user settings at the API boundary, not deep inside the call chain.
+
+**Why:** `None` propagating through the runner produces `"model": null` in SSE events and `"model": null` in audit logs — invisible failures that are hard to diagnose.
+
+---
+
+## L14: Cross-Language Contract Completeness
+
+When fixing a field-optionality gap in a cross-language boundary (e.g., Swift JSONEncoder → Python Pydantic), audit ALL fields in the same request model for the same class of issue before marking the fix complete.
+
+**Rules:**
+1. When a field is made optional in a Pydantic model due to Swift/iOS compatibility, check every other field in that model for the same class of issue.
+2. A field left required when iOS may omit it is a P1 bug — treat it as a blocking defect, not a follow-up.
+3. Swift's `JSONEncoder` omits `Optional` fields by default; assume any Swift-facing endpoint may omit any optional Swift field.
+4. Document the audit result ("checked all fields — only X was affected") in the PR description.
+
+**Applies to:** Any phase that touches a request model consumed by a non-Python client (iOS, web fetch with optional fields).
+
+---
+
 ## Enforcement
 
 These invariants are checked:

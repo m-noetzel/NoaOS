@@ -230,15 +230,36 @@ async def replay_run_events(
     run_id: uuid.UUID,
     request: Request,
     user: AuthUser = Depends(require_auth),  # noqa: B008
-    after_event_id: int = 0,
+    after_id: str | None = Query(default=None),
     db: Any = Depends(get_db_session),  # noqa: B008
 ) -> dict[str, Any]:
-    """Replay events for SSE reconnection — resolves M5 + H11.
+    """Replay events for SSE reconnection — resolves M5 + H11 + BE-H4.
 
     Joins through ``runs`` table to verify the authenticated user owns
     the run before returning events.
+
+    ``after_id``: UUID of the last event the client received. When provided,
+    only events with a later timestamp are returned (stable DB offset, not
+    list index). Clients should store the ``id`` field from the last event
+    and pass it on reconnect.
     """
     rid = trace_id_ctx.get("")
+
+    # Determine the timestamp cursor when after_id is provided (BE-H4)
+    after_timestamp = None
+    if after_id is not None:
+        try:
+            after_uuid = uuid.UUID(after_id)
+            cursor_stmt = (
+                select(RunEvent.timestamp)
+                .join(Run, RunEvent.run_id == Run.id)
+                .where(RunEvent.id == after_uuid)
+                .where(Run.user_id == user.user_id)
+            )
+            cursor_result = await db.execute(cursor_stmt)
+            after_timestamp = cursor_result.scalar_one_or_none()
+        except (ValueError, AttributeError):
+            pass  # Invalid UUID — ignore and return all events
 
     # H11: filter by user_id to prevent cross-user access
     stmt = (
@@ -248,6 +269,10 @@ async def replay_run_events(
         .where(Run.user_id == user.user_id)
         .order_by(RunEvent.timestamp)
     )
+    # BE-H4: Filter by stable DB timestamp offset, not list index
+    if after_timestamp is not None:
+        stmt = stmt.where(RunEvent.timestamp > after_timestamp)
+
     result = await db.execute(stmt)
     rows = result.scalars().all()
 
@@ -258,8 +283,7 @@ async def replay_run_events(
             "timestamp": row.timestamp.isoformat(),
             "payload": row.payload,
         }
-        for idx, row in enumerate(rows, start=1)
-        if idx > after_event_id
+        for row in rows
     ]
 
     return success_envelope(data={"events": events}, trace_id=rid)

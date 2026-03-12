@@ -4102,3 +4102,659 @@ _Entries added after each phase completion._
 | Date | Phase | Summary |
 |------|-------|---------|
 | — | — | Plan created |
+
+---
+
+## Wave 20: Deployment & Reliability + Google OAuth2
+
+---
+
+### Phase DE1: CI/CD Pipeline (~60 min)
+
+**Goal:** Every pull request and merge to main runs the full test suite automatically, and merges to main build and push a versioned Docker image to the registry — so deployment is a single-command image pull, not a manual build.
+
+**Spec refs:** SPEC.md §34 (Testing Requirements), §10.4 (Schema Migrations), §36 (Build Phases)
+
+**Depends on:** PR7
+**Blocks:** None
+
+**Deliverables:**
+1. `.github/workflows/ci.yml` — ruff + mypy + pytest on every PR/push
+2. `.github/workflows/cd.yml` — Docker image build + push to ghcr.io on merge to main
+3. `web` CI job: `npm run build` + `npm test` (Vitest) on every PR
+4. iOS CI job: `swift test` for the SPM package on every PR
+5. Wave 16 E2E gate: `npm run test:e2e` (Playwright) wired into CI
+6. `tests/unit/test_de1_ci_gates.py` — validates gate scripts locally
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `.github/workflows/ci.yml` | **CREATE** | Python CI: checkout, setup-python, pip install, ruff check, mypy, pytest |
+| `.github/workflows/cd.yml` | **CREATE** | Docker build on `main` push: build-push-action to ghcr.io, tag with short SHA + `latest` |
+| `.github/workflows/web-ci.yml` | **CREATE** | Node CI: npm ci, build, test, test:e2e (headless) |
+| `.github/workflows/ios-ci.yml` | **CREATE** | iOS CI: swift test in `ios/Noa/` |
+| `tests/unit/test_de1_ci_gates.py` | **CREATE** | Local gate validator: ruff, mypy, import sanity, alembic check |
+
+**Tests (~15):**
+- Gate validator: ruff check passes on `src/noa/` with zero errors
+- Gate validator: mypy passes on `src/noa/` with zero errors
+- Gate validator: all top-level `src/noa` modules importable
+- Gate validator: `alembic check` finds no pending schema drift
+- Gate validator: pytest collects >0 tests from `tests/unit/`
+- Workflow schema: `ci.yml` contains `ruff`, `mypy`, `pytest` steps
+- Workflow schema: `cd.yml` contains `docker/build-push-action` and SHA tag
+- Workflow schema: `web-ci.yml` contains `test:e2e` step
+- Workflow schema: `ios-ci.yml` contains `swift test`
+- CI env guard: workflows reject missing required secrets
+- Coverage gate: pytest-cov configured, threshold ≥60%
+- Image tag: CD produces `ghcr.io/${{ github.repository }}/noa-api:${{ github.sha }}`
+- Branch protection: CI triggers on `pull_request` and `push` to `main`
+- Dependency cache: pip and npm cached by lockfile hash
+- Parallel jobs: web and Python jobs run in parallel
+
+**Test gate:**
+```bash
+pytest tests/unit/test_de1_ci_gates.py -v
+```
+
+---
+
+### Phase DE2: TLS & Reverse Proxy (~60 min)
+
+**Goal:** All traffic to the Noa API is served over HTTPS with automatic TLS certificate management, so OAuth2 redirect URIs are valid (Google requires HTTPS) and iOS certificate pinning works against a real domain. Caddy terminates TLS and forwards to `noa-api:8000` on the internal Docker network.
+
+**Spec refs:** SPEC.md §29.4 (Connection Security — HTTPS over LAN/VPN), §7.1 (Phase 1 network topology), §20.1 (Docker network isolation)
+
+**Depends on:** DE1
+**Blocks:** GO1, GO2, GO3
+
+**Deliverables:**
+1. `docker/caddy/Caddyfile` — HTTPS with automatic Let's Encrypt, HTTP→HTTPS redirect, HSTS
+2. `docker-compose.yml` updated — `caddy` service added, `noa-api` port restricted to internal network
+3. `src/noa/api/app.py` — CORS origins updated to accept `NOA_DOMAIN` env var
+4. `docs/TLS_SETUP.md` — operator runbook: DNS setup, Tailscale variant, dev self-signed fallback
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `docker/caddy/Caddyfile` | **CREATE** | `{$NOA_DOMAIN}` block: `reverse_proxy noa-api:8000`, HSTS header, `tls internal` for dev |
+| `docker-compose.yml` | **EDIT** | Add `caddy` service (caddy:2-alpine), ports 80+443, caddy-data volume; remove host port from noa-api |
+| `src/noa/api/app.py` | **EDIT** | Read `NOA_DOMAIN` env var; add `https://{NOA_DOMAIN}` to CORS allow_origins |
+| `docs/TLS_SETUP.md` | **CREATE** | Step-by-step DNS + Caddy setup; Tailscale variant; dev with `tls internal` |
+| `tests/unit/test_de2_tls.py` | **CREATE** | Validate Caddyfile directives, CORS config, compose service shape |
+
+**Tests (~10):**
+- Caddyfile contains `reverse_proxy noa-api:8000`
+- Caddyfile contains `Strict-Transport-Security` header directive
+- Caddyfile uses `{$NOA_DOMAIN}` placeholder (not hardcoded domain)
+- CORS config accepts `https://{NOA_DOMAIN}` when env var is set
+- CORS config does not allow `*` in production mode
+- docker-compose `caddy` service uses `caddy:2-alpine` image
+- docker-compose `caddy` service mounts `caddy-data` volume
+- docker-compose `noa-api` no longer exposes port directly to host
+- HTTP→HTTPS redirect documented in Caddyfile or docs
+- `docs/TLS_SETUP.md` exists and is non-empty
+
+**Test gate:**
+```bash
+pytest tests/unit/test_de2_tls.py -v
+```
+
+---
+
+### Phase DE3: Worker Container Hardening (~45 min)
+
+**Goal:** Private and external worker containers have explicit restart policies, resource limits, and health checks per SPEC §8.1/§8.2 — the system recovers automatically from worker crashes and the orchestrator never silently uses a degraded worker.
+
+**Spec refs:** SPEC.md §8.1 (Private Container hardening), §8.2 (External Container hardening), §30 (Resource Management), §31 (Failure Handling)
+
+**Depends on:** DE1
+**Blocks:** None
+
+**Deliverables:**
+1. `docker-compose.yml` — resource limits for private-worker and external-worker per §30
+2. `docker/private-worker/Dockerfile` — `HEALTHCHECK` instruction added
+3. `docker/external-worker/Dockerfile` — same
+4. `src/noa/api/app.py` — startup probe: logs WARNING and sets `app.state.workers_degraded` if worker unreachable
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `docker-compose.yml` | **EDIT** | private-worker: `cpus: "4.0"`, `memory: 32g`, `restart: unless-stopped`, `start_period: 60s`; external-worker: `cpus: "2.0"`, `memory: 4g`, same restart |
+| `docker/private-worker/Dockerfile` | **EDIT** | Add `HEALTHCHECK --interval=30s --timeout=10s --retries=3 CMD curl -f http://localhost:8001/health` |
+| `docker/external-worker/Dockerfile` | **EDIT** | Add `HEALTHCHECK --interval=30s --timeout=10s --retries=3 CMD curl -f http://localhost:8002/health` |
+| `src/noa/api/app.py` | **EDIT** | Lifespan startup: probe worker health endpoints; log WARNING and set `app.state.workers_degraded = True` if unreachable |
+| `tests/unit/test_de3_hardening.py` | **CREATE** | Parse compose YAML; validate limits, restart policies, healthcheck start_period; test degraded-mode flag |
+
+**Tests (~10):**
+- private-worker has `cpus: "4.0"` and `memory: 32G` resource limits
+- private-worker has `restart: unless-stopped`
+- private-worker healthcheck has `start_period` ≥30s
+- external-worker has `cpus: "2.0"` and `memory: 4g` resource limits
+- external-worker has `restart: unless-stopped`
+- external-worker healthcheck has `start_period` ≥30s
+- private-worker Dockerfile contains `HEALTHCHECK` instruction
+- external-worker Dockerfile contains `HEALTHCHECK` instruction
+- Startup probe: `app.state.workers_degraded = True` when worker returns 503
+- Startup proceeds (no exception) when worker is unreachable
+
+**Test gate:**
+```bash
+pytest tests/unit/test_de3_hardening.py -v
+```
+
+---
+
+### Phase DE4: Backup Verification Automation (~45 min)
+
+**Goal:** The backup container not only writes encrypted dumps but also periodically verifies that the most recent backup can be fully restored — satisfying SPEC §10.5 "weekly restore test to ensure backup integrity." A `GET /health/backup` endpoint exposes the last verify result for monitoring.
+
+**Spec refs:** SPEC.md §10.5 (Backup Strategy — weekly restore test), §34 (Testing Requirements — verify Postgres backup and restore)
+
+**Depends on:** DE1
+**Blocks:** None
+
+**Deliverables:**
+1. `docker/backup/verify_backup.sh` — restore latest backup to temp Postgres, run schema/row-count check, write `verify_status.json`
+2. `docker/backup/Dockerfile` — adds verify script and weekly cron entry
+3. `src/noa/api/v1/health.py` — `GET /health/backup` endpoint reads `verify_status.json` from volume mount
+4. `docker-compose.yml` — mounts `backups` volume into `noa-api` read-only for health endpoint
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `docker/backup/verify_backup.sh` | **CREATE** | Find latest `.gpg`, decrypt to tmpfs, pg_restore into temp DB, row-count check, write verify_status.json |
+| `docker/backup/Dockerfile` | **EDIT** | COPY verify script; add cron: `0 3 * * 0 /verify_backup.sh` |
+| `src/noa/api/v1/health.py` | **EDIT** | Add `GET /health/backup`: read `/backups/verify_status.json`, return `{last_backup, last_verify, status, backup_age_hours}` |
+| `docker-compose.yml` | **EDIT** | Mount `backups` volume into `noa-api` as read-only at `/backups` |
+| `tests/unit/test_de4_backup_verify.py` | **CREATE** | Health endpoint with mocked status file (ok/failed/missing); verify script logic; cron schedule in Dockerfile |
+
+**Tests (~12):**
+- Health endpoint returns `status: "ok"` when verify_status.json reports ok
+- Health endpoint returns `status: "failed"` when verify_status.json reports failure
+- Health endpoint returns `status: "never_run"` when verify_status.json is absent
+- Health endpoint returns HTTP 200 in all cases
+- verify_backup.sh: finds most recent `.gpg` file by mtime
+- verify_backup.sh: exits non-zero when pg_restore fails
+- verify_backup.sh: writes verify_status.json with `timestamp` field after success
+- verify_backup.sh: writes `status: "failed"` to verify_status.json on restore failure
+- Dockerfile cron entry: `0 3 * * 0` weekly schedule
+- docker-compose: `noa-api` mounts `backups` volume read-only
+- Schema check: verify script includes table-count check (not just pg_restore exit code)
+- Backup age: health endpoint includes `backup_age_hours`; >25h triggers `status: "stale"`
+
+**Test gate:**
+```bash
+pytest tests/unit/test_de4_backup_verify.py -v
+```
+
+---
+
+### Phase GO1: Google OAuth2 Backend (~75 min)
+
+**Goal:** Users can connect their Google account via OAuth2 consent. The resulting tokens are persisted encrypted in the `google_credentials` table. Calendar and Gmail tools automatically switch from env-var tokens to DB-stored OAuth tokens, so authorization survives container restarts.
+
+**Spec refs:** SPEC.md §12.1 (Google Calendar — OAuth2 scopes), §12.2 (Gmail — OAuth2 scopes), §11.1 (Google OAuth2 refresh token in Postgres encrypted column), §11.3 (refresh tokens rotate on each use), §5.3 (Authentication Flow)
+
+**Depends on:** DE2 (HTTPS required for Google OAuth2 redirect URIs)
+**Blocks:** GO2, GO3
+
+**Deliverables:**
+1. `GET /api/v1/auth/google/authorize` — returns `{"auth_url": "..."}` with Calendar+Gmail scopes; requires JWT auth
+2. `GET /api/v1/auth/google/callback` — exchanges code, persists encrypted tokens, redirects to `{NOA_DOMAIN}/settings?google=connected`; also supports `noaapp://` redirect scheme for iOS
+3. `GET /api/v1/auth/google/status` — returns `{"connected": bool, "scopes": [...]}`
+4. `DELETE /api/v1/auth/google/disconnect` — deletes `google_credentials` row, clears live client
+5. `src/noa/tools/registration.py` updated — loads tokens from DB first, falls back to env var; fixes `uuid.UUID(int=0)` placeholder
+6. CSRF protection: state parameter round-trip on authorize/callback
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/noa/api/v1/auth.py` | **EDIT** | Add 4 OAuth routes: `GET /google/authorize`, `GET /google/callback`, `GET /google/status`, `DELETE /google/disconnect` |
+| `src/noa/tools/registration.py` | **EDIT** | Load Google tokens from `google_credentials` DB table by user_id at startup; fix `uuid.UUID(int=0)` placeholder |
+| `src/noa/tools/google_auth.py` | **EDIT** | Add `load_tokens_from_db(session, user_id)` coroutine |
+| `tests/unit/test_go1_oauth_backend.py` | **CREATE** | Full test coverage of all 4 endpoints + token loading logic |
+
+**Tests (~20):**
+- `GET /google/authorize` returns 200 with `auth_url` containing `accounts.google.com`
+- `GET /google/authorize` requires valid JWT (401 without token)
+- `GET /google/authorize` includes calendar + gmail scopes
+- `GET /google/authorize` sets `access_type=offline` and `prompt=consent`
+- `GET /google/callback` with valid code: persists encrypted tokens to `google_credentials`
+- `GET /google/callback` with valid code: redirects to `{NOA_DOMAIN}/settings?google=connected`
+- `GET /google/callback` with invalid code: returns 400
+- `GET /google/callback` with `?error=access_denied`: returns 400
+- `GET /google/status` returns `{"connected": true}` after successful exchange
+- `GET /google/status` returns `{"connected": false}` when no row exists
+- `DELETE /google/disconnect` removes `google_credentials` row
+- `DELETE /google/disconnect` clears tokens from live GoogleAuthClient
+- `DELETE /google/disconnect` returns 404 when no credentials to disconnect
+- Token persistence: row stores encrypted tokens (not plaintext)
+- `load_tokens_from_db` decrypts and calls `set_tokens()` on the client
+- `load_tokens_from_db` falls back gracefully when DB row is absent
+- Token rotation: new refresh token overwrites DB row
+- Registration startup loads DB tokens before falling back to env var
+- Multi-user safety: status/disconnect scoped to authenticated `user_id`
+- CSRF: state parameter generated on authorize, verified on callback
+
+**Test gate:**
+```bash
+pytest tests/unit/test_go1_oauth_backend.py -v
+```
+
+---
+
+### Phase GO2: Web UI — Connect Google (~45 min)
+
+**Goal:** The Settings page shows Google connection status and lets the user connect or disconnect with a single click. Connecting opens the OAuth consent flow; the callback page closes the loop and refreshes status.
+
+**Spec refs:** SPEC.md §12.1, §12.2 (Calendar/Gmail OAuth2), §29.2 (Web UI)
+
+**Depends on:** GO1
+**Blocks:** None
+
+**Deliverables:**
+1. `web/src/pages/Settings.tsx` — "Google Account" section: status badge, "Connect Google" button, "Disconnect" button
+2. `web/src/pages/GoogleCallback.tsx` — new page at `/auth/google/callback`: shows success/error, auto-redirects to `/settings`
+3. `web/src/App.tsx` — route `/auth/google/callback` added
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `web/src/pages/Settings.tsx` | **EDIT** | Add Google section: query status, show badge, connect/disconnect buttons |
+| `web/src/pages/GoogleCallback.tsx` | **CREATE** | Reads URL params, shows success/error, redirects to `/settings` after 2s |
+| `web/src/App.tsx` | **EDIT** | Add `<Route path="/auth/google/callback" element={<GoogleCallback />} />` |
+| `web/src/test/go2-google-connect.test.tsx` | **CREATE** | Vitest/RTL tests for Settings Google section and callback page |
+
+**Tests (~12):**
+- Settings renders "Not connected" when status returns `connected: false`
+- Settings renders "Connected" badge when status returns `connected: true`
+- "Connect Google" button calls authorize endpoint and navigates to `auth_url`
+- "Connect Google" shows loading state during fetch
+- "Disconnect" button calls disconnect endpoint
+- "Disconnect" only shown when connected
+- After disconnect, status refreshes to "Not connected"
+- GoogleCallback shows success message when `?google=connected` in URL
+- GoogleCallback shows error when `?error=access_denied` in URL
+- GoogleCallback redirects to `/settings` after 2s
+- Route `/auth/google/callback` renders GoogleCallback
+- Settings Google section is within existing Settings page layout
+
+**Test gate:**
+```bash
+cd web && npm test -- go2-google-connect
+```
+
+---
+
+### Phase GO3: iOS — OAuth2 via ASWebAuthenticationSession (~60 min)
+
+**Goal:** iOS users can connect their Google account from the app's Settings tab. The consent flow runs in `ASWebAuthenticationSession` (no app switching). The backend (GO1) handles token persistence; iOS stores nothing sensitive — only the Noa JWT is in Keychain.
+
+**Spec refs:** SPEC.md §29.3 (Mobile Access — OAuth2 device flow + biometric unlock), §11.1 (credentials in Keychain/Postgres), §12.1, §12.2
+
+**Depends on:** GO1
+**Blocks:** None
+
+**Redirect flow:** `ASWebAuthenticationSession` uses the backend callback URL. Backend (GO1) persists tokens then redirects to `noaapp://auth/google/connected` (custom scheme). Session intercepts `noaapp://` and completes. iOS re-fetches status to confirm.
+
+**Deliverables:**
+1. `ios/Noa/Sources/Noa/Services/GoogleAuthService.swift` — actor; `connect()` starts `ASWebAuthenticationSession`; `disconnect()` calls DELETE endpoint; `getStatus()` calls status endpoint
+2. `ios/Noa/Sources/Noa/ViewModels/SettingsViewModel.swift` — `@Observable`; `googleStatus`, `connectGoogle()`, `disconnectGoogle()`
+3. `ios/Noa/Sources/Noa/Views/Settings/SettingsView.swift` — Google section with status badge, connect (biometric guard for medium-risk action), disconnect confirmation
+4. `ios/Noa/Sources/Noa/Views/MainTabView.swift` — Settings tab added
+
+**Files:**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `ios/Noa/Sources/Noa/Services/GoogleAuthService.swift` | **CREATE** | Actor: connect via ASWebAuthenticationSession, disconnect, getStatus |
+| `ios/Noa/Sources/Noa/ViewModels/SettingsViewModel.swift` | **CREATE** | @Observable: googleStatus, connect/disconnect/loadStatus |
+| `ios/Noa/Sources/Noa/Views/Settings/SettingsView.swift` | **CREATE** | SwiftUI: Google section, biometric guard on connect, disconnect confirmation sheet |
+| `ios/Noa/Sources/Noa/Views/MainTabView.swift` | **EDIT** | Add Settings tab |
+| `ios/Noa/Package.swift` | **EDIT** | Register AuthenticationServices framework if not present |
+| `ios/Noa/Tests/NaoTests/GoogleAuthServiceTests.swift` | **CREATE** | Protocol-injected ASWebAuthenticationSession for testability |
+
+**Tests (~15):**
+- `connect()` calls authorize endpoint to get auth URL
+- `connect()` starts ASWebAuthenticationSession with returned URL
+- `connect()` uses `noaapp://` as callback scheme
+- Completion with `noaapp://auth/google/connected` → status refreshes to `.connected`
+- Session cancellation → status remains `.disconnected`, no error
+- Session error → user-facing error message shown
+- `disconnect()` calls DELETE endpoint
+- `disconnect()` sets `googleStatus` to `.disconnected` on success
+- `SettingsViewModel` loads status on `init()`
+- `SettingsViewModel` exposes `.loading` state during in-flight requests
+- `SettingsView` shows "Connected" badge when `.connected`
+- `SettingsView` shows "Connect Google" when `.disconnected`
+- `SettingsView` shows biometric confirmation before `connect()`
+- `SettingsView` shows disconnect confirmation sheet
+- Google tokens never stored in iOS Keychain or UserDefaults
+
+**Test gate:**
+```bash
+cd ios/Noa && swift test --filter GoogleAuthServiceTests
+```
+
+---
+
+# Wave 21: Pipeline Excellence & Quality Infrastructure
+
+**Goal:** Close every gap identified in the pipeline evaluation. Consume the full CI backlog, eliminate mypy debt, close all open findings, upgrade test infrastructure to real Postgres, add traceability, and introduce coverage/mutation/flaky detection tooling. Target: pipeline score 9→10.
+
+**Motivation:** The pipeline generates excellent insights (retros, CI analyses, findings) but has accumulated structural debt — 27 unapplied CI proposals, 51 mypy errors, 10 open findings, mock-heavy tests, no coverage metrics. This wave converts diagnosis into action.
+
+---
+
+## QE1: CI Backlog Triage & Process Gate Application
+
+**Spec refs:** Pipeline evaluation §5 (Continuous Improvement), CI-001 through CI-029
+
+**Goal:** Apply, reject, or defer every pending CI proposal. Zero PROPOSED items remaining in IMPROVEMENT_BACKLOG.md.
+
+**Scope:**
+
+Apply (P1 — all 7):
+- CI-001/002/003: CLAUDE.md sections (implementation-first bias, canonical output locations, Docker environment awareness)
+- CI-013: M5b (Findings Currency) gate → QA_CHECKLIST.md
+- CI-016: S5 escalation rule (integration test baseline) → CLAUDE.md
+- CI-017: M8b (Cross-Language Field Optionality) gate → QA_CHECKLIST.md
+- CI-020: FINDINGS.md drift escalation → CLAUDE.md
+- CI-022: L14 already applied by PR7 — mark APPLIED
+- CI-025: iOS-backend contract audit — already applied by PR7 — mark APPLIED
+
+Apply (P2 — all 12):
+- CI-004: Key directories table → CLAUDE.md
+- CI-008: M4b (Mock Interface Accuracy) gate → QA_CHECKLIST.md
+- CI-010: S5 escalation rule → QA_CHECKLIST.md
+- CI-011: M3b (Write-Path User Scoping check) → QA_CHECKLIST.md
+- CI-012: S5b (Frontend Behavioral Coverage) gate → QA_CHECKLIST.md
+- CI-014: M2b (Write-Path Test Fidelity) gate → QA_CHECKLIST.md
+- CI-015: Findings Sync as mandatory pipeline step → CLAUDE.md (already partially done)
+- CI-018: L13 (Default Resolution at API Boundary) → ARCH_INVARIANTS.md
+- CI-023: Pre-phase test plan in implement agent → .claude/agents/implement.md
+- CI-024: 2x duration multiplier for multi-platform → .claude/skills/phase-planning/SKILL.md
+- CI-026: M5c (Related-Issue Scope Completeness) → QA_CHECKLIST.md
+- CI-028: M2c (Source-Inspection Test Gate) → QA_CHECKLIST.md
+
+Reject/Defer with rationale (P2/P3):
+- CI-005: `/wave` skill — DEFER (low ROI, manual PLAN.md updates work fine)
+- CI-006: Docker rebuild reminder — REJECT (write-code skill deleted in Wave 18 overhaul)
+- CI-007: Auto-test PostToolUse hook — DEFER (latency concern, revisit after Wave 22)
+- CI-019: chat.py SSE handler finding — addressed by QE3
+- CI-021: FE-L1 ErrorBoundary — addressed by QE3
+- CI-029: S5 audit-fix carve-out — APPLY (simple refinement to CI-016)
+
+**Files modified:**
+- `CLAUDE.md`
+- `Plan/QA_CHECKLIST.md`
+- `Plan/ARCH_INVARIANTS.md`
+- `.claude/agents/implement.md`
+- `.claude/skills/phase-planning/SKILL.md`
+- `Plan/CI/IMPROVEMENT_BACKLOG.md`
+
+**Tests (~15):**
+- Parse QA_CHECKLIST.md and verify all new M-gates (M5b, M8b, M4b, M3b, M2b, M2c, M5c) are present
+- Parse ARCH_INVARIANTS.md and verify L13, L14 exist
+- Parse CLAUDE.md for required sections (implementation-first, Docker env, findings sync gate)
+- Parse implement.md for pre-phase test plan step
+- Verify IMPROVEMENT_BACKLOG.md has zero PROPOSED items
+- Verify all P1 items are APPLIED or REJECTED (none PROPOSED)
+
+**Test gate:**
+```bash
+docker exec noa-dev python -m pytest tests/unit/test_qe1_ci_backlog.py -v
+```
+
+---
+
+## QE2: Mypy Zero & Type Safety Enforcement
+
+**Spec refs:** Pipeline evaluation §3 (Code Quality), Wave 19 retro R3
+
+**Goal:** Zero mypy errors. Enforced in CI as a blocking gate.
+
+**Scope:**
+
+1. Fix all 51 mypy errors across 18 files:
+   - `app.py`: APNsService/AuditService/ApprovalService constructor type mismatches
+   - `success_envelope`: widen type signature to accept `list | dict`
+   - `threads.py`: fix Conversation model attribute access
+   - All remaining errors (type annotations, Optional handling, return types)
+
+2. Add mypy to CI pipeline:
+   - Update `.github/workflows/ci.yml` to run `mypy src/noa/ --ignore-missing-imports` as blocking step
+   - Update `pyproject.toml` mypy config: `warn_return_any = true`, `disallow_untyped_defs = true` for new code
+   - Add `# type: ignore[specific-code]` only where genuinely needed (e.g., third-party library gaps), never blanket
+
+3. Update pre-push hook to include mypy check
+
+**Files modified:**
+- 18 source files with mypy errors
+- `pyproject.toml` (mypy config)
+- `.github/workflows/ci.yml` (mypy gate)
+- `tools/pre-push-hook.sh`
+
+**Tests (~15):**
+- `mypy src/noa/ --ignore-missing-imports` returns 0 errors (meta-test)
+- Type annotation correctness for fixed functions (parameterized tests on critical paths)
+- CI workflow file contains mypy step
+- Pre-push hook contains mypy check
+
+**Test gate:**
+```bash
+docker exec noa-dev python -m mypy src/noa/ --ignore-missing-imports && echo "PASS: 0 errors"
+docker exec noa-dev python -m pytest tests/unit/test_qe2_mypy.py -v
+```
+
+---
+
+## QE3: Open Findings Closure
+
+**Spec refs:** FINDINGS.md open items, Pipeline evaluation §3
+
+**Goal:** Close all 10 open findings. FINDINGS.md reaches 0 open.
+
+**Scope:**
+
+| Finding | Fix |
+|---------|-----|
+| BE-H4 (SSE replay cursor list index) | Replace list-index cursor with `run_event.id` DB offset; client sends `Last-Event-ID`, server resumes from that row |
+| BE-H5 (chat.py bypasses RunService state machine) | Route `_update_run_status` through `RunService.update_status()` with state transition validation |
+| BE-M1 (cost endpoint raw SQL) | Replace raw SQL with SQLAlchemy ORM query using proper column references |
+| BE-M5 (MemoryStore user_id) | Already fixed in PR1 — verify and mark resolved (may be stale tracking) |
+| FE-M5 (no unsaved-changes warning) | Add `beforeunload` event listener + `useBlocker` for React Router on Settings page |
+| FE-L1 (ErrorBoundary stack exposure) | Replace `error.stack` rendering with generic "Something went wrong" + log stack to console only |
+| iOS-L1 (hardcoded dev IP) | Move to `Info.plist` / environment config; `Environment.swift` reads from bundle |
+| iOS-L2 (DEBUG disables cert pinning) | Add `#if DEBUG` warning log; keep bypass for dev but add runtime assertion that pinning delegate is configured |
+| BE-L1 (chat.py SSE handler str(exc)) | Replace `str(exc)` with generic error message in outer SSE handler |
+| W19-M6 (mypy errors) | Handled by QE2 — cross-reference and mark resolved |
+
+**Files modified:**
+- `src/noa/api/v1/chat.py` (BE-H4, BE-H5, BE-L1)
+- `src/noa/api/v1/cost.py` (BE-M1)
+- `web/src/pages/Settings.tsx` (FE-M5)
+- `web/src/components/ErrorBoundary.tsx` (FE-L1)
+- `ios/Noa/Sources/Noa/Configuration/Environment.swift` (iOS-L1)
+- `ios/Noa/Sources/Noa/Services/CertificatePinningDelegate.swift` (iOS-L2)
+- `Plan/FINDINGS.md` (all 10 rows → Resolved)
+
+**Tests (~20):**
+- BE-H4: SSE replay with `Last-Event-ID` returns correct events (skip=0, skip=N)
+- BE-H5: status transition through RunService validates state machine
+- BE-M1: cost endpoint returns correct data via ORM (no raw SQL)
+- FE-M5: Settings page fires beforeunload on dirty state (Playwright or unit test)
+- FE-L1: ErrorBoundary renders generic message, not stack
+- BE-L1: SSE error event contains generic message, not exception text
+- iOS-L1: Environment reads from config, not hardcoded
+- iOS-L2: DEBUG build logs pinning bypass warning
+
+**Test gate:**
+```bash
+docker exec noa-dev python -m pytest tests/unit/test_qe3_findings.py -v
+grep -c "Open" Plan/FINDINGS.md  # should be 0 data rows with Open status
+```
+
+---
+
+## QE4: Postgres Integration Tests
+
+**Spec refs:** Pipeline evaluation §3 (S5 at 68% OPEN), CI-016, L8
+
+**Goal:** Critical paths tested against real Postgres. No more SQLite-only test suite for DB-touching code.
+
+**Scope:**
+
+1. **Test infrastructure:**
+   - Add `testcontainers[postgres]` to dev dependencies
+   - New `tests/integration/conftest.py` with Postgres container fixture (auto-start, auto-teardown)
+   - Fixture creates schema via Alembic migrations (tests the real migration chain)
+   - Session fixture yields real `AsyncSession` against the container
+
+2. **Convert critical test suites** (new files in `tests/integration/`):
+   - `test_auth_integration.py`: register, login, token refresh, session management against real DB
+   - `test_threads_integration.py`: create, list, delete threads; create/list messages; user scoping
+   - `test_settings_integration.py`: PATCH round-trip, field preservation, credential storage
+   - `test_approvals_integration.py`: create approval, list pending, decide, expiry
+   - `test_memory_integration.py`: store/recall/delete facts, user scoping
+   - `test_tools_integration.py`: capability grants, custom tool registration, tool call logging
+
+3. **CI integration:**
+   - `.github/workflows/ci.yml` already has Postgres service container — wire `tests/integration/` to use it
+   - Add `pytest tests/integration/` as a separate CI job (parallel with unit tests)
+   - Integration tests are NOT run by default in `pytest tests/unit/` — separate directory
+
+4. **Conftest update:**
+   - Keep existing SQLite conftest for fast unit tests
+   - New integration conftest with `@pytest.fixture(scope="session")` for Postgres container
+
+**Files modified:**
+- `pyproject.toml` (testcontainers dependency)
+- `tests/integration/__init__.py` (new)
+- `tests/integration/conftest.py` (new — Postgres fixture)
+- `tests/integration/test_auth_integration.py` (new)
+- `tests/integration/test_threads_integration.py` (new)
+- `tests/integration/test_settings_integration.py` (new)
+- `tests/integration/test_approvals_integration.py` (new)
+- `tests/integration/test_memory_integration.py` (new)
+- `tests/integration/test_tools_integration.py` (new)
+- `.github/workflows/ci.yml` (integration test job)
+
+**Tests (~25):**
+- 4-5 tests per suite × 6 suites = ~25 integration tests
+- All use real Postgres via testcontainers
+- All run Alembic migrations as setup (proves migration chain works)
+- All verify user scoping (write as user A, read as user B → empty)
+
+**Test gate:**
+```bash
+docker exec noa-dev python -m pytest tests/integration/ -v --tb=short
+```
+
+---
+
+## QE5: Requirements Traceability Matrix
+
+**Spec refs:** Pipeline evaluation §1 (SPEC → PLAN traceability)
+
+**Goal:** Machine-readable mapping from every SPEC section to the phase(s) and test(s) that cover it. Identify orphaned spec sections.
+
+**Scope:**
+
+1. **Traceability script** (`tools/traceability.py`):
+   - Parse all test files for docstring citations (pattern: `SPEC.md §X.Y` or `Phase: XX`)
+   - Parse PLAN.md for phase→spec mappings
+   - Parse PHASE_DETAILS.md for spec refs in each phase description
+   - Output: `Plan/TRACEABILITY.md` — table with columns: SPEC Section | Phase(s) | Test File(s) | Status (Covered/Partial/Orphaned)
+   - Output: summary counts (covered/partial/orphaned)
+
+2. **SPEC section inventory:**
+   - Parse SPEC.md section headers (§1 through §36+)
+   - Cross-reference against traceability data
+   - Flag orphaned sections (spec requirements with no phase or test coverage)
+
+3. **CI integration:**
+   - Add `python tools/traceability.py --check` to CI — fails if orphaned critical sections exist (§1-§25 must all be covered)
+   - Non-critical sections (§26+ future/deferred) can be flagged but not blocking
+
+**Files modified:**
+- `tools/traceability.py` (new)
+- `Plan/TRACEABILITY.md` (new — generated output)
+- `.github/workflows/ci.yml` (traceability check step)
+
+**Tests (~10):**
+- Script parses a test file with known docstring → correct extraction
+- Script identifies orphaned section → correct flagging
+- Script generates valid markdown table
+- `--check` mode returns non-zero on orphaned critical section
+- End-to-end: run against real codebase, verify no critical orphans (or document known gaps)
+
+**Test gate:**
+```bash
+docker exec noa-dev python tools/traceability.py --check
+docker exec noa-dev python -m pytest tests/unit/test_qe5_traceability.py -v
+```
+
+---
+
+## QE6: Test Quality Infrastructure (Coverage, Mutation, Flaky Detection)
+
+**Spec refs:** Pipeline evaluation §10 (What Would Get to 10)
+
+**Goal:** Quantifiable test quality metrics. Coverage baselines, mutation testing on critical paths, flaky test detection.
+
+**Scope:**
+
+1. **Coverage (pytest-cov):**
+   - Add `pytest-cov` to dev dependencies
+   - Configure in `pyproject.toml`: `--cov=src/noa --cov-report=term-missing --cov-report=html`
+   - Set minimum threshold: 70% line coverage (realistic baseline for current state)
+   - CI: coverage report uploaded as artifact; fail if below threshold
+   - Generate `htmlcov/` (gitignored) for local browsing
+
+2. **Mutation testing (mutmut):**
+   - Add `mutmut` to dev dependencies
+   - Configure for critical paths only (keep runtime reasonable):
+     - `src/noa/auth/` (JWT, middleware)
+     - `src/noa/orchestrator/nodes/router.py` (privacy routing)
+     - `src/noa/tools/gateway.py` (tool dispatch, rate limiting)
+   - Generate baseline mutation score
+   - CI: run mutation tests on critical paths only (not full codebase — too slow)
+   - Document baseline scores in `Plan/TRACEABILITY.md` alongside coverage
+
+3. **Flaky test detection (pytest-repeat):**
+   - Add `pytest-repeat` to dev dependencies
+   - CI: nightly job runs `pytest --count=3 tests/unit/` — any test that fails on repeat is flagged
+   - Local: `pytest --count=5 tests/unit/test_suspect.py` for targeted investigation
+
+4. **Performance baselines:**
+   - Add `pytest-benchmark` for key endpoint response times (optional, low priority)
+   - Baseline: `/api/v1/health` < 50ms, `/api/v1/chat` first-byte < 200ms
+   - Store baselines in `tests/benchmarks/` (gitignored results, committed config)
+
+**Files modified:**
+- `pyproject.toml` (new dev dependencies, coverage config, mutmut config)
+- `.github/workflows/ci.yml` (coverage step, nightly flaky job)
+- `.gitignore` (htmlcov/, .mutmut-cache/)
+- `tests/conftest.py` (coverage plugin registration if needed)
+- `mutmut_config.py` (new — paths to mutate)
+
+**Tests (~15):**
+- Coverage runs and produces report (meta-test: `pytest --cov=src/noa` succeeds)
+- Coverage threshold is enforced (test that `--cov-fail-under=70` is in config)
+- mutmut can run on auth module without errors (smoke test)
+- pytest-repeat runs 3x on a known-stable test (verify no false positives)
+- CI workflow contains coverage and nightly-flaky jobs
+
+**Test gate:**
+```bash
+docker exec noa-dev python -m pytest tests/unit/ --cov=src/noa --cov-fail-under=70 --tb=short
+docker exec noa-dev python -m pytest tests/unit/test_qe6_quality.py -v
+```

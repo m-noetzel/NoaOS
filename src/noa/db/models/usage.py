@@ -34,6 +34,8 @@ class UsageStats(Base):
     cost_usd: Mapped[Decimal] = mapped_column(
         Numeric(12, 6), nullable=False, default=Decimal("0"),
     )
-    run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("runs.id"))
+    run_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("runs.id", ondelete="SET NULL"),
+    )
     session_id: Mapped[uuid.UUID | None] = mapped_column()
     task_id: Mapped[uuid.UUID | None] = mapped_column()

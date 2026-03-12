@@ -68,6 +68,9 @@ public final class ChatViewModel {
 
     private let chatService: ChatService
     private var streamTask: Task<Void, Never>?
+    /// iOS-M2: Active history-load task. Cancelled before starting a new load
+    /// so that rapid thread switching cannot deliver stale messages.
+    private var loadTask: Task<Void, Never>?
     /// Index of the optimistic user message (for rollback on failure).
     private var optimisticIndex: Int?
 
@@ -121,15 +124,26 @@ public final class ChatViewModel {
     }
 
     /// Loads message history for the given thread.
+    ///
+    /// iOS-M2: Cancels any in-flight load before starting a new one, so that
+    /// rapid thread switching cannot deliver stale messages from the old thread.
     public func loadHistory(threadId: UUID) async {
-        do {
-            let history = try await chatService.listMessages(threadId: threadId)
-            messages = history.map { msg in
-                ChatMessage(id: msg.id, role: msg.role, content: msg.content)
+        // Cancel any previous load task before starting
+        loadTask?.cancel()
+        loadTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let history = try await chatService.listMessages(threadId: threadId)
+                guard !Task.isCancelled else { return }
+                self.messages = history.map { msg in
+                    ChatMessage(id: msg.id, role: msg.role, content: msg.content)
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                self.errorMessage = error.localizedDescription
             }
-        } catch {
-            errorMessage = error.localizedDescription
         }
+        await loadTask?.value
     }
 
     /// Cancels the active SSE stream and clears the current message list.
@@ -137,6 +151,7 @@ public final class ChatViewModel {
     /// Call this before switching to a different thread so that:
     /// 1. The old SSE connection is terminated (no duplicate deliveries).
     /// 2. The message list is empty when the new thread starts loading.
+    /// 3. Any in-flight history load is cancelled (iOS-M2 race fix).
     ///
     /// iOS-H2: previously only `cancelStream()` existed but `clearMessages()` was
     /// separate; callers had to remember both. This combined method is the single
@@ -144,6 +159,8 @@ public final class ChatViewModel {
     public func cancelStreamAndClear() {
         streamTask?.cancel()
         streamTask = nil
+        loadTask?.cancel()
+        loadTask = nil
         isStreaming = false
         messages = []
         currentIndicator = nil

@@ -68,6 +68,7 @@ class MemoryStore:
         embedding: list[float],
         source_thread_id: str,
         auto_extracted: bool = False,
+        user_id: str | None = None,
     ) -> str | None:
         """Store a fact with its embedding.
 
@@ -77,19 +78,24 @@ class MemoryStore:
             embedding: Vector embedding for semantic search.
             source_thread_id: Thread where fact originated.
             auto_extracted: Whether fact was auto-extracted.
+            user_id: Owner of the fact — required for scoped read access (BE-M5,
+                     L12). When provided, list_all/get_by_id/delete/update_status
+                     will filter to only show this user's facts.
 
         Returns:
             The fact ID if stored, None if duplicate detected per §19.1.
         """
-        # Deduplication per §19.1 — exact text match
+        # Deduplication per §19.1 — exact text match (scoped to user when provided)
         for existing in self._facts.values():
-            if existing["fact"] == fact:
+            if existing["fact"] == fact and (
+                user_id is None or existing.get("user_id") == user_id
+            ):
                 return None
 
         fact_id = str(uuid.uuid4())
         status = "pending" if auto_extracted else "approved"
 
-        fact_data = {
+        fact_data: dict[str, Any] = {
             "id": fact_id,
             "fact": fact,
             "category": category,
@@ -99,6 +105,9 @@ class MemoryStore:
             "status": status,
             "auto_extracted": auto_extracted,
         }
+        # BE-M5 / L12: always store user_id when available so read-path filters work
+        if user_id is not None:
+            fact_data["user_id"] = user_id
         self._facts[fact_id] = fact_data
         self._persist(fact_id)
 

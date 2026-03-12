@@ -181,26 +181,13 @@ cmd_setup() {
 
 # ── Commands ─────────────────────────────────────────────────────
 
-cmd_up() {
-    log "Running pre-flight checks..."
-    if ! preflight; then
-        err "Pre-flight failed. Run 'noa setup' first."
-        exit 1
-    fi
-    echo
-
-    # ── Postgres password sync ───────────────────────────────────
-    # Postgres only reads POSTGRES_PASSWORD during initial volume
-    # creation (initdb). If the Keychain password changes afterwards,
-    # the DB still has the old one.
-    #
-    # Fix: ALWAYS set the password to the Keychain value via ALTER USER.
-    # We connect from 127.0.0.1 inside the postgres container, which
-    # uses "trust" auth (no password needed). This is idempotent —
-    # if the password already matches, it's a harmless no-op.
+# Shared helper: start postgres, sync password to Keychain value, stop again.
+# Postgres only reads POSTGRES_PASSWORD during initial volume creation (initdb).
+# If the Keychain password changes afterwards the DB still has the old one.
+# This is idempotent — if the password already matches it's a harmless no-op.
+sync_postgres_password() {
     log "Syncing Postgres password with Keychain..."
     docker compose up -d postgres &>/dev/null
-    # Wait for postgres to accept connections (max 15s)
     local pg_ready=false
     for i in $(seq 1 15); do
         if docker compose exec -T postgres pg_isready -U noa &>/dev/null; then
@@ -213,16 +200,27 @@ cmd_up() {
         local escaped_pw
         escaped_pw=$(printf '%s' "$POSTGRES_PASSWORD" | sed "s/'/''/g")
         if docker compose exec -T postgres \
-                psql -h 127.0.0.1 -U noa -d noa -c "ALTER USER noa PASSWORD '${escaped_pw}'" &>/dev/null; then
+                psql -U noa -d noa -c "ALTER USER noa PASSWORD '${escaped_pw}'" &>/dev/null; then
             ok "Postgres password synced"
         else
             err "Failed to sync Postgres password"
         fi
-        docker compose down &>/dev/null || true
+        docker compose stop postgres &>/dev/null || true
     else
         warn "Postgres didn't start in time — continuing anyway"
-        docker compose down &>/dev/null || true
+        docker compose stop postgres &>/dev/null || true
     fi
+}
+
+cmd_up() {
+    log "Running pre-flight checks..."
+    if ! preflight; then
+        err "Pre-flight failed. Run 'noa setup' first."
+        exit 1
+    fi
+    echo
+
+    sync_postgres_password
 
     log "Starting Noa..."
     docker compose up -d
@@ -373,6 +371,8 @@ cmd_dev() {
         (cd "$NOA_DIR/web" && npm install)
         ok "Web dependencies installed"
     fi
+
+    sync_postgres_password
 
     # Start backend containers (without web — it runs on host)
     log "Starting backend containers..."

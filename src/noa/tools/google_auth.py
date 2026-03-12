@@ -175,8 +175,12 @@ class GoogleAuthClient:
             ) from exc
 
         body = resp.json()
-        at = body["access_token"]
-        rt = body["refresh_token"]
+        at = body.get("access_token")
+        rt = body.get("refresh_token")
+        if not at or not rt:
+            raise GoogleAuthError(
+                "Token exchange response missing access_token or refresh_token"
+            )
 
         self._access_token = at
         self._refresh_token = rt
@@ -184,6 +188,12 @@ class GoogleAuthClient:
         self._notify_token_change()
         logger.info("Google OAuth2 code exchange succeeded")
         return {"access_token": at, "refresh_token": rt}
+
+    async def clear_tokens(self) -> None:
+        """Clear stored tokens (called on disconnect)."""
+        self._access_token = None
+        self._refresh_token = None
+        logger.info("Google OAuth2 tokens cleared")
 
     async def refresh_access_token(self) -> None:
         """Refresh the access token using the stored refresh token.
@@ -219,3 +229,47 @@ class GoogleAuthClient:
 
         self._notify_token_change()
         logger.info("Google OAuth2 token refresh succeeded")
+
+
+async def load_tokens_from_db(
+    session: object,
+    user_id: object,
+    auth_client: GoogleAuthClient,
+) -> bool:
+    """Load encrypted Google tokens from DB and call set_tokens() on the client.
+
+    Args:
+        session: AsyncSession to query with.
+        user_id: UUID of the user to load tokens for.
+        auth_client: GoogleAuthClient to configure with loaded tokens.
+
+    Returns:
+        True if tokens were loaded, False if no row exists.
+    """
+    from sqlalchemy import select
+
+    from noa.db.models.google_credential import GoogleCredential
+    from noa.tools._token_crypto import decrypt_token
+
+    stmt = select(GoogleCredential).where(
+        GoogleCredential.user_id == user_id
+    )
+    result = await session.execute(stmt)  # type: ignore[attr-defined]
+    cred = result.scalar_one_or_none()
+
+    if cred is None:
+        logger.debug("No Google credentials in DB for user %s", user_id)
+        return False
+
+    try:
+        access_token = (
+            decrypt_token(cred.access_token_enc) if cred.access_token_enc else ""
+        )
+        refresh_token = decrypt_token(cred.refresh_token_enc)
+    except Exception:  # noqa: BLE001
+        logger.warning("Failed to decrypt Google tokens for user %s", user_id)
+        return False
+
+    auth_client.set_tokens(access_token=access_token, refresh_token=refresh_token)
+    logger.info("Google tokens loaded from DB for user %s", user_id)
+    return True

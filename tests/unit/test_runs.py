@@ -69,10 +69,9 @@ async def engine():
 async def db(engine):
     """Async session that rolls back after each test."""
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    async with async_session() as session:
-        async with session.begin():
-            yield session
-            await session.rollback()
+    async with async_session() as session, session.begin():
+        yield session
+        await session.rollback()
 
 
 @pytest.fixture()

@@ -42,7 +42,10 @@ async def list_threads(
     )
 
     result = await session.execute(
-        select(Conversation, func.coalesce(msg_count_sub.c.cnt, 0).label("message_count"))
+        select(
+            Conversation,
+            func.coalesce(msg_count_sub.c.cnt, 0).label("message_count"),
+        )
         .outerjoin(msg_count_sub, Conversation.id == msg_count_sub.c.thread_id)
         .where(Conversation.user_id == user.user_id)
         .order_by(Conversation.created_at.desc())
@@ -117,12 +120,12 @@ async def list_messages(
             detail=f"Thread {thread_id} not found",
         )
 
-    result = await session.execute(
+    msg_result = await session.execute(
         select(Message)
         .where(Message.thread_id == thread_id)
         .order_by(Message.timestamp.asc())
     )
-    rows = result.scalars().all()
+    rows = msg_result.scalars().all()
 
     data = [
         {

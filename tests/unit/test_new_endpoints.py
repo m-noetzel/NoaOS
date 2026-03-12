@@ -8,7 +8,6 @@ FastAPI installed by parsing source files and testing schemas directly.
 from __future__ import annotations
 
 import ast
-import os
 from pathlib import Path
 
 import pytest
@@ -92,9 +91,8 @@ def _extract_include_router_calls(tree: ast.Module) -> int:
     """Count app.include_router(...) calls in app.py."""
     count = 0
     for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-            if node.func.attr == "include_router":
-                count += 1
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "include_router":
+            count += 1
     return count
 
 
@@ -362,8 +360,8 @@ class TestSettingsRoutes:
         assert ("put", "") in self.routes
 
     def test_route_count(self):
-        """Exactly 2 routes defined in settings.py."""
-        assert len(self.routes) == 2
+        """Exactly 3 routes defined in settings.py (GET, PUT, PATCH added in PR2)."""
+        assert len(self.routes) == 3
 
 
 class TestUpdateSettingsRequestSchema:

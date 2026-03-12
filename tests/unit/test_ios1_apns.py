@@ -11,9 +11,7 @@ They are written BEFORE implementation and must all fail initially.
 
 from __future__ import annotations
 
-import asyncio
 import uuid
-from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -308,7 +306,6 @@ class TestPushTriggers:
     @pytest.mark.asyncio
     async def test_push_on_approval_requested(self):
         """SPEC.md §29.6: Push notification sent when approval_requested event occurs."""
-        from noa.push.apns import APNsService
         from noa.push.schemas import PushPayload
 
         payload = PushPayload(

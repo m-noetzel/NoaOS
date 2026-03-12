@@ -75,6 +75,16 @@ public final class AuthViewModel {
         tokenExpiresAt = nil
     }
 
+    /// Called when an API request receives an unrecoverable 401 (refresh also failed).
+    ///
+    /// Sets `isAuthenticated = false` so that `AuthGuard` transitions to `LoginView`.
+    /// This is the iOS-H3 fix: previously a stale-token 401 would leave the app showing
+    /// the main UI while all API calls silently failed.
+    public func handleUnauthorized() {
+        isAuthenticated = false
+        tokenExpiresAt = nil
+    }
+
     /// Called when the app enters the foreground.
     /// Refreshes the access token if it will expire within the threshold.
     public func handleAppForeground() async {

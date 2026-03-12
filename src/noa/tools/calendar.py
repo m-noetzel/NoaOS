@@ -10,7 +10,7 @@ external domain.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 # Maximum event duration (24 hours) per §16.3
 MAX_EVENT_DURATION_HOURS = 24
@@ -55,7 +55,7 @@ class CalendarTool:
         method = getattr(self, function, None)
         if method is None:
             raise ValueError(f"Unknown function: {function}")
-        return await method(**args)
+        return cast(dict[str, Any], await method(**args))
 
     async def list_events(
         self,
@@ -72,10 +72,10 @@ class CalendarTool:
         Returns:
             List of event dicts with title, start, end, attendees.
         """
-        return await self._client.list_events(
+        return cast(list[dict[str, Any]], await self._client.list_events(
             start_date=start_date,
             end_date=end_date,
-        )
+        ))
 
     async def create_event(
         self,
@@ -105,13 +105,13 @@ class CalendarTool:
         """
         _validate_event_times(start, end, now=now)
 
-        return await self._client.create_event(
+        return cast(dict[str, Any], await self._client.create_event(
             title=title,
             start=start,
             end=end,
             description=description or "",
             attendees=attendees or [],
-        )
+        ))
 
     async def update_event(
         self,
@@ -139,10 +139,10 @@ class CalendarTool:
                 changes["start"], changes["end"], now=now
             )
 
-        return await self._client.update_event(
+        return cast(dict[str, Any], await self._client.update_event(
             event_id=event_id,
             **changes,
-        )
+        ))
 
 
 def _validate_event_times(

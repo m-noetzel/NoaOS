@@ -456,9 +456,7 @@ class TestRunServiceAsync:
 
     async def test_list_runs_filters_by_thread_id(self) -> None:
         """list_runs filters by thread_id when provided."""
-        from sqlalchemy import select
 
-        from noa.db.models.run import Run
 
         svc, session = self._make_service()
         thread_id = uuid.uuid4()

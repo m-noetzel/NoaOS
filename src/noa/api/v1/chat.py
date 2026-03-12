@@ -6,10 +6,10 @@ import json
 import logging
 import uuid
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from noa.api.middleware import idempotency_key_ctx, trace_id_ctx
@@ -29,9 +29,9 @@ class ChatRequest(BaseModel):
 
     message: str
     thread_id: str | None = None
-    privacy_mode: str
-    model: str
-    provider: str
+    privacy_mode: Literal["private", "external"] | None = None
+    model: str | None = None
+    provider: str | None = None
     temperature: float | None = None
     max_tokens: int | None = None
     system_prompt: str | None = None
@@ -55,24 +55,39 @@ def _get_session_factory() -> Any:
 get_session_factory = _get_session_factory
 
 
-@router.post("/chat")
+@router.post("/chat", response_model=None)
 async def submit_chat(
     body: ChatRequest,
     request: Request,
     user: AuthUser = Depends(require_auth),  # noqa: B008
-) -> StreamingResponse:
+) -> StreamingResponse | JSONResponse:
     """Submit a chat message and stream SSE events back.
 
     Creates a Run and Conversation, invokes the OrchestratorRunner,
     and streams events as SSE frames.
     """
     rid = trace_id_ctx.get("")
+    user_id = str(user.user_id)
+
+    # Default privacy_mode to "external" when omitted (iOS compatibility — H1)
+    privacy_mode: Literal["private", "external"] = body.privacy_mode or "external"
+
+    # BE-M4: Structured log context for queryable logs
+    log_ctx = {
+        "trace_id": rid,
+        "user_id": user_id,
+    }
+    logger.info(
+        "Chat request received: user_id=%s trace_id=%s privacy_mode=%s",
+        user_id,
+        rid,
+        privacy_mode,
+        extra=log_ctx,
+    )
 
     # M1: Check idempotency key for duplicate request detection
     idem_key = idempotency_key_ctx.get()
     if idem_key and idem_key in _active_idempotency_keys:
-        from fastapi.responses import JSONResponse
-
         return JSONResponse(
             status_code=409,
             content={"ok": False, "error": {"code": "DUPLICATE_REQUEST",
@@ -81,7 +96,6 @@ async def submit_chat(
 
     run_id = str(uuid.uuid4())
     thread_id = body.thread_id or str(uuid.uuid4())
-    user_id = str(user.user_id)
 
     # M1: Register idempotency key as active
     if idem_key:
@@ -117,7 +131,7 @@ async def submit_chat(
 
         # Create Conversation + Run rows in DB and get a no-op service for the runner
         run_svc = await _make_run_service(
-            user_id, thread_id, run_id, body.privacy_mode, body.message,
+            user_id, thread_id, run_id, privacy_mode, body.message,
         )
 
         llm_usage: list[dict[str, Any]] = []
@@ -128,10 +142,12 @@ async def submit_chat(
                 message=body.message,
                 run_service=run_svc,
                 run_id=run_id,
-                privacy_mode=body.privacy_mode,
+                privacy_mode=privacy_mode,
                 model=body.model,
                 provider=body.provider,
                 system_prompt=body.system_prompt,
+                user_id=user_id,
+                trace_id=rid,
             ):
                 # Capture response and llm_usage from result_ready for persistence
                 if event.get("event_type") == "result_ready":
@@ -140,9 +156,10 @@ async def submit_chat(
                     response_text = payload.get("response", "")
                 yield f"data: {json.dumps(event)}\n\n"
         except Exception as exc:  # noqa: BLE001
+            logger.error("Chat stream error: %s", str(exc), extra=log_ctx)
             err_event = {
                 "event_type": "error",
-                "payload": {"error": str(exc)},
+                "payload": {"error": "An error occurred processing your request."},
             }
             yield f"data: {json.dumps(err_event)}\n\n"
 
@@ -283,25 +300,27 @@ async def _persist_messages(
 
 
 async def _update_run_status(run_id: str, status: str) -> None:
-    """Update run status in DB (best-effort)."""
+    """Update run status via RunService (best-effort).
+
+    BE-H5: Routes through RunService to enforce state machine transitions
+    and trigger push notifications, rather than doing a raw UPDATE.
+    """
     factory = _get_session_factory()
     if factory is None:
         return
 
     try:
-        from datetime import UTC, datetime
+        from noa.db.transaction import transactional
+        from noa.runs.service import RunService
 
-        from sqlalchemy import update
-
-        from noa.db.models.run import Run
-
-        async with factory() as session:
-            await session.execute(
-                update(Run)
-                .where(Run.id == uuid.UUID(run_id))
-                .values(status=status, updated_at=datetime.now(UTC))
-            )
-            await session.commit()
+        async with factory() as session, transactional(session):
+            svc = RunService(session=session)
+            await svc.update_status(uuid.UUID(run_id), status)
+    except ValueError:
+        # Invalid transition (run may already be in terminal state) — ignore
+        logger.debug(
+            "Skipping invalid run status transition for %s -> %s", run_id, status
+        )
     except Exception:  # noqa: BLE001
         logger.warning("Failed to update run status for %s", run_id)
 

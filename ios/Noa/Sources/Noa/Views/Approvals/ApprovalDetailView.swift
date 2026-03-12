@@ -96,8 +96,32 @@ public struct ApprovalDetailView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        // iOS-M3: Biometric failure alert — shows "Try Again" so the user can
+        // retry without hunting for the Approve button again.
+        .alert("Authentication Failed", isPresented: Binding(
+            get: { viewModel.errorMessage != nil && viewModel.isBiometricError },
+            set: { if !$0 { viewModel.errorMessage = nil; viewModel.isBiometricError = false } }
+        )) {
+            Button("Try Again") {
+                // Guard against double-tap spawning concurrent biometric prompts.
+                guard !viewModel.isSubmitting else { return }
+                if let decision = viewModel.pendingDecision {
+                    Task { await viewModel.decide(decision) }
+                }
+                viewModel.errorMessage = nil
+                viewModel.isBiometricError = false
+            }
+            Button("Cancel", role: .cancel) {
+                viewModel.errorMessage = nil
+                viewModel.isBiometricError = false
+                viewModel.pendingDecision = nil
+            }
+        } message: {
+            Text(viewModel.errorMessage ?? "")
+        }
+        // Generic error alert (non-biometric failures)
         .alert("Error", isPresented: Binding(
-            get: { viewModel.errorMessage != nil },
+            get: { viewModel.errorMessage != nil && !viewModel.isBiometricError },
             set: { if !$0 { viewModel.errorMessage = nil } }
         )) {
             Button("OK", role: .cancel) { viewModel.errorMessage = nil }
