@@ -11,7 +11,9 @@ import uuid
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
 
 from noa.api.app import create_app
 from noa.auth.middleware import AuthUser, require_auth
@@ -179,14 +181,85 @@ class TestChatThread:
         # Should be a valid UUID
         uuid.UUID(first["thread_id"])
 
-    def test_existing_thread_reused(self) -> None:
+    @pytest.mark.asyncio
+    async def test_existing_thread_reused(self, monkeypatch: Any) -> None:
+        """Passing an existing thread_id returns that same thread_id in the meta event.
+
+        FR1 added _check_thread_domain() which is fail-closed when factory is None.
+        This test provides a real SQLite DB with the conversation row so the domain
+        check passes and the chat proceeds normally.
+        """
+        monkeypatch.setenv("SECRET_KEY", "test-secret")
+
+        from sqlalchemy.ext.asyncio import (
+            AsyncSession,
+            async_sessionmaker,
+            create_async_engine,
+        )
+
+        from noa.api.deps import get_db_session
+        from noa.db.models.base import Base
+        from noa.db.models.conversation import Conversation
+
+        # Build an in-memory SQLite DB with the target conversation row
+        uid = uuid.uuid4()
+        tid = uuid.uuid4()
+
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+        async with factory() as session:
+            session.add(Conversation(
+                id=tid,
+                user_id=uid,
+                title="Existing thread",
+                domain="external",
+            ))
+            await session.commit()
+
+        # Build app with auth + DB overrides and real session factory injected
+        app = create_app()
+
+        async def _fake_auth() -> AuthUser:
+            return AuthUser(user_id=uid)
+
+        async def _fake_db() -> Any:
+            async with factory() as session:
+                yield session
+
+        app.dependency_overrides[require_auth] = _fake_auth
+        app.dependency_overrides[get_db_session] = _fake_db
+
         runner = _make_runner()
-        tid = str(uuid.uuid4())
-        response = _post_chat(runner=runner, thread_id=tid)
+
+        # Patch get_runner and _get_session_factory with real factory.
+        # Note: _check_thread_domain calls _get_session_factory (private), not the alias.
+        with (
+            patch("noa.api.v1.chat.get_runner", return_value=runner),
+            patch("noa.api.v1.chat._get_session_factory", return_value=factory),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.post(
+                    "/api/v1/chat",
+                    json={
+                        "message": "hi",
+                        "privacy_mode": "external",
+                        "model": "anthropic/claude-haiku",
+                        "provider": "anthropic",
+                        "thread_id": str(tid),
+                    },
+                    headers={"Authorization": "Bearer test"},
+                )
+
+        assert response.status_code == 200
         data_lines = [
             ln
             for ln in response.text.split("\n")
             if ln.startswith("data:")
         ]
         first = json.loads(data_lines[0].removeprefix("data:").strip())
-        assert first["thread_id"] == tid
+        assert first["thread_id"] == str(tid)

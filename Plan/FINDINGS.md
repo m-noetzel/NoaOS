@@ -161,7 +161,7 @@
 | W21-M2 | Medium | traceability.py --check overwrites manual TRACEABILITY.md sections | Open | — |
 | UX-L1 | Low | Noa logo/icon in top-left squeezes awkwardly when sidebar toggles — should maintain fixed size | Open | — |
 
-**Open:** 38 | **Partially Resolved:** 0 | **Resolved:** 112 | **Total:** 150
+**Open:** 35 | **Partially Resolved:** 0 | **Resolved:** 115 | **Total:** 150
 
 ---
 
