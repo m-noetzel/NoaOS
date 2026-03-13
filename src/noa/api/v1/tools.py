@@ -7,9 +7,9 @@ import logging
 import os
 import sys
 import uuid
-from typing import Any
+from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -43,8 +43,14 @@ _health_cache: dict[str, dict[str, Any]] = {}
 _ENV_CREDENTIAL_DEFAULTS: dict[str, dict[str, str]] = {
     "web_search": {"api_key": os.environ.get("TAVILY_API_KEY", "")},
     "notion": {"token": os.environ.get("NOTION_TOKEN", "")},
-    "gmail": {"client_id": os.environ.get("GOOGLE_CLIENT_ID", ""), "client_secret": os.environ.get("GOOGLE_CLIENT_SECRET", "")},
-    "calendar": {"client_id": os.environ.get("GOOGLE_CLIENT_ID", ""), "client_secret": os.environ.get("GOOGLE_CLIENT_SECRET", "")},
+    "gmail": {
+        "client_id": os.environ.get("GOOGLE_CLIENT_ID", ""),
+        "client_secret": os.environ.get("GOOGLE_CLIENT_SECRET", ""),
+    },
+    "calendar": {
+        "client_id": os.environ.get("GOOGLE_CLIENT_ID", ""),
+        "client_secret": os.environ.get("GOOGLE_CLIENT_SECRET", ""),
+    },
 }
 
 
@@ -140,12 +146,36 @@ def _extract_user_id(payload: Any) -> str:
     return str(payload.get("sub", payload.get("user_id", "")))
 
 
+def _tool_is_visible_in_domain(tool_schema: dict[str, Any], privacy_mode: str) -> bool:
+    """Return True if a tool should be visible in the given domain.
+
+    BE-H8: A tool is hidden when ALL its functions belong to a domain that
+    does not match the requested privacy_mode. Specifically:
+    - Tools where every function has domain="private" are hidden in external mode.
+    - Tools where every function has domain="external" are hidden in private mode.
+    - Mixed-domain tools are always visible.
+    """
+    function_domains = {
+        func_def.get("domain", "external")
+        for func_def in tool_schema["functions"].values()
+    }
+    return not (
+        (privacy_mode == "external" and function_domains == {"private"})
+        or (privacy_mode == "private" and function_domains == {"external"})
+    )
+
+
 @router.get("")
 async def list_tools(
+    privacy_mode: Literal["private", "external"] = Query(default="external"),  # noqa: B008
     payload: Any = Depends(require_auth),  # noqa: B008
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
 ) -> dict[str, Any]:
-    """List tools with per-function metadata and capabilities."""
+    """List tools with per-function metadata and capabilities.
+
+    BE-H8: Filters out tools that don't belong to the requested domain.
+    Memory tool (private-domain) is hidden when privacy_mode=external.
+    """
     rid = trace_id_ctx.get("")
     user_id = (
         payload.user_id if hasattr(payload, "user_id") else uuid.UUID(payload["sub"])
@@ -157,6 +187,10 @@ async def list_tools(
     for name in TOOL_SCHEMAS:
         capability = TOOL_CAPABILITIES.get(name, name)
         tool_schema = TOOL_SCHEMAS[name]
+
+        # BE-H8: Skip tools that don't belong to the requested domain
+        if not _tool_is_visible_in_domain(tool_schema, privacy_mode):
+            continue
 
         # Credential status: check if secrets are configured
         try:

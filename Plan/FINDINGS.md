@@ -119,9 +119,9 @@
 | W20-MED-3 | Medium | Web-CI E2E step has continue-on-error: true (failures non-blocking) | **Resolved** | QE3 |
 | W20-MED-4 | Medium | NotImplementedError stubs in tools.py and mcp_adapter.py lack clear intent docs | **Resolved** | QE3 |
 | | | **── P0: Domain Isolation (Core Architecture) ──** | | |
-| BE-C3 | Critical | Domain switch does not isolate data — chats, threads, and other state carry over between private and external domains | Open | — |
-| BE-H8 | High | Memory tool visible in external domain despite privacy_mode=private — domain isolation violated | Open | — |
-| BE-H11 | High | OpenAI selectable as provider in private domain — external-only providers must be hidden when in private mode | Open | — |
+| BE-C3 | Critical | Domain switch does not isolate data — chats, threads, and other state carry over between private and external domains | **Resolved** | FR1 |
+| BE-H8 | High | Memory tool visible in external domain despite privacy_mode=private — domain isolation violated | **Resolved** | FR1 |
+| BE-H11 | High | OpenAI selectable as provider in private domain — external-only providers must be hidden when in private mode | **Resolved** | FR1 |
 | | | **── P1: Broken Core Features ──** | | |
 | BE-H7 | High | Approved memory facts not persisted — Memory page shows 0 facts after approving a memory | Open | — |
 | BE-H10 | High | Private memory tool broken — health "Unconfigured", remember/recall functions disabled, switching to private mode doesn't fix it | Open | — |

@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -118,6 +118,57 @@ def _reload_llm_pipeline_if_needed(
             "Failed to reload ProviderRouter after credential update",
             exc_info=True,
         )
+
+
+# Providers available per domain (BE-H11)
+_ALL_PROVIDERS = ["anthropic", "openai", "google_ai", "ollama"]
+_PRIVATE_PROVIDERS = ["ollama"]
+_EXTERNAL_PROVIDERS = _ALL_PROVIDERS
+
+
+@router.get("/providers")
+async def list_providers(
+    privacy_mode: Literal["private", "external"] = Query(default="external"),  # noqa: B008
+    user: AuthUser = Depends(require_auth),  # noqa: B008
+) -> dict[str, Any]:
+    """Return the list of providers available in the requested domain.
+
+    BE-H11: In private mode only 'ollama' (local) is returned.
+    In external mode all configured providers are returned.
+    """
+    rid = trace_id_ctx.get("")
+    if privacy_mode == "private":
+        providers = [
+            {
+                "name": "ollama",
+                "domain": "private",
+                "description": "Local Ollama (on-device)",
+            },
+        ]
+    else:
+        providers = [
+            {
+                "name": "anthropic",
+                "domain": "external",
+                "description": "Anthropic Claude",
+            },
+            {
+                "name": "openai",
+                "domain": "external",
+                "description": "OpenAI GPT",
+            },
+            {
+                "name": "google_ai",
+                "domain": "external",
+                "description": "Google Gemini",
+            },
+            {
+                "name": "ollama",
+                "domain": "private",
+                "description": "Local Ollama (on-device)",
+            },
+        ]
+    return success_envelope(data=providers, trace_id=rid)
 
 
 @router.get("")

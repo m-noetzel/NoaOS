@@ -360,8 +360,8 @@ class TestSettingsRoutes:
         assert ("put", "") in self.routes
 
     def test_route_count(self):
-        """Exactly 3 routes defined in settings.py (GET, PUT, PATCH added in PR2)."""
-        assert len(self.routes) == 3
+        """4 routes defined in settings.py (GET /providers added in FR1, plus GET/PUT/PATCH)."""
+        assert len(self.routes) == 4
 
 
 class TestUpdateSettingsRequestSchema:
