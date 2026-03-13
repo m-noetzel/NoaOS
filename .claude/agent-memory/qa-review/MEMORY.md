@@ -43,11 +43,20 @@ Note: `--override-ini="pythonpath=src"` needed to avoid langsmith pydantic_core 
 4. No unsafe fallback defaults (`or ""`, `or "dev"` on secrets)
 5. Wiring: new services instantiated in app.py startup
 
+**"Fail-closed breaks test that relied on factory=None=skip" (FR1):** Adding fail-closed domain check (returns error when factory=None) breaks existing tests that patch factory=None expecting the check to be skipped. Always run full test suite when adding fail-closed behavior to an existing function. Check if existing tests rely on the old fallback semantics.
+
+**"FINDINGS.md count not decremented after resolve" (FR1):** Findings rows correctly marked Resolved, but the `**Open:** N` footer count was not decremented. test_qe3_findings.py::test_findings_open_count_consistent catches this. Always update the count line at `Plan/FINDINGS.md:164` when resolving findings.
+
+**"SQLAlchemy column default=value does NOT apply at Python object creation" (FR1):** `mapped_column(..., default="external")` in SQLAlchemy only applies the default when the INSERT executes. At Python object creation time, `conv.domain is None` (not "external"). Always use explicit values when instantiating ORM objects, or use `Conversation(domain=privacy_mode, ...)` at write sites. Tests that check `conv.domain` right after construction without committing will see None.
+
+**"SQLite CHECK constraints not enforced in-memory" (FR1):** SQLite does not enforce CHECK constraints on column values. A `domain IN ('private', 'external')` CHECK constraint in the migration will be enforced by Postgres but not by in-memory SQLite tests. Don't rely on CHECK constraint enforcement in unit tests.
+
 ### Pre-existing Violations (not new-phase blockers)
 - `auth.py:179`: `except Exception: pass` in logout (noqa BLE001+S110)
 - `chat.py:226`: `except Exception:` in _make_run_service -- does debug log
 - `chat.py:157-162`: outer SSE handler leaks str(exc) to client (pre-existing CP3)
 - Pre-existing test failures: test_orchestrator, test_mr8, test_mr9, test_cp4 (langgraph)
+- Pre-existing test failures (pre-existing, not FR1): test_mr5_tool_permissions (2), test_qc2_security_hardening (1), test_qc8_architecture (2)
 - Pre-existing frontend failures: qc7-fixes.test.tsx UI-M8 (2 tests, settings freshness SSE mock issue)
 - threads.py:45 E501 ruff violation (line too long, not in PR1)
 
@@ -65,6 +74,7 @@ Note: `--override-ini="pythonpath=src"` needed to avoid langsmith pydantic_core 
 - **QE1 (2026-03-12):** PASS_WITH_NOTES. 39 tests. All 33 CI proposals triaged (26 APPLIED, 2 RESOLVED, 3 DEFERRED, 2 REJECTED). Process gates embedded in CLAUDE.md, QA_CHECKLIST.md, ARCH_INVARIANTS.md. FINDINGS.md tracking gap: W20-MED-3/4 referenced in PLAN.md but never added to FINDINGS.md.
 - **QE4 (2026-03-12):** PASS_WITH_NOTES. 30 integration tests (6 suites) against real Postgres. Alembic migrations 010+011 fix schema drift (GO1 google_refresh_token, TM5 custom_tools). CI `test-integration` job added. Validates that create_all() hides drift that real migrations expose.
 - **QE6 (2026-03-12):** PASS_WITH_NOTES. 16 tests. Coverage 84% (threshold 70%), mutmut configured (auth/router/gateway), pytest-repeat nightly CI. Notes: no CI mutation step (manual-only), TOML parsing fragile, no behavioral smoke for mutmut/repeat. Wave 21 complete.
+- **FR1 (2026-03-13):** Cycle 1 FAIL, Cycle 2 PASS_WITH_NOTES. 30 tests (real SQLite DB). Domain isolation: thread scoping (BE-C3), tool visibility (BE-H8), provider filtering (BE-H11). Fixes: seeded real Conversation row in regression test (correct pattern), updated FINDINGS.md count to 35 open. Notes: fail-open on DB exception in _check_thread_domain (FR1-L1), cascade delete not tested at DB level, pytest.mark.fr1 unregistered.
 
 ### Infrastructure Security Baseline (2026-03-12)
 - Claude Code: ~102 allow rules. `Bash(curl:*)` in allow conflicts with `Bash(curl)` in deny. `Bash(sed:*)` allows arbitrary file edits.

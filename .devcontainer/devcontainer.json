@@ -1,0 +1,21 @@
+{
+	"name": "Noa Dev Container",
+	// Uses the full dev stack — dev shell + Postgres + API + migrations.
+	// Dev-safe fallbacks handle SECRET_KEY, JWT_SECRET, Postgres password.
+	// LLM API keys default to empty — fine for editing, tests, linting.
+	// For real LLM calls, start via `./noa dev-full` on host first (loads Keychain secrets).
+	"dockerComposeFile": "../docker-compose.dev-full.yml",
+	"service": "dev",
+	"workspaceFolder": "/workspace",
+	"remoteUser": "devuser",
+	"overrideCommand": false,
+	"forwardPorts": [5173, 4173],
+	"customizations": {
+		"vscode": {
+			"settings": {
+				"python.defaultInterpreterPath": "/usr/local/bin/python3",
+				"terminal.integrated.defaultProfile.linux": "bash"
+			}
+		}
+	}
+}

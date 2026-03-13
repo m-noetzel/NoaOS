@@ -1,0 +1,204 @@
+# Noa Dev Full Stack — Fully isolated dev environment inside Docker
+#
+# Usage (via ./noa):
+#   ./noa dev-full            Start default stack (dev + postgres + api), attach Claude Code
+#   ./noa dev-full workers    Same + private-worker + external-worker
+#   ./noa dev-full down       Stop and clean up
+#   ./noa dev-full build      Rebuild all images
+#
+# Secrets: loaded from macOS Keychain by ./noa → exported into shell environment →
+#          Docker Compose reads ${VAR} from shell. Nothing written to disk.
+#
+# Dev postgres uses a fixed local password — it holds dev/test data only,
+# not production data. No Keychain entry needed.
+
+services:
+
+  # ── Dev container (Claude Code + test runner + Playwright) ───────────
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: noa-dev-full
+    working_dir: /workspace
+    user: "1000:1000"
+    ports:
+      - "127.0.0.1:5173:5173" # Vite dev server (Playwright connects here)
+      - "127.0.0.1:4173:4173" # Vite preview
+    volumes:
+      - ./:/workspace:rw
+      - ./artifacts_out:/artifacts:rw
+      - dev-npm-cache:/home/devuser/.npm
+      - vscode-server-data:/home/devuser/.vscode-server
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - NOA_SHELL_TIMEOUT=300
+      - NOA_SHELL_MEMORY_MB=4096
+      - NOA_SHELL_MAX_CONCURRENT=2
+      - NOA_ENV=development
+      # Integration test DB — points to postgres-dev (no testcontainers fallback needed)
+      - TEST_DATABASE_URL=postgresql+asyncpg://noa:dev-pg-password@postgres-dev:5432/noa_test
+      # Vite proxy target — routes /api calls to noa-api-dev when Vite runs inside Docker
+      - API_PROXY_TARGET=http://noa-api-dev:8000
+    # No read_only / cap_drop / no-new-privileges — this is a dev workbench,
+    # not a production container. VS Code Server needs write + exec access.
+    tmpfs:
+      - /tmp:size=512m
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 4g
+          pids: 1024
+    networks:
+      - noa-dev-net # internet (Claude Code, npm, pypi)
+      - noa-dev-internal # reaches postgres-dev, noa-api-dev
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    depends_on:
+      postgres-dev:
+        condition: service_healthy
+      migrate-dev:
+        condition: service_completed_successfully
+      noa-api-dev:
+        condition: service_healthy
+    stdin_open: true
+    tty: true
+
+  # ── Postgres (dev-only data, separate from production) ───────────────
+  postgres-dev:
+    image: postgres:16-alpine
+    container_name: noa-postgres-dev
+    environment:
+      POSTGRES_USER: noa
+      POSTGRES_PASSWORD: dev-pg-password
+      POSTGRES_DB: noa_test
+    volumes:
+      - dev-postgres-data:/var/lib/postgresql/data
+    networks:
+      - noa-dev-internal
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U noa" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    tmpfs:
+      - /tmp:size=64m
+
+  # ── Migrations (runs once, exits) ────────────────────────────────────
+  migrate-dev:
+    build:
+      context: .
+      dockerfile: docker/noa-api/Dockerfile
+    command: [ "alembic", "upgrade", "head" ]
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://noa:dev-pg-password@postgres-dev:5432/noa_test
+    networks:
+      - noa-dev-internal
+    depends_on:
+      postgres-dev:
+        condition: service_healthy
+    restart: "no"
+
+  # ── API server (hot reload, src/ mounted live) ───────────────────────
+  noa-api-dev:
+    build:
+      context: .
+      dockerfile: docker/noa-api/Dockerfile
+    container_name: noa-api-dev
+    command: [ "uvicorn", "noa.api.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/src" ]
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://noa:dev-pg-password@postgres-dev:5432/noa_test
+      - NOA_ENV=development
+      - SECRET_KEY=${SECRET_KEY:-dev-secret-not-for-production}
+      - JWT_SECRET=${JWT_SECRET:-dev-jwt-not-for-production}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - GOOGLE_AI_API_KEY=${GOOGLE_AI_API_KEY:-}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      - NOTION_TOKEN=${NOTION_TOKEN:-}
+      - TAVILY_API_KEY=${TAVILY_API_KEY:-}
+      # Health probe URLs match dev container names
+      - PRIVATE_WORKER_HEALTH_URL=http://private-worker-dev:8001/health
+      - EXTERNAL_WORKER_HEALTH_URL=http://external-worker-dev:8002/health
+      - LOG_LEVEL=DEBUG
+    volumes:
+      - ./src:/app/src:rw
+    networks:
+      - noa-dev-internal
+    depends_on:
+      migrate-dev:
+        condition: service_completed_successfully
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    tmpfs:
+      - /tmp:size=256m
+
+  # ── Private worker (optional — ./noa dev-full workers) ──────────────
+  private-worker-dev:
+    profiles: [ "workers" ]
+    build:
+      context: .
+      dockerfile: docker/private-worker/Dockerfile
+    container_name: noa-private-worker-dev
+    command: [ "uvicorn", "noa.private_worker.app:create_private_app", "--factory", "--host", "0.0.0.0", "--port", "8001", "--reload", "--reload-dir", "/app/src" ]
+    volumes:
+      - ./src:/app/src:rw
+      - dev-private-data:/data
+    networks:
+      - noa-dev-internal
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8001/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    tmpfs:
+      - /tmp:size=256m
+
+  # ── External worker (optional — ./noa dev-full workers) ─────────────
+  external-worker-dev:
+    profiles: [ "workers" ]
+    build:
+      context: .
+      dockerfile: docker/external-worker/Dockerfile
+    container_name: noa-external-worker-dev
+    command: [ "uvicorn", "noa.external_worker.app:create_external_app", "--factory", "--host", "0.0.0.0", "--port", "8002", "--reload", "--reload-dir", "/app/src" ]
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - GOOGLE_AI_API_KEY=${GOOGLE_AI_API_KEY:-}
+      - TAVILY_API_KEY=${TAVILY_API_KEY:-}
+    volumes:
+      - ./src:/app/src:rw
+    networks:
+      - noa-dev-internal
+      - noa-dev-net # internet access for LLM API calls and tool egress
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8002/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    tmpfs:
+      - /tmp:size=256m
+
+networks:
+  noa-dev-net:
+    driver: bridge
+  noa-dev-internal:
+    driver: bridge
+
+volumes:
+  dev-npm-cache:
+  dev-postgres-data:
+  dev-private-data:
+  vscode-server-data:
