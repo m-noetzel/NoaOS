@@ -209,5 +209,17 @@ async def _dispatch_gateway(
 def _gateway_response_to_dict(resp: Any) -> dict[str, Any]:
     """Convert a ToolResponse to a plain dict for tool_results."""
     if resp.error:
+        result = resp.result
+        # Approval required — pass through the approval details
+        if isinstance(result, dict) and result.get("approval_required"):
+            return {"approval_required": True, **result, "error": resp.error}
         return {"error": resp.error}
-    return resp.result or {}
+    result = resp.result
+    if result is None:
+        return {}
+    # If the tool returns a list (e.g. search results), wrap it
+    if isinstance(result, list):
+        return {"results": result}
+    if isinstance(result, dict):
+        return result
+    return {"value": result}

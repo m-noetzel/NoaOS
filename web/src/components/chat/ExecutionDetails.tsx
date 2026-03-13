@@ -27,18 +27,26 @@ export function ExecutionDetails({ events }: ExecutionDetailsProps) {
 
   for (const evt of toolEvents) {
     if (evt.event === "tool_called") {
-      toolPairs.push({
-        name: evt.data.tool_name as string,
-        args: (evt.data.args as Record<string, unknown>) || {},
-        status: "called",
-      });
+      // Runner sends: payload.tool_call = {name, input/arguments, ...}
+      const tc = (evt.data.tool_call as Record<string, unknown>) || evt.data;
+      const name = (tc.name as string) || (evt.data.tool_name as string) || "unknown";
+      const args = (tc.input as Record<string, unknown>)
+        || (tc.arguments as Record<string, unknown>)
+        || (evt.data.args as Record<string, unknown>)
+        || {};
+      toolPairs.push({ name, args, status: "called" });
     } else if (evt.event === "tool_result") {
+      // Runner sends: payload.tool_result = {name, result, ...}
+      const tr = (evt.data.tool_result as Record<string, unknown>) || evt.data;
+      const name = (tr.name as string) || (evt.data.tool_name as string) || "unknown";
       const existing = toolPairs.find(
-        (p) => p.name === evt.data.tool_name && p.status === "called"
+        (p) => p.name === name && p.status === "called"
       );
       if (existing) {
-        existing.result = evt.data.result as string;
-        existing.duration = evt.data.duration_ms as number;
+        existing.result = typeof tr.result === "string"
+          ? tr.result
+          : JSON.stringify(tr.result ?? evt.data.result, null, 2);
+        existing.duration = (tr.duration_ms as number) || (evt.data.duration_ms as number);
         existing.status = "completed";
       }
     }
@@ -83,8 +91,8 @@ export function ExecutionDetails({ events }: ExecutionDetailsProps) {
                 </div>
               )}
               {tool.result && (
-                <div className="text-muted-foreground/80 truncate">
-                  → {tool.result}
+                <div className="text-muted-foreground/80 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
+                  → {tool.result.length > 500 ? tool.result.slice(0, 500) + "…" : tool.result}
                 </div>
               )}
               {tool.duration && (

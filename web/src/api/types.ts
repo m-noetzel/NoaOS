@@ -200,6 +200,9 @@ export interface UserSettings {
   default_privacy_mode: PrivacyMode;
   budget_daily_usd: number;
   budget_monthly_usd: number;
+  system_prompt: string | null;
+  temperature: number | null;
+  max_tokens: number | null;
   anthropic_api_key: string | null;
   openai_api_key: string | null;
   google_client_id: string | null;

@@ -36,6 +36,9 @@ class UpdateSettingsRequest(BaseModel):
     default_privacy_mode: str | None = None
     budget_daily_usd: float | None = None
     budget_monthly_usd: float | None = None
+    system_prompt: str | None = None
+    temperature: float | None = None
+    max_tokens: int | None = None
     anthropic_api_key: str | None = None
     openai_api_key: str | None = None
     google_client_id: str | None = None

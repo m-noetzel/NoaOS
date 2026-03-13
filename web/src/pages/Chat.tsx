@@ -8,7 +8,6 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ActivityStream } from "@/components/chat/ActivityStream";
-import { ExecutionDetails } from "@/components/chat/ExecutionDetails";
 import { cn } from "@/lib/utils";
 import { Textarea } from "@/components/ui/textarea";
 import { Send, Plus, Settings2, Sparkles, User, Trash2 } from "lucide-react";
@@ -67,9 +66,13 @@ export default function Chat() {
   const [streamEvents, setStreamEvents] = useState<SSEEvent[]>([]);
   const [currentRunId, setCurrentRunId] = useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [temperature, setTemperature] = useState(0.7);
-  const [maxTokens, setMaxTokens] = useState(4096);
-  const [systemPrompt, setSystemPrompt] = useState("");
+  const [pendingApproval, setPendingApproval] = useState<{
+    tool: string; function: string; args: Record<string, unknown>; risk_tier: string;
+    approval_id?: string;
+  } | null>(null);
+  const [temperature, setTemperature] = useState<number | null>(null);
+  const [maxTokens, setMaxTokens] = useState<number | null>(null);
+  const [systemPrompt, setSystemPrompt] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
 
@@ -84,6 +87,23 @@ export default function Chat() {
   const model = settings?.default_model || "claude-sonnet-4-20250514";
   const provider = (settings?.default_provider || "anthropic") as Provider;
   const privacyMode = (settings?.default_privacy_mode || "external") as PrivacyMode;
+
+  // Initialize chat defaults from saved settings (once loaded)
+  const effectiveTemperature = temperature ?? settings?.temperature ?? 0.7;
+  const effectiveMaxTokens = maxTokens ?? settings?.max_tokens ?? 4096;
+  const effectiveSystemPrompt = systemPrompt ?? settings?.system_prompt ?? "";
+
+  // Save chat defaults to settings on change
+  const saveChatDefaultsMutation = useMutation({
+    mutationFn: (updates: Record<string, unknown>) =>
+      apiRequest("/api/v1/settings", {
+        method: "PATCH",
+        body: JSON.stringify(updates),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["settings"] });
+    },
+  });
 
   const createThreadMutation = useMutation({
     mutationFn: (title: string) =>
@@ -194,6 +214,16 @@ export default function Chat() {
         });
         setIsStreaming(false);
         queryClient.invalidateQueries({ queryKey: ["messages", activeThreadRef.current] });
+        queryClient.invalidateQueries({ queryKey: ["threads"] });
+        break;
+      case "approval_requested":
+        setPendingApproval({
+          tool: event.data.tool as string,
+          function: event.data.function as string,
+          args: (event.data.args as Record<string, unknown>) || {},
+          risk_tier: event.data.risk_tier as string,
+          approval_id: event.data.approval_id as string | undefined,
+        });
         break;
       case "error":
         setIsStreaming(false);
@@ -262,9 +292,9 @@ export default function Chat() {
       privacy_mode: privacyMode,
       model,
       provider,
-      temperature,
-      max_tokens: maxTokens,
-      ...(systemPrompt.trim() ? { system_prompt: systemPrompt.trim() } : {}),
+      temperature: effectiveTemperature,
+      max_tokens: effectiveMaxTokens,
+      ...(effectiveSystemPrompt.trim() ? { system_prompt: effectiveSystemPrompt.trim() } : {}),
     };
 
     await sseClientRef.current!.connect("/api/v1/chat", body);
@@ -374,7 +404,74 @@ export default function Chat() {
                   runStatus={isStreaming ? "running" : "completed"}
                   runSummary="Task completed"
                 />
-                <ExecutionDetails events={streamEvents} />
+              </div>
+            )}
+
+            {/* Approval request card */}
+            {pendingApproval && (
+              <div className="animate-fade-in mx-auto max-w-md">
+                <div className="rounded-xl border-2 border-amber-500/50 bg-amber-500/10 p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-amber-500 text-lg">⚠</span>
+                    <span className="font-semibold text-sm">Approval Required</span>
+                    <span className="ml-auto text-[10px] uppercase tracking-wider font-medium text-amber-600 bg-amber-500/20 px-2 py-0.5 rounded-full">
+                      {pendingApproval.risk_tier} risk
+                    </span>
+                  </div>
+                  <div className="text-sm text-muted-foreground">
+                    Noa wants to execute <span className="font-mono font-medium text-foreground">{pendingApproval.tool}.{pendingApproval.function}</span>
+                  </div>
+                  {Object.keys(pendingApproval.args).length > 0 && (
+                    <div className="text-xs bg-background/50 rounded-lg p-2 space-y-0.5 font-mono max-h-32 overflow-y-auto">
+                      {Object.entries(pendingApproval.args).map(([k, v]) => (
+                        <div key={k}>
+                          <span className="text-muted-foreground">{k}:</span>{" "}
+                          <span className="text-foreground">{typeof v === "string" ? v : JSON.stringify(v)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex gap-2 pt-1">
+                    <Button
+                      size="sm"
+                      className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                      onClick={async () => {
+                        const aid = pendingApproval.approval_id;
+                        setPendingApproval(null);
+                        if (aid) {
+                          await apiRequest(`/api/v1/approvals/${aid}/decide`, {
+                            method: "POST",
+                            body: JSON.stringify({ decision: "approved" }),
+                          });
+                          queryClient.invalidateQueries({ queryKey: ["approvals"] });
+                        }
+                        toast({ title: "Approved", description: `${pendingApproval.tool}.${pendingApproval.function} approved` });
+                      }}
+                    >
+                      Approve
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="flex-1 border-destructive/50 text-destructive hover:bg-destructive/10"
+                      onClick={async () => {
+                        const aid = pendingApproval.approval_id;
+                        setPendingApproval(null);
+                        setIsStreaming(false);
+                        if (aid) {
+                          await apiRequest(`/api/v1/approvals/${aid}/decide`, {
+                            method: "POST",
+                            body: JSON.stringify({ decision: "denied" }),
+                          });
+                          queryClient.invalidateQueries({ queryKey: ["approvals"] });
+                        }
+                        toast({ title: "Denied", description: "Action was denied" });
+                      }}
+                    >
+                      Deny
+                    </Button>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -404,15 +501,25 @@ export default function Chat() {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-                        Temperature: {temperature}
+                        Temperature: {effectiveTemperature}
                       </Label>
-                      <Slider value={[temperature]} onValueChange={([v]) => setTemperature(v)} min={0} max={2} step={0.1} />
+                      <Slider
+                        value={[effectiveTemperature]}
+                        onValueChange={([v]) => setTemperature(v)}
+                        onValueCommit={([v]) => saveChatDefaultsMutation.mutate({ temperature: v })}
+                        min={0} max={2} step={0.1}
+                      />
                     </div>
                     <div className="space-y-2">
                       <Label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-                        Max tokens: {maxTokens}
+                        Max tokens: {effectiveMaxTokens}
                       </Label>
-                      <Slider value={[maxTokens]} onValueChange={([v]) => setMaxTokens(v)} min={256} max={16384} step={256} />
+                      <Slider
+                        value={[effectiveMaxTokens]}
+                        onValueChange={([v]) => setMaxTokens(v)}
+                        onValueCommit={([v]) => saveChatDefaultsMutation.mutate({ max_tokens: v })}
+                        min={256} max={16384} step={256}
+                      />
                     </div>
                   </div>
                   <div className="space-y-2">
@@ -420,8 +527,15 @@ export default function Chat() {
                       System prompt
                     </Label>
                     <Textarea
-                      value={systemPrompt}
+                      value={effectiveSystemPrompt}
                       onChange={(e) => setSystemPrompt(e.target.value)}
+                      onBlur={() => {
+                        const val = (systemPrompt ?? "").trim();
+                        const saved = (settings?.system_prompt ?? "").trim();
+                        if (val !== saved) {
+                          saveChatDefaultsMutation.mutate({ system_prompt: val || null });
+                        }
+                      }}
                       placeholder="Optional system prompt (e.g. 'Antworte immer auf Deutsch')"
                       className="min-h-[60px] text-sm bg-background/50 border-border/40 resize-y"
                       rows={2}
@@ -457,7 +571,7 @@ export default function Chat() {
                 </div>
                 <Button
                   onClick={handleSend}
-                  disabled={!input.trim() || isStreaming}
+                  disabled={isStreaming}
                   size="icon"
                   className="h-10 w-10 shrink-0 rounded-xl gradient-primary shadow-md hover:shadow-lg hover:brightness-110 transition-all duration-200 disabled:opacity-30"
                   data-testid="chat-send"

@@ -37,8 +37,12 @@ export function buildCostItems(events: RunEvent[], run?: Run): CostItem[] {
   const toolCalls = events.filter((e) => e.type === "tool_called");
   const toolResults = events.filter((e) => e.type === "tool_result");
   for (const tc of toolCalls) {
-    const toolName = tc.data.tool_name as string;
-    const result = toolResults.find((r) => (r.data.tool_name as string) === toolName);
+    const tcInner = (tc.data.tool_call as Record<string, unknown>) || tc.data;
+    const toolName = (tcInner.name as string) || (tc.data.tool_name as string) || "tool";
+    const result = toolResults.find((r) => {
+      const trInner = (r.data.tool_result as Record<string, unknown>) || r.data;
+      return ((trInner.name as string) || (r.data.tool_name as string)) === toolName;
+    });
     const tIn = (result?.data.tokens_in as number) || 0;
     const tOut = (result?.data.tokens_out as number) || 0;
     items.push({ name: toolName, tokens_in: tIn, tokens_out: tOut, cost: estimateCost(tIn, tOut) });
@@ -63,7 +67,9 @@ export function CostBreakdown({ events, run }: CostBreakdownProps) {
   const items = buildCostItems(events, run);
   const stepTotal = items.reduce((s, i) => s + i.cost, 0);
   const headerTotal = run?.cost_usd;
-  const hasMismatch = headerTotal !== undefined && Math.abs(headerTotal - stepTotal) > 0.0001;
+  // Only show mismatch when we have real step-level costs (from run.steps), not estimated
+  const hasRealStepCosts = !!(run?.steps?.length);
+  const hasMismatch = hasRealStepCosts && headerTotal !== undefined && Math.abs(headerTotal - stepTotal) > 0.0001;
 
   if (!items.length) return null;
 

@@ -206,7 +206,7 @@ class TestMCPToolAdapter:
             risk_tiers={"default": "low"},
         )
 
-        with pytest.raises(NotImplementedError, match="MCP transport"):
+        with pytest.raises(NotImplementedError, match="MCPToolAdapter is deprecated"):
             await adapter.execute(function="test", args={})
 
     def test_mcp_adapter_risk_tiers_from_config(self):

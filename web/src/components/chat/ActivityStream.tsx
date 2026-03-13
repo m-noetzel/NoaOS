@@ -1,8 +1,7 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
 import type { SSEEvent, RunStatus } from "@/api/types";
 import { cn } from "@/lib/utils";
-import { ChevronDown, ChevronRight, ExternalLink, Loader2, CheckCircle2, XCircle, Search, Brain, Wrench, FileText } from "lucide-react";
+import { ChevronDown, ChevronRight, Loader2, CheckCircle2, XCircle, Search, Brain, Wrench, FileText } from "lucide-react";
 import { RunStatusBadge } from "@/components/badges/RunStatusBadge";
 
 /** Maps raw SSE events into human-readable activity labels */
@@ -10,10 +9,24 @@ function activityLabel(event: SSEEvent): string | null {
   switch (event.event) {
     case "planner_step":
       return event.data.step as string;
-    case "tool_called":
-      return `Calling tool: ${event.data.tool_name}`;
-    case "tool_result":
-      return `Tool completed: ${event.data.tool_name}`;
+    case "tool_called": {
+      const tc = (event.data.tool_call as Record<string, unknown>) || event.data;
+      const name = (tc.name as string) || (event.data.tool_name as string) || "tool";
+      return `Calling tool: ${name}`;
+    }
+    case "tool_result": {
+      const tr = (event.data.tool_result as Record<string, unknown>) || event.data;
+      const name = (tr.name as string) || (event.data.tool_name as string) || "tool";
+      return `Tool completed: ${name}`;
+    }
+    case "approval_requested":
+      return `Approval needed: ${event.data.tool}.${event.data.function}`;
+    case "classification_done": {
+      const model = (event.data.model as string) || "";
+      return model ? `Using ${model}` : "Classified request";
+    }
+    case "step_started":
+      return `Running ${(event.data.step as string) || "agent"}`;
     case "message_received":
       return "Processing message";
     case "result_ready":
@@ -49,8 +62,7 @@ interface ActivityStreamProps {
 }
 
 export function ActivityStream({ events, isStreaming, runId, runStatus, runSummary }: ActivityStreamProps) {
-  const navigate = useNavigate();
-  const [expanded, setExpanded] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
 
   const activities = events
     .map((e) => ({ label: activityLabel(e), icon: activityIcon(e), event: e }))
@@ -61,8 +73,8 @@ export function ActivityStream({ events, isStreaming, runId, runStatus, runSumma
   const latestActivity = activities[activities.length - 1];
   const isComplete = !isStreaming && runStatus && runStatus !== "running" && runStatus !== "pending";
 
-  // Collapsed summary view (after completion)
-  if (isComplete && !expanded) {
+  // Collapsed summary view (after completion, user manually collapsed)
+  if (isComplete && collapsed) {
     return (
       <div className="flex items-start gap-3 animate-fade-in py-1">
         <div className="flex-shrink-0 h-6 w-6 rounded-lg bg-success/15 text-success flex items-center justify-center mt-0.5">
@@ -73,18 +85,9 @@ export function ActivityStream({ events, isStreaming, runId, runStatus, runSumma
             <span className="text-xs text-muted-foreground">
               ✓ {runSummary || "Task completed"}
             </span>
-            {runId && (
-              <button
-                onClick={() => navigate(`/runs/${runId}`)}
-                className="inline-flex items-center gap-1 text-[10px] font-mono text-primary/70 hover:text-primary transition-colors"
-              >
-                <ExternalLink className="h-2.5 w-2.5" />
-                Run {runId}
-              </button>
-            )}
           </div>
           <button
-            onClick={() => setExpanded(true)}
+            onClick={() => setCollapsed(false)}
             className="flex items-center gap-1 text-[10px] text-muted-foreground/60 hover:text-muted-foreground mt-0.5 transition-colors"
           >
             <ChevronRight className="h-2.5 w-2.5" />
@@ -110,15 +113,6 @@ export function ActivityStream({ events, isStreaming, runId, runStatus, runSumma
           {isStreaming ? "Executing" : "Execution complete"}
         </span>
         {runStatus && <RunStatusBadge status={runStatus} />}
-        {runId && (
-          <button
-            onClick={() => navigate(`/runs/${runId}`)}
-            className="inline-flex items-center gap-1 text-[10px] font-mono text-primary/70 hover:text-primary transition-colors ml-auto"
-          >
-            <ExternalLink className="h-2.5 w-2.5" />
-            Run {runId}
-          </button>
-        )}
       </div>
 
       {/* Activity items */}
@@ -143,10 +137,10 @@ export function ActivityStream({ events, isStreaming, runId, runStatus, runSumma
         })}
       </div>
 
-      {/* Collapse button when expanded after completion */}
-      {isComplete && expanded && (
+      {/* Collapse button when open after completion */}
+      {isComplete && !collapsed && (
         <button
-          onClick={() => setExpanded(false)}
+          onClick={() => setCollapsed(true)}
           className="flex items-center gap-1 text-[10px] text-muted-foreground/60 hover:text-muted-foreground mt-1 ml-1.5 transition-colors"
         >
           <ChevronDown className="h-2.5 w-2.5" />

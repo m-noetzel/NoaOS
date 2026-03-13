@@ -118,12 +118,50 @@
 | W20-M2 | Medium | noa-api Dockerfile Missing HEALTHCHECK Directive | **Resolved** | Wave20-cleanup |
 | W20-MED-3 | Medium | Web-CI E2E step has continue-on-error: true (failures non-blocking) | **Resolved** | QE3 |
 | W20-MED-4 | Medium | NotImplementedError stubs in tools.py and mcp_adapter.py lack clear intent docs | **Resolved** | QE3 |
+| | | **── P0: Domain Isolation (Core Architecture) ──** | | |
+| BE-C3 | Critical | Domain switch does not isolate data — chats, threads, and other state carry over between private and external domains | Open | — |
+| BE-H8 | High | Memory tool visible in external domain despite privacy_mode=private — domain isolation violated | Open | — |
+| BE-H11 | High | OpenAI selectable as provider in private domain — external-only providers must be hidden when in private mode | Open | — |
+| | | **── P1: Broken Core Features ──** | | |
+| BE-H7 | High | Approved memory facts not persisted — Memory page shows 0 facts after approving a memory | Open | — |
+| BE-H10 | High | Private memory tool broken — health "Unconfigured", remember/recall functions disabled, switching to private mode doesn't fix it | Open | — |
+| BE-H6 | High | Memory facts lost on API restart — /data volume not mounted on noa-api container | Open | — |
+| BE-H9 | High | No memory store for external domain — agent has no long-term memory when running in external mode | Open | — |
+| BE-H12 | High | Logout not fully clearing session — user sometimes still logged in after restart despite logging out | Open | — |
 | W21-H1 | High | DELETE /threads returns 500 -- usage_stats FK missing ondelete CASCADE/SET NULL | Open | — |
+| UX-H1 | High | SSE connection fails on calendar tool calls (e.g. create event) | Open | — |
+| UX-H6 | High | Notion connected but agent can't read anything | Open | — |
+| UX-H7 | High | Cost dashboard values don't match — daily and monthly show identical $0.08 despite different token counts | Open | — |
+| iOS-H5 | High | Noa iOS app not connected to backend — cannot communicate with the API | Open | — |
 | W21-H2 | High | Backup container crash-looping -- setpgid permission denied from DE3 hardening | Open | — |
+| | | **── P2: Chat Experience ──** | | |
+| UX-H9 | High | User message not shown immediately after sending — hidden until agent finishes responding | Open | — |
+| UX-H10 | High | No visible agent activity stream — tool selection, execution steps, and reasoning not shown during processing | Open | — |
+| UX-H5 | High | Tool call details in chat don't show exact data (e.g. Tavily results missing) | Open | — |
+| UX-M3 | Medium | No rename option for thread names in sidebar — user cannot edit thread titles | Open | — |
+| UX-H2 | High | Send button disabled when text field is empty — should always be enabled | Open | — |
+| | | **── P3: Cost & Governance ──** | | |
+| UX-H8 | High | No settings UI for per-provider pricing — only default model priced, other providers show no cost | Open | — |
+| UX-H11 | High | Budget limits from Settings not displayed on Cost dashboard — no progress bar, threshold, or warning against configured limits | Open | — |
+| UX-M1 | Medium | Costs not shown anywhere in the UI (runs, chat, dashboard) | Open | — |
+| UX-M7 | Medium | Cost dashboard missing breakdown by process (run/task) and by tool — only shows model and provider | Open | — |
+| UX-H4 | High | Runs page nearly empty — tool calls, costs, and details not displayed | Open | — |
+| UX-M4 | Medium | No settings for agent execution limits — missing max tool calls per task, max retries, timeout, and other governance parameters | Open | — |
+| | | **── P4: Tools Management ──** | | |
+| UX-M8 | Medium | Tools page needs "All / Usable" toggle to switch between showing all tools vs only currently available ones | Open | — |
+| UX-M9 | Medium | Tools page missing search/filter function | Open | — |
+| UX-M10 | Medium | No setting to enable/disable specific tools per process scope (email writing, research, scheduling, etc.) | Open | — |
+| | | **── P5: Missing Pages & Features ──** | | |
+| UX-M2 | Medium | No "human-in-the-loop" / approvals toggle in Settings UI | Open | — |
+| UX-M5 | Medium | Artifacts page completely empty — no artifacts displayed even after agent runs | Open | — |
+| UX-M6 | Medium | Queue page completely empty — no queued tasks shown | Open | — |
+| UX-H3 | High | System prompt not stored in repo `prompts/` dir; no save button in UI | Open | — |
+| | | **── P6: Low / DevOps ──** | | |
 | W21-M1 | Medium | /docs and /openapi.json exposed unconditionally (no env gating) | Open | — |
 | W21-M2 | Medium | traceability.py --check overwrites manual TRACEABILITY.md sections | Open | — |
+| UX-L1 | Low | Noa logo/icon in top-left squeezes awkwardly when sidebar toggles — should maintain fixed size | Open | — |
 
-**Open:** 4 | **Partially Resolved:** 0 | **Resolved:** 112 | **Total:** 116
+**Open:** 38 | **Partially Resolved:** 0 | **Resolved:** 112 | **Total:** 150
 
 ---
 
@@ -1076,4 +1114,59 @@ Historical issues encountered during pipeline execution (formerly `Plan/ISSUES.m
 | L11 | Low | No LangSmith/diagnostics page | Open | Feature request |
 | L12 | Low | No user management page | Open | Feature request |
 | L13 | Low | Costs not showing despite runs | Partially resolved | Runs now persist; cost recording needs UsageStats schema fix |
+
+## 10. User E2E Testing Findings — UX Session (2026-03-12)
+
+### UX-H1: SSE Connection Fails on Calendar Tool Calls
+**Severity:** High
+**Status:** Open
+**Description:** When the user asks Noa to create a calendar entry, the SSE connection fails. The runner yields all events after `graph.ainvoke()` completes (tool_called, tool_result, result_ready), so if the graph invocation throws during a calendar tool call, only a generic "An error occurred" is returned. Root cause likely: calendar tool execution fails (missing Google credentials/tokens, or OAuth flow not completed), and the error is swallowed by the generic exception handler in `runner.py:222-252`. Need to check Docker logs during a calendar request for the actual error.
+
+### UX-H2: Send Button Disabled When Text Field Empty
+**Severity:** High
+**Status:** Open
+**Description:** The send button in `Chat.tsx:493-494` has `disabled={!input.trim() || isStreaming}`. The user wants the send button always enabled (or at minimum, not disabled when there's no text). This prevents sending empty messages to trigger the agent for follow-ups or just interacting with the system prompt.
+**File:** `web/src/pages/Chat.tsx:494`
+
+### UX-H3: System Prompt Not File-Backed; No Save Button in UI
+**Severity:** High
+**Status:** Open
+**Description:** The system prompt is stored in the DB (`user_settings.system_prompt`) and editable in the chat advanced settings panel. But: (1) There's no `prompts/` directory in the repo for version-controlled prompt templates, (2) The system prompt textarea auto-saves on blur but has no explicit "Save" button, making it unclear whether changes are persisted, (3) The default system prompt is hardcoded in `runner.py:255-307` rather than loaded from a file.
+**Files:** `src/noa/orchestrator/runner.py:255-307`, `web/src/pages/Chat.tsx:446-463`
+
+### UX-H4: Runs Page Nearly Empty
+**Severity:** High
+**Status:** Open
+**Description:** The Runs page shows runs but with minimal data. Root causes: (1) Tool call events (tool_called, tool_result) are emitted AFTER `graph.ainvoke()` returns, not during streaming — so they're batch-emitted, not real-time. (2) The `run_events` table stores events but the Runs detail page doesn't fetch/display them. (3) `_persist_messages()` and `_record_usage()` are best-effort post-stream operations in `chat.py:168-174` — if they fail silently, runs have no associated messages or usage data.
+**Files:** `src/noa/orchestrator/runner.py:174-190`, `src/noa/api/v1/chat.py:168-174`
+
+### UX-H5: Tool Call Details Don't Show Exact Data (Tavily)
+**Severity:** High
+**Status:** Open
+**Description:** The `ExecutionDetails` component (`web/src/components/chat/ExecutionDetails.tsx`) pairs tool_called with tool_result events by `tool_name`. But the SSE events from the runner emit `tool_call` (nested object) and `tool_result` (nested object) in the payload — the frontend expects `evt.data.tool_name` and `evt.data.args` at the top level, but the runner wraps them as `payload.tool_call` and `payload.tool_result`. This means the UI shows tool names but no arguments or results. The Tavily search results are inside the nested object but the UI can't extract them.
+**Files:** `web/src/components/chat/ExecutionDetails.tsx:29-44`, `src/noa/orchestrator/runner.py:174-190`
+
+### UX-H6: Notion Connected But Agent Can't Read
+**Severity:** High
+**Status:** Open
+**Description:** Notion token is configured (`NOTION_TOKEN` env var) and the tool registers at startup. However, the agent may fail to use it because: (1) The tool is registered in the gateway but the user may not have the `notion.read` capability granted in `tool_capabilities` table, (2) The Notion integration may not have access to the specific pages (Notion integrations must be explicitly shared with pages), (3) The `NotionClient` sends requests to `https://api.notion.com/v1` but errors may be swallowed by the gateway's generic error handling. Need to test with a health check and inspect actual API response.
+**Files:** `src/noa/tools/notion.py`, `src/noa/tools/registration.py`, `src/noa/tools/capabilities.py`
+
+### UX-M1: Costs Not Shown in UI
+**Severity:** Medium
+**Status:** Open
+**Description:** The Runs list endpoint (`GET /api/v1/runs`) aggregates `usage_stats` rows for cost_usd, tokens_in, tokens_out. But `_record_usage()` in `chat.py` is best-effort and may fail silently, leaving `usage_stats` empty. The frontend Runs page and Chat page don't display cost data even when available. No cost column in the runs table, no per-message cost indicator.
+**Files:** `src/noa/api/v1/chat.py` (usage recording), `web/src/pages/Runs.tsx` (display)
+
+### UX-M2: No Approvals / Human-in-the-Loop Toggle in Settings
+**Severity:** Medium
+**Status:** Open
+**Description:** The approvals system exists in the backend (approval rules, pending approvals, step-up auth) but there's no UI toggle in Settings to enable/disable "human-in-the-loop" mode. Users cannot configure which tool actions require approval before execution. The Settings page (`web/src/pages/Settings.tsx`) shows model defaults, budget, credentials, and Google auth — but no approvals/governance section.
+**Files:** `web/src/pages/Settings.tsx`, `src/noa/policy/engine.py`
+
+### BE-H6: Memory Facts Lost on API Container Restart
+**Severity:** High
+**Status:** Open
+**Description:** The `noa-api` container's `MemoryStore` (imported from `private_worker.handlers`) is initialized with `data_dir=Path("/data/memory")`, but the `private-data` Docker volume is only mounted on `private-worker` and `backup` containers — not on `noa-api`. This means `/data/memory/` doesn't exist in the API container. Facts are held in-memory only and silently lost on every container restart. The `_persist()` method logs a warning but the API continues as if persistence succeeded. Observed: user approved a memory fact, API restarted ("Up 10 minutes" vs other containers "Up About an hour"), fact disappeared. Fix: either mount `private-data:/data` on `noa-api`, or move memory fact management to the `private-worker` (which already has the volume) and have the API proxy to it.
+**Files:** `docker-compose.yml`, `src/noa/private_worker/handlers.py:21`, `src/noa/api/app.py:295-298`, `src/noa/private_worker/memory_store.py:221-230`
 

@@ -53,12 +53,16 @@ function buildGraph(events: RunEvent[]): GraphNode | null {
   const errorEvent = events.find((e) => e.type === "error");
 
   const toolNodes: GraphNode[] = toolCalledEvents.map((tc) => {
-    const matchingResult = toolResultEvents.find(
-      (tr) => (tr.data.tool_name as string) === (tc.data.tool_name as string)
-    );
+    const tcInner = (tc.data.tool_call as Record<string, unknown>) || tc.data;
+    const toolName = (tcInner.name as string) || (tc.data.tool_name as string) || "tool";
+    const matchingResult = toolResultEvents.find((tr) => {
+      const trInner = (tr.data.tool_result as Record<string, unknown>) || tr.data;
+      const trName = (trInner.name as string) || (tr.data.tool_name as string);
+      return trName === toolName;
+    });
     return {
       id: tc.id,
-      label: tc.data.tool_name as string,
+      label: toolName,
       type: "tool" as const,
       event: tc,
       resultEvent: matchingResult,
@@ -136,7 +140,9 @@ function buildGraph(events: RunEvent[]): GraphNode | null {
 
   const root: GraphNode = {
     id: "root",
-    label: messageEvent ? (messageEvent.data.text as string)?.slice(0, 50) + "…" : "User Message",
+    label: messageEvent
+      ? ((messageEvent.data.message as string) || (messageEvent.data.text as string) || "User Message").slice(0, 50) + (((messageEvent.data.message as string) || "").length > 50 ? "..." : "")
+      : "User Message",
     type: "message",
     event: messageEvent || events[0],
     children: [plannerNode],

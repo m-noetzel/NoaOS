@@ -15,6 +15,12 @@ _LOW_ACTIONS = frozenset(
         "local_summarization",
         "draft_generation",
         "read_only_query",
+        # Actual function names from TOOL_SCHEMAS
+        "list_events",
+        "search_emails",
+        "search_pages",
+        "read_page",
+        "draft_email",
     ]
 )
 
@@ -27,6 +33,9 @@ _MEDIUM_ACTIONS = frozenset(
         "update_notion_page",
         "memory_store",
         "repo_modification",
+        # Actual function names from TOOL_SCHEMAS
+        "create_event",
+        "create_page",
     ]
 )
 

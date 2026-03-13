@@ -134,8 +134,12 @@ async def submit_chat(
             user_id, thread_id, run_id, privacy_mode, body.message,
         )
 
+        # Load conversation history for multi-turn context
+        history = await _load_thread_history(thread_id, user_id)
+
         llm_usage: list[dict[str, Any]] = []
         response_text = ""
+        collected_events: list[dict[str, Any]] = []
 
         try:
             async for event in runner.run(
@@ -146,14 +150,30 @@ async def submit_chat(
                 model=body.model,
                 provider=body.provider,
                 system_prompt=body.system_prompt,
+                temperature=body.temperature,
+                max_tokens=body.max_tokens,
                 user_id=user_id,
                 trace_id=rid,
+                history=history,
             ):
+                # Collect events for bulk persistence after stream ends
+                collected_events.append(event)
+
                 # Capture response and llm_usage from result_ready for persistence
                 if event.get("event_type") == "result_ready":
                     payload = event.get("payload", {})
                     llm_usage = payload.get("llm_usage", [])
                     response_text = payload.get("response", "")
+
+                # Persist approval requests to DB so Approvals page shows them
+                if event.get("event_type") == "approval_requested":
+                    approval_id = await _create_approval(
+                        user_id, run_id, event.get("payload", {}),
+                    )
+                    # Inject approval_id into the SSE event payload
+                    if approval_id:
+                        event.setdefault("payload", {})["approval_id"] = approval_id
+
                 yield f"data: {json.dumps(event)}\n\n"
         except Exception as exc:  # noqa: BLE001
             logger.error("Chat stream error: %s", str(exc), extra=log_ctx)
@@ -161,14 +181,17 @@ async def submit_chat(
                 "event_type": "error",
                 "payload": {"error": "An error occurred processing your request."},
             }
+            collected_events.append(err_event)
             yield f"data: {json.dumps(err_event)}\n\n"
 
-        # Persist messages, usage, and run status to DB (best-effort)
+        # Persist messages, usage, events, and run status to DB (best-effort)
         await _persist_messages(user_id, thread_id, run_id, body.message, response_text)
         if llm_usage:
             await _record_usage(user_id, run_id, llm_usage)
+        await _persist_run_events(run_id, collected_events)
         await _update_run_status(
             run_id, "completed" if response_text else "failed",
+            summary=response_text[:200].strip() if response_text else None,
         )
 
     return StreamingResponse(
@@ -244,6 +267,46 @@ class _NoOpRunService:
         pass
 
 
+async def _load_thread_history(
+    thread_id: str,
+    user_id: str,
+) -> list[dict[str, Any]]:
+    """Load prior messages from the thread for conversation context.
+
+    Returns a list of {role, content} dicts ordered by timestamp.
+    Limited to the most recent 20 messages to avoid token overflow.
+    """
+    factory = _get_session_factory()
+    if factory is None:
+        return []
+
+    try:
+        from sqlalchemy import select
+
+        from noa.db.models.conversation import Message
+
+        tid = uuid.UUID(thread_id)
+        uid = uuid.UUID(user_id)
+
+        async with factory() as session:
+            result = await session.execute(
+                select(Message)
+                .where(Message.thread_id == tid, Message.user_id == uid)
+                .order_by(Message.timestamp.desc())
+                .limit(20)
+            )
+            rows = result.scalars().all()
+            # Reverse to chronological order
+            return [
+                {"role": m.role, "content": m.content}
+                for m in reversed(rows)
+                if m.role in ("user", "assistant") and m.content
+            ]
+    except Exception:  # noqa: BLE001
+        logger.warning("Failed to load thread history for %s", thread_id)
+        return []
+
+
 async def _persist_messages(
     user_id: str,
     thread_id: str,
@@ -273,10 +336,14 @@ async def _persist_messages(
             result = await session.execute(
                 select(Conversation).where(Conversation.id == tid)
             )
-            if result.scalar_one_or_none() is None:
+            conv = result.scalar_one_or_none()
+            if conv is None:
                 # Derive title from first ~50 chars of user message
                 title = user_message[:50].strip() or "New thread"
                 session.add(Conversation(id=tid, user_id=uid, title=title))
+            elif conv.title in ("New Thread", "New thread", ""):
+                # Update placeholder title with first real message
+                conv.title = user_message[:50].strip() or conv.title
 
             # User message
             session.add(Message(
@@ -299,7 +366,9 @@ async def _persist_messages(
         logger.warning("Failed to persist messages for run %s", run_id, exc_info=True)
 
 
-async def _update_run_status(run_id: str, status: str) -> None:
+async def _update_run_status(
+    run_id: str, status: str, *, summary: str | None = None,
+) -> None:
     """Update run status via RunService (best-effort).
 
     BE-H5: Routes through RunService to enforce state machine transitions
@@ -310,12 +379,23 @@ async def _update_run_status(run_id: str, status: str) -> None:
         return
 
     try:
+        from sqlalchemy import select
+
+        from noa.db.models.run import Run
         from noa.db.transaction import transactional
         from noa.runs.service import RunService
 
         async with factory() as session, transactional(session):
             svc = RunService(session=session)
             await svc.update_status(uuid.UUID(run_id), status)
+            # Set summary if provided
+            if summary:
+                result = await session.execute(
+                    select(Run).where(Run.id == uuid.UUID(run_id))
+                )
+                run = result.scalar_one_or_none()
+                if run is not None:
+                    run.summary = summary
     except ValueError:
         # Invalid transition (run may already be in terminal state) — ignore
         logger.debug(
@@ -354,3 +434,87 @@ async def _record_usage(
                 session.add(row)
     except Exception:  # noqa: BLE001
         logger.warning("Failed to persist usage stats for run %s", run_id)
+
+
+async def _persist_run_events(
+    run_id: str,
+    events: list[dict[str, Any]],
+) -> None:
+    """Bulk-persist collected run events to the run_events table (best-effort)."""
+    factory = _get_session_factory()
+    if factory is None or not events:
+        return
+
+    try:
+        from datetime import UTC, datetime
+
+        from noa.db.models.run import RunEvent
+        from noa.db.transaction import transactional
+        from noa.runs.schemas import VALID_EVENT_TYPES
+
+        async with factory() as session, transactional(session):
+            for evt in events:
+                event_type = evt.get("event_type", "")
+                if event_type not in VALID_EVENT_TYPES:
+                    continue
+                payload = evt.get("payload", {})
+                ts_str = evt.get("timestamp")
+                ts = (
+                    datetime.fromisoformat(ts_str)
+                    if ts_str
+                    else datetime.now(UTC)
+                )
+                session.add(RunEvent(
+                    id=uuid.uuid4(),
+                    run_id=uuid.UUID(run_id),
+                    event_type=event_type,
+                    timestamp=ts,
+                    payload=payload,
+                ))
+    except Exception:  # noqa: BLE001
+        logger.warning("Failed to persist run events for run %s", run_id, exc_info=True)
+
+
+async def _create_approval(
+    user_id: str,
+    run_id: str,
+    payload: dict[str, Any],
+) -> str | None:
+    """Create a pending Approval row in the DB (best-effort).
+
+    Returns the approval_id string, or None on failure.
+    """
+    factory = _get_session_factory()
+    if factory is None:
+        return None
+
+    try:
+        from noa.db.models.approval import Approval
+        from noa.db.transaction import transactional
+
+        tool = payload.get("tool", "")
+        function = payload.get("function", "")
+        args = payload.get("args", {})
+        risk_tier = payload.get("risk_tier", "medium")
+
+        # Build preview text with tool info
+        preview = f"{tool}.{function}"
+        if args:
+            preview += f"\n{json.dumps(args, indent=2, default=str)}"
+
+        approval_id = uuid.uuid4()
+        async with factory() as session, transactional(session):
+            session.add(Approval(
+                id=approval_id,
+                run_id=uuid.UUID(run_id),
+                user_id=uuid.UUID(user_id),
+                risk_tier=risk_tier,
+                preview_text=preview,
+                decision="pending",
+                domain="external",
+            ))
+        logger.info("Created approval %s for run %s", approval_id, run_id)
+        return str(approval_id)
+    except Exception:  # noqa: BLE001
+        logger.warning("Failed to create approval for run %s", run_id, exc_info=True)
+        return None

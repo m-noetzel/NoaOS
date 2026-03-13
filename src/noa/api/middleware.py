@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from contextvars import ContextVar
 from typing import Any
@@ -13,6 +14,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from noa.api.schemas.common import error_envelope
+
+logger = logging.getLogger(__name__)
 
 # Context var to carry trace_id through the request lifecycle
 trace_id_ctx: ContextVar[str] = ContextVar("trace_id", default="")
@@ -99,11 +102,15 @@ def register_error_handlers(app: FastAPI) -> None:
         request: Request, exc: Exception
     ) -> JSONResponse:
         rid = trace_id_ctx.get("")
+        logger.exception(
+            "Unhandled exception on %s %s [%s]",
+            request.method, request.url.path, rid,
+        )
         return JSONResponse(
             status_code=500,
             content=error_envelope(
                 code="INTERNAL_ERROR",
-                message="An internal error occurred",
+                message=f"An internal error occurred: {type(exc).__name__}: {exc}",
                 trace_id=rid,
             ),
             headers={"X-Trace-ID": rid},

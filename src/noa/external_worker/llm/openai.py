@@ -40,7 +40,7 @@ class OpenAIClient:
         """Build a request payload for the OpenAI Chat Completions API."""
         request: dict[str, Any] = {
             "model": self._model,
-            "messages": messages,
+            "messages": self._normalize_messages(messages),
             "max_tokens": max_tokens,
         }
         if top_p is not None:
@@ -48,6 +48,45 @@ class OpenAIClient:
         if tools:
             request["tools"] = tools
         return request
+
+    @staticmethod
+    def _normalize_messages(
+        messages: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Re-format internal messages to OpenAI Chat Completions format.
+
+        Converts internal tool_calls ({id, name, input}) back to OpenAI
+        format ({id, type, function: {name, arguments}}).
+        """
+        normalized: list[dict[str, Any]] = []
+        for msg in messages:
+            if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                oai_tool_calls = []
+                for tc in msg["tool_calls"]:
+                    if "function" in tc and "type" in tc:
+                        # Already in OpenAI format
+                        oai_tool_calls.append(tc)
+                    else:
+                        # Internal format → OpenAI format
+                        args = tc.get("input") or tc.get("arguments") or {}
+                        oai_tool_calls.append({
+                            "id": tc.get("id", ""),
+                            "type": "function",
+                            "function": {
+                                "name": tc.get("name", ""),
+                                "arguments": json.dumps(args) if isinstance(args, dict) else str(args),
+                            },
+                        })
+                normalized.append({
+                    **msg,
+                    "tool_calls": oai_tool_calls,
+                    # OpenAI requires content to be null (not empty string)
+                    # when there are tool_calls
+                    "content": msg.get("content") or None,
+                })
+            else:
+                normalized.append(msg)
+        return normalized
 
     async def _send_request(self, request: dict[str, Any]) -> httpx.Response:
         """Send a request to the OpenAI API with retry on 429."""

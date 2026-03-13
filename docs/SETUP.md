@@ -48,17 +48,17 @@ Noa reads credentials from your macOS Keychain at startup. **No secrets in files
 
 ```bash
 # LLM Providers (at least one required)
-./scripts/keychain_store.sh ANTHROPIC_API_KEY "sk-ant-your-key-here"
-./scripts/keychain_store.sh OPENAI_API_KEY "sk-your-key-here"
-./scripts/keychain_store.sh GOOGLE_AI_API_KEY "AIza-your-key-here"
+./tools/keychain_store.sh set ANTHROPIC_API_KEY "sk-ant-your-key-here"
+./tools/keychain_store.sh set OPENAI_API_KEY "sk-your-key-here"
+./tools/keychain_store.sh set GOOGLE_AI_API_KEY "AIza-your-key-here"
 
 # Tool Credentials (optional)
-./scripts/keychain_store.sh TAVILY_API_KEY "tvly-your-key-here"
-./scripts/keychain_store.sh NOTION_TOKEN "ntn_your-token-here"
+./tools/keychain_store.sh set TAVILY_API_KEY "tvly-your-key-here"
+./tools/keychain_store.sh set NOTION_TOKEN "ntn_your-token-here"
 
 # System Secrets (generated automatically if not set)
-./scripts/keychain_store.sh SECRET_KEY "$(openssl rand -hex 32)"
-./scripts/keychain_store.sh POSTGRES_PASSWORD "$(openssl rand -hex 16)"
+./tools/keychain_store.sh set SECRET_KEY "$(openssl rand -hex 32)"
+./tools/keychain_store.sh set POSTGRES_PASSWORD "$(openssl rand -hex 16)"
 ```
 
 ### Verify stored keys:
@@ -80,7 +80,7 @@ security delete-generic-password -a noa -s "noa/ANTHROPIC_API_KEY"
 
 ```bash
 # Bootstrap: reads Keychain, starts Docker containers with injected secrets
-./scripts/keychain_bootstrap.sh
+./tools/keychain_bootstrap.sh
 
 # Run database migrations
 make migrate
@@ -140,8 +140,8 @@ This requires a Google Cloud project with OAuth2 credentials.
 ### Step 4: Store in Keychain
 
 ```bash
-./scripts/keychain_store.sh GOOGLE_CLIENT_ID "your-client-id.apps.googleusercontent.com"
-./scripts/keychain_store.sh GOOGLE_CLIENT_SECRET "GOCSPX-your-secret"
+./tools/keychain_store.sh set GOOGLE_CLIENT_ID "your-client-id.apps.googleusercontent.com"
+./tools/keychain_store.sh set GOOGLE_CLIENT_SECRET "GOCSPX-your-secret"
 ```
 
 ### Step 5: Authorize in Noa
@@ -161,10 +161,10 @@ This requires a Google Cloud project with OAuth2 credentials.
 4. Copy the Internal Integration Token
 5. Store it:
    ```bash
-   ./scripts/keychain_store.sh NOTION_TOKEN "ntn_your-token"
+   ./tools/keychain_store.sh set NOTION_TOKEN "ntn_your-token"
    ```
 6. In Notion: share the pages/databases you want Noa to access with the integration
-7. Restart Noa: `./scripts/keychain_bootstrap.sh`
+7. Restart Noa: `./tools/keychain_bootstrap.sh`
 
 ---
 
@@ -182,8 +182,8 @@ ollama pull llama3.1       # 8B, good general purpose
 ollama pull qwen2.5:7b     # alternative
 
 # Store config
-./scripts/keychain_store.sh DEFAULT_LLM_PROVIDER "ollama"
-./scripts/keychain_store.sh DEFAULT_LLM_MODEL "llama3.1"
+./tools/keychain_store.sh set DEFAULT_LLM_PROVIDER "ollama"
+./tools/keychain_store.sh set DEFAULT_LLM_MODEL "llama3.1"
 ```
 
 > **Note:** Ollama models run in the **private domain** only. They are used for memory/RAG tasks and private conversations. External tool calls still use cloud LLMs if configured.
@@ -196,26 +196,26 @@ Set your default provider and model:
 
 ```bash
 # Option A: Anthropic (recommended)
-./scripts/keychain_store.sh DEFAULT_LLM_PROVIDER "anthropic"
-./scripts/keychain_store.sh DEFAULT_LLM_MODEL "claude-sonnet-4-20250514"
+./tools/keychain_store.sh set DEFAULT_LLM_PROVIDER "anthropic"
+./tools/keychain_store.sh set DEFAULT_LLM_MODEL "claude-sonnet-4-20250514"
 
 # Option B: OpenAI
-./scripts/keychain_store.sh DEFAULT_LLM_PROVIDER "openai"
-./scripts/keychain_store.sh DEFAULT_LLM_MODEL "gpt-4.1-mini"
+./tools/keychain_store.sh set DEFAULT_LLM_PROVIDER "openai"
+./tools/keychain_store.sh set DEFAULT_LLM_MODEL "gpt-4.1-mini"
 
 # Option C: Google
-./scripts/keychain_store.sh DEFAULT_LLM_PROVIDER "google"
-./scripts/keychain_store.sh DEFAULT_LLM_MODEL "gemini-2.5-flash"
+./tools/keychain_store.sh set DEFAULT_LLM_PROVIDER "google"
+./tools/keychain_store.sh set DEFAULT_LLM_MODEL "gemini-2.5-flash"
 
 # Option D: Ollama (fully local)
-./scripts/keychain_store.sh DEFAULT_LLM_PROVIDER "ollama"
-./scripts/keychain_store.sh DEFAULT_LLM_MODEL "llama3.1"
+./tools/keychain_store.sh set DEFAULT_LLM_PROVIDER "ollama"
+./tools/keychain_store.sh set DEFAULT_LLM_MODEL "llama3.1"
 ```
 
 You can change the provider at any time. Restart after changing:
 
 ```bash
-./scripts/keychain_bootstrap.sh
+./tools/keychain_bootstrap.sh
 ```
 
 ---
@@ -245,7 +245,7 @@ make check   # ruff + mypy + pytest
 ### Start Noa
 ```bash
 cd ~/Projects/NoaOS
-./scripts/keychain_bootstrap.sh     # starts backend
+./tools/keychain_bootstrap.sh     # starts backend
 cd web && npm run dev               # starts frontend (dev mode)
 ```
 
@@ -265,7 +265,7 @@ docker compose logs -f external-worker  # External worker logs
 ```bash
 git pull
 make migrate                            # apply any new DB migrations
-./scripts/keychain_bootstrap.sh         # restart with latest
+./tools/keychain_bootstrap.sh         # restart with latest
 cd web && npm install && npm run dev    # rebuild frontend
 ```
 

@@ -27,6 +27,7 @@ def register_tools(gateway: ToolGateway) -> None:
     _register_web_search(gateway)
     _register_google_tools(gateway)
     _register_notion(gateway)
+    _register_memory(gateway)
 
 
 def _register_web_search(gateway: ToolGateway) -> None:
@@ -247,6 +248,30 @@ def _register_notion(gateway: ToolGateway) -> None:
     adapter = DirectApiAdapter(tool=tool)
     gateway.register("notion", adapter)
     logger.info("Registered notion tool (Notion API v1)")
+
+
+def _register_memory(gateway: ToolGateway) -> None:
+    """Register the memory tool (remember/recall facts).
+
+    Uses in-process handler dispatch — no network RPC needed
+    since the private worker MemoryStore runs in the same process.
+    """
+    from noa.private_worker.handlers import get_handler
+    from noa.tools.memory import MemoryTool
+
+    async def _local_rpc(request: dict) -> dict:  # type: ignore[type-arg]
+        """In-process RPC shim that calls the handler directly."""
+        task_type = request.get("task_type", "")
+        handler = get_handler(task_type)
+        if handler is None:
+            return {"status": "error", "error": f"Unknown task type: {task_type}"}
+        result = await handler(request.get("payload", {}))
+        return {"status": "ok", "result": result}
+
+    tool = MemoryTool(rpc_client=_local_rpc)
+    adapter = DirectApiAdapter(tool=tool)
+    gateway.register("memory", adapter)
+    logger.info("Registered memory tool (in-process MemoryStore)")
 
 
 def register_mcp_server(

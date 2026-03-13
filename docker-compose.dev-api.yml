@@ -1,0 +1,11 @@
+# Dev-mode override: publish noa-api port 8000 to localhost so the Vite
+# dev server proxy (running on the host) can reach the backend directly.
+#
+# Usage (via `noa dev`):
+#   docker compose -f docker-compose.yml -f docker-compose.dev-api.yml up -d
+#
+# NOT used in production — Caddy (ports 80/443) is the only entry point there.
+services:
+  noa-api:
+    ports:
+      - "127.0.0.1:8000:8000"

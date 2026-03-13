@@ -42,8 +42,11 @@ class OrchestratorRunner:
         model: str | None = None,
         provider: str | None = None,
         system_prompt: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
         user_id: str | None = None,
         trace_id: str | None = None,
+        history: list[dict[str, Any]] | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Execute the graph and yield structured events.
 
@@ -112,11 +115,6 @@ class OrchestratorRunner:
 
         # 5. Invoke graph
         try:
-            messages: list[dict[str, Any]] = []
-            if system_prompt:
-                messages.append({"role": "system", "content": system_prompt})
-            messages.append({"role": "user", "content": message})
-
             # Resolve available tools from gateway
             from noa.orchestrator.nodes.tools import get_gateway
             gw = get_gateway()
@@ -125,6 +123,24 @@ class OrchestratorRunner:
                 avail_tools = [
                     {"name": t} for t in gw.list_tools()
                 ]
+
+            messages: list[dict[str, Any]] = []
+            # Build system prompt: user-provided or default
+            sp = system_prompt or self._build_system_prompt(
+                avail_tools,
+            )
+            if sp:
+                messages.append({"role": "system", "content": sp})
+
+            # Include conversation history for multi-turn context
+            if history:
+                for h in history:
+                    role = h.get("role", "user")
+                    content = h.get("content", "")
+                    if role in ("user", "assistant") and content:
+                        messages.append({"role": role, "content": content})
+
+            messages.append({"role": "user", "content": message})
 
             initial_state: dict[str, Any] = {
                 "messages": messages,
@@ -141,6 +157,8 @@ class OrchestratorRunner:
                 "model_config": {},
                 "tool_rounds": 0,
                 "available_tools": avail_tools,
+                "temperature": temperature,
+                "max_tokens": max_tokens or 4096,
             }
 
             # A4: Load checkpoint if available (resume support)
@@ -174,12 +192,26 @@ class OrchestratorRunner:
 
             tool_results = result.get("tool_results", [])
             for tr in tool_results:
-                tr_event = self._make_event(
-                    "tool_result",
-                    {"tool_result": tr},
-                )
-                await self._persist_event(run_service, run_id, tr_event)
-                yield tr_event
+                # Emit approval_requested event for actions needing approval
+                if isinstance(tr, dict) and tr.get("approval_required"):
+                    approval_event = self._make_event(
+                        "approval_requested",
+                        {
+                            "tool": tr.get("tool", ""),
+                            "function": tr.get("function", ""),
+                            "args": tr.get("args", {}),
+                            "risk_tier": tr.get("risk_tier", "medium"),
+                        },
+                    )
+                    await self._persist_event(run_service, run_id, approval_event)
+                    yield approval_event
+                else:
+                    tr_event = self._make_event(
+                        "tool_result",
+                        {"tool_result": tr},
+                    )
+                    await self._persist_event(run_service, run_id, tr_event)
+                    yield tr_event
 
             # 7. result_ready
             response = result.get("response", "")
@@ -242,6 +274,68 @@ class OrchestratorRunner:
                     run_id,
                     extra=log_ctx,
                 )
+
+    @staticmethod
+    def _build_system_prompt(
+        avail_tools: list[dict[str, Any]],
+    ) -> str:
+        """Build default system prompt with tool info."""
+        tool_names = (
+            [t["name"] for t in avail_tools] if avail_tools else []
+        )
+        tools_section = ""
+        if tool_names:
+            descs = {
+                "web_search": (
+                    "Search the web for current information"
+                    " (powered by Tavily)"
+                ),
+                "calendar": (
+                    "List, create, and manage"
+                    " Google Calendar events"
+                ),
+                "gmail": (
+                    "Search, read, send, and draft"
+                    " emails via Gmail"
+                ),
+                "notion": (
+                    "Search, read, and create Notion pages"
+                ),
+                "memory": (
+                    "Remember facts about the user (remember)"
+                    " or recall previously stored facts (recall)."
+                    " Use remember when the user shares preferences,"
+                    " habits, or important personal information."
+                    " Use recall to retrieve stored knowledge"
+                ),
+            }
+            lines = []
+            for name in tool_names:
+                desc = descs.get(name, name)
+                lines.append(f"- {name}: {desc}")
+            tools_section = (
+                "\n\nYou have the following tools available."
+                " Use them proactively when a user's question"
+                " could benefit from external data or"
+                " actions:\n"
+                + "\n".join(lines)
+                + "\n\nWhen a user asks for current"
+                " information (news, weather, facts that"
+                " may have changed), USE the web_search"
+                " tool rather than relying on your training"
+                " data. When a user asks you to use a"
+                " specific service (e.g. 'use Tavily',"
+                " 'search the web'), call the appropriate"
+                " tool."
+            )
+
+        return (
+            "You are Noa, a personal AI assistant."
+            " You are helpful, precise, and concise."
+            " Answer in the same language the user"
+            " writes in."
+            + tools_section
+        )
 
     @staticmethod
     def _make_event(

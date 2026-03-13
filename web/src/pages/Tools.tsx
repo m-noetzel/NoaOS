@@ -42,7 +42,7 @@ export default function Tools() {
   const [expandedTool, setExpandedTool] = useState<string | null>(null);
   const [credentialModal, setCredentialModal] = useState<string | null>(null);
 
-  const { data: toolsRes, isLoading, isError } = useQuery({
+  const { data: toolsRes, isLoading, isError, error } = useQuery({
     queryKey: ["tools"],
     queryFn: () => apiRequest<Tool[]>("/api/v1/tools"),
   });
@@ -84,9 +84,20 @@ export default function Tools() {
 
   const healthCheckMutation = useMutation({
     mutationFn: async (toolName: string) => {
-      return apiRequest(`/api/v1/tools/${toolName}/health`, { method: "POST" });
+      return apiRequest<{ status: string; error?: string | null }>(`/api/v1/tools/${toolName}/health`, { method: "POST" });
     },
-    onSuccess: () => {
+    onSuccess: (result, toolName) => {
+      const health = result?.data;
+      if (health) {
+        const msg = health.status === "healthy"
+          ? `${toolName}: connected`
+          : `${toolName}: ${health.error || "unhealthy"}`;
+        toast({
+          title: health.status === "healthy" ? "Connection OK" : "Connection Failed",
+          description: msg,
+          variant: health.status === "healthy" ? "default" : "destructive",
+        });
+      }
       queryClient.invalidateQueries({ queryKey: ["tools"] });
     },
     onError: (err: Error) => {
@@ -134,7 +145,7 @@ export default function Tools() {
           <h1 className="text-lg font-semibold">Tools</h1>
           <p className="text-sm text-muted-foreground">Registered tool capabilities</p>
         </div>
-        <p className="text-sm text-destructive">Failed to load tools</p>
+        <p className="text-sm text-destructive">Failed to load tools{error instanceof Error ? `: ${error.message}` : ""}</p>
       </div>
     );
   }

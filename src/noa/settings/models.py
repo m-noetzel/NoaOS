@@ -59,6 +59,13 @@ class UserSettings(Base):
         Numeric(10, 2), default=200.0,
     )
 
+    # Chat defaults
+    system_prompt: Mapped[str | None] = mapped_column(String(4096))
+    temperature: Mapped[float | None] = mapped_column(
+        Numeric(3, 2), default=0.7,
+    )
+    max_tokens: Mapped[int | None] = mapped_column(default=4096)
+
     # Tool credentials (SPEC.md §11.1)
     anthropic_api_key: Mapped[str | None] = mapped_column(String(256))
     openai_api_key: Mapped[str | None] = mapped_column(String(256))

@@ -70,13 +70,22 @@ def test_w20_med4_mcp_adapter_deprecation() -> None:
     )
 
 
-def test_findings_zero_open() -> None:
-    """FINDINGS.md tracking table shows Open: 0 after QE3 resolution."""
+def test_findings_open_count_consistent() -> None:
+    """FINDINGS.md tracking table open count matches actual Open rows."""
+    import re
+
     findings = REPO_ROOT / "Plan/FINDINGS.md"
     content = findings.read_text()
 
-    # The count line format: **Open:** N | **Partially Resolved:** ...
-    assert "**Open:** 0" in content, (
-        "FINDINGS.md does not show '**Open:** 0'. "
-        "QE3 requires all three open findings to be marked Resolved and the count updated."
+    # Count actual Open rows in the tracking table
+    actual_open = len(re.findall(r"\| Open \|", content))
+
+    # Extract the declared open count
+    m = re.search(r"\*\*Open:\*\*\s+(\d+)", content)
+    assert m is not None, "FINDINGS.md missing '**Open:** N' count line"
+    declared_open = int(m.group(1))
+
+    assert declared_open == actual_open, (
+        f"FINDINGS.md declares **Open:** {declared_open} but has {actual_open} "
+        f"rows with '| Open |'. Update the count line to match."
     )

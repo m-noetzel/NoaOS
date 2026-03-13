@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 import logging
+import os
 import sys
 import uuid
 from typing import Any
@@ -32,6 +33,28 @@ router = APIRouter(prefix="/api/v1/tools", tags=["tools"])
 # In-memory credential store keyed by (user_id, tool_name).
 # TODO(TM1): replace with vault/Keychain integration before production.
 _credential_store: dict[tuple[str, str], dict[str, str]] = {}
+
+# In-memory health status cache keyed by tool name.
+# Updated by the health check endpoint, read by list_tools.
+_health_cache: dict[str, dict[str, Any]] = {}
+
+# Env-var fallback: keys injected via Keychain at startup.
+# If the user hasn't manually stored credentials, these are used automatically.
+_ENV_CREDENTIAL_DEFAULTS: dict[str, dict[str, str]] = {
+    "web_search": {"api_key": os.environ.get("TAVILY_API_KEY", "")},
+    "notion": {"token": os.environ.get("NOTION_TOKEN", "")},
+    "gmail": {"client_id": os.environ.get("GOOGLE_CLIENT_ID", ""), "client_secret": os.environ.get("GOOGLE_CLIENT_SECRET", "")},
+    "calendar": {"client_id": os.environ.get("GOOGLE_CLIENT_ID", ""), "client_secret": os.environ.get("GOOGLE_CLIENT_SECRET", "")},
+}
+
+
+def _get_credentials(uid: str, name: str) -> dict[str, str]:
+    """Return stored credentials, falling back to env-var defaults."""
+    stored = _credential_store.get((uid, name))
+    if stored:
+        return stored
+    defaults = {k: v for k, v in _ENV_CREDENTIAL_DEFAULTS.get(name, {}).items() if v}
+    return defaults
 
 # ---------------------------------------------------------------------------
 # Dynamic dependency wrappers
@@ -146,23 +169,62 @@ async def list_tools(
 
         # Build per-function metadata
         functions = []
+        any_enabled = False
+        tool_risk_tier = "low"
+        tool_domain = "external"
+        risk_order = {"low": 0, "medium": 1, "high": 2}
         for func_name, func_def in tool_schema["functions"].items():
-            enabled = await checker.has_capability(user_id, name, func_name)
+            try:
+                enabled = await checker.has_capability(user_id, name, func_name)
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "Capability check failed for %s.%s [%s]",
+                    name, func_name, rid,
+                )
+                enabled = False
+            if enabled:
+                any_enabled = True
+            fn_risk = func_def.get("risk_tier", "medium")
+            fn_domain = func_def.get("domain", "external")
+            if risk_order.get(fn_risk, 1) > risk_order.get(tool_risk_tier, 0):
+                tool_risk_tier = fn_risk
+            tool_domain = fn_domain
             functions.append({
                 "name": func_name,
                 "description": func_def["description"],
                 "parameters": func_def["parameters"],
-                "risk_tier": func_def.get("risk_tier", "medium"),
-                "domain": func_def.get("domain", "external"),
+                "risk_tier": fn_risk,
+                "domain": fn_domain,
                 "enabled": enabled,
             })
+
+        # Credential info in the shape the frontend expects
+        uid = _extract_user_id(payload)
+        stored_creds = _get_credentials(uid, name)
+        cred_configured = cred_status == "configured" or bool(stored_creds)
+        first_val = next(iter(stored_creds.values()), None) if stored_creds else None
+        masked_val = mask_credential(first_val) if first_val else None
+
+        # Use cached health status if available
+        cached_health = _health_cache.get(name)
+        health_info = cached_health if cached_health else {
+            "status": "unchecked",
+            "last_checked": None,
+        }
 
         tools.append({
             "name": name,
             "capability": capability,
+            "risk_tier": tool_risk_tier,
+            "enabled": any_enabled,
+            "description": tool_schema.get("description", ""),
+            "domain": tool_domain,
+            "health": health_info,
+            "credentials": {
+                "configured": cred_configured,
+                "masked_value": masked_val,
+            },
             "functions": functions,
-            "credential_status": cred_status,
-            "health": "unchecked",
         })
 
     return success_envelope(data=tools, trace_id=rid)
@@ -317,7 +379,21 @@ async def check_tool_health(
     health_checker = ToolHealthChecker()
     result = await health_checker.check(name)
 
-    return success_envelope(data=result, trace_id=rid)
+    # Cache the health status for list_tools
+    from datetime import UTC, datetime
+    status_label = "healthy" if result["status"] == "ok" else "unhealthy"
+    _health_cache[name] = {
+        "status": status_label,
+        "last_checked": datetime.now(UTC).isoformat(),
+        "error": result.get("error"),
+    }
+
+    # Return the same shape as list_tools health for consistency
+    return success_envelope(data={
+        "status": status_label,
+        "last_checked": _health_cache[name]["last_checked"],
+        "error": result.get("error"),
+    }, trace_id=rid)
 
 
 # ---------------------------------------------------------------------------
@@ -509,7 +585,7 @@ async def get_credentials(
     rid = trace_id_ctx.get("")
     uid = _extract_user_id(payload)
 
-    stored = _credential_store.get((uid, name), {})
+    stored = _get_credentials(uid, name)
     masked = {k: mask_credential(v) for k, v in stored.items()}
     return success_envelope(
         data={

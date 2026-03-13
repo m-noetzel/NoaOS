@@ -242,6 +242,68 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
             },
         },
     },
+    "memory": {
+        "description": "Remember and recall facts about the user.",
+        "functions": {
+            "remember": {
+                "description": (
+                    "Store a fact about the user for long-term memory. "
+                    "Use when the user shares preferences, habits, "
+                    "important dates, or personal information they want "
+                    "you to remember across conversations."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "fact": {
+                            "type": "string",
+                            "description": "The fact to remember.",
+                        },
+                        "category": {
+                            "type": "string",
+                            "description": (
+                                "Category: preference, habit, contact, "
+                                "context, or general."
+                            ),
+                            "default": "general",
+                        },
+                        "source_thread_id": {
+                            "type": "string",
+                            "description": "Thread ID where the fact originated.",
+                            "default": "",
+                        },
+                    },
+                    "required": ["fact", "category"],
+                },
+                "risk_tier": "low",
+                "domain": "private",
+            },
+            "recall": {
+                "description": (
+                    "Search stored facts about the user. "
+                    "Use when you need to retrieve previously "
+                    "remembered information."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Search query for facts.",
+                        },
+                        "n_results": {
+                            "type": "integer",
+                            "description": "Max results to return.",
+                            "default": 5,
+                        },
+                    },
+                    "required": ["query"],
+                },
+                "risk_tier": "low",
+                "domain": "private",
+            },
+        },
+    },
 }
 
 

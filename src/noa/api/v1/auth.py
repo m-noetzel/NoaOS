@@ -546,9 +546,13 @@ async def google_callback(
         redirect_url = "noaapp://oauth/callback?google=connected"
     else:
         noa_domain = os.environ.get("NOA_DOMAIN", "localhost:8000")
-        local_hosts = ("localhost:8000", "localhost")
-        scheme = "https" if noa_domain not in local_hosts else "http"
-        redirect_url = f"{scheme}://{noa_domain}/settings?google=connected"
+        frontend_url = os.environ.get("FRONTEND_URL", "")
+        if frontend_url:
+            redirect_url = f"{frontend_url}/settings?google=connected"
+        else:
+            local_hosts = ("localhost:8000", "localhost")
+            scheme = "https" if noa_domain not in local_hosts else "http"
+            redirect_url = f"{scheme}://{noa_domain}/settings?google=connected"
 
     return RedirectResponse(url=redirect_url, status_code=status.HTTP_302_FOUND)
 

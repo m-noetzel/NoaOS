@@ -56,7 +56,7 @@ export default function RunDetail() {
   const canonicalCost = stepCostTotal ?? run.cost_usd;
   const totalTokens = run.tokens_in + run.tokens_out;
   const durationSec = run.duration_ms ? (run.duration_ms / 1000).toFixed(1) : "—";
-  const toolCalls = events.filter((e) => e.type === "tool_called").length;
+  const toolCalls = events.filter((e) => e.type === "tool_called" || e.type === "tool_result" || e.type === "approval_requested").length;
 
   const metrics = [
     { icon: <Cpu className="h-3.5 w-3.5 text-primary" />, label: "Model", value: run.model, sub: run.provider },

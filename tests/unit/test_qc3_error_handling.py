@@ -180,19 +180,27 @@ class TestExceptionHandlingQuality:
         """FINDINGS.md H5: app.py lifespan DB-skip except must log at WARNING,
         not silently pass. This is the exempted block (noqa S110) but it still
         must produce an observable log entry."""
+        from noa.api.app import lifespan
+
+        mock_app = MagicMock()
+
         with (
             patch("noa.api.app.create_async_engine_from_config", side_effect=Exception("no db")),
+            patch("noa.queue.health.HealthChecker"),
+            patch("noa.api.app_state.set_health_checker"),
+            patch("noa.api.app._probe_worker", return_value=True),
             caplog.at_level(logging.WARNING),
         ):
-            # We need to trigger the lifespan. Import and invoke it.
+            # Trigger the lifespan to exercise the except branch
+            gen = lifespan(mock_app)
+            try:
+                await gen.__aenter__()
+            except Exception:
+                pass  # lifespan may fail on later startup steps; we only care about the log
 
-            # The lifespan context manager should log a warning when DB init fails
-            # but not crash. We look for a WARNING-level record.
             warning_records = [
                 r for r in caplog.records if r.levelno >= logging.WARNING
             ]
-            # This test verifies the fix: after QC3, a WARNING must be emitted.
-            # Before QC3, the bare `except: pass` produces no log.
             assert len(warning_records) > 0, (
                 "Expected WARNING log when DB engine creation fails in lifespan"
             )

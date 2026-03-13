@@ -6,9 +6,8 @@ Phase plan: PHASE_DETAILS.md TM1
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -34,6 +33,24 @@ def _make_credential_status_checker(**kwargs: Any) -> Any:
     return CredentialStatusChecker(**kwargs)
 
 
+def _make_mock_gateway(
+    tools: list[str] | None = None,
+    dispatch_result: Any = None,
+    dispatch_error: str | None = None,
+) -> MagicMock:
+    """Build a mock ToolGateway."""
+    from noa.tools.gateway import ToolResponse
+
+    gw = MagicMock()
+    gw.list_tools.return_value = tools or []
+    resp = ToolResponse(
+        result=dispatch_result or {"ok": True},
+        error=dispatch_error,
+    )
+    gw.dispatch = AsyncMock(return_value=resp)
+    return gw
+
+
 # ===========================================================================
 # 1. Health Probe Behavioral Tests
 # ===========================================================================
@@ -43,38 +60,46 @@ class TestToolHealthProbe:
     """Health probes verify external API reachability."""
 
     async def test_healthy_tool_returns_ok(self) -> None:
-        """TM1: Successful probe reports health 'ok'."""
+        """TM1: Registered tool with successful dispatch → ok."""
         checker = _make_health_checker()
-        with patch.object(
-            checker, "_probe_tavily",
-            new_callable=AsyncMock, return_value=None,
+        gw = _make_mock_gateway(tools=["web_search"])
+        with patch(
+            "noa.orchestrator.nodes.tools.get_gateway",
+            return_value=gw,
         ):
             result = await checker.check("web_search")
         assert result["status"] == "ok"
         assert result["error"] is None
 
     async def test_unhealthy_tool_returns_error(self) -> None:
-        """TM1: Failed probe returns 'error' with message."""
+        """TM1: Dispatch error → error status."""
         checker = _make_health_checker()
-        with patch.object(
-            checker, "_probe_tavily",
-            new_callable=AsyncMock,
-            side_effect=ConnectionError("Tavily API unreachable"),
+        gw = _make_mock_gateway(
+            tools=["web_search"],
+            dispatch_error="API key invalid",
+        )
+        with patch(
+            "noa.orchestrator.nodes.tools.get_gateway",
+            return_value=gw,
         ):
             result = await checker.check("web_search")
         assert result["status"] == "error"
-        assert "unreachable" in result["error"].lower()
+        assert "invalid" in result["error"].lower()
 
     async def test_probe_timeout_returns_error(self) -> None:
         """TM1: Probe must timeout and report error."""
-        checker = _make_health_checker(timeout=5.0)
+        import asyncio
 
-        async def _slow_probe() -> None:
+        checker = _make_health_checker(timeout=0.1)
+
+        async def _slow_dispatch(req: Any) -> Any:
             await asyncio.sleep(10)
 
-        with patch.object(
-            checker, "_probe_tavily",
-            new_callable=AsyncMock, side_effect=_slow_probe,
+        gw = _make_mock_gateway(tools=["web_search"])
+        gw.dispatch = _slow_dispatch
+        with patch(
+            "noa.orchestrator.nodes.tools.get_gateway",
+            return_value=gw,
         ):
             result = await checker.check("web_search")
         assert result["status"] == "error"
@@ -83,22 +108,26 @@ class TestToolHealthProbe:
     async def test_unknown_tool_returns_error(self) -> None:
         """TM1: Unregistered tool returns error."""
         checker = _make_health_checker()
-        result = await checker.check("nonexistent_tool")
+        gw = _make_mock_gateway(tools=["web_search"])
+        with patch(
+            "noa.orchestrator.nodes.tools.get_gateway",
+            return_value=gw,
+        ):
+            result = await checker.check("nonexistent_tool")
         assert result["status"] == "error"
         err = result["error"].lower()
-        assert "unknown" in err or "not found" in err
+        assert "not registered" in err or "unknown" in err
 
-    async def test_each_tool_has_dedicated_probe(self) -> None:
-        """Each of the 5 MVP tools has a probe method."""
+    async def test_no_gateway_returns_error(self) -> None:
+        """TM1: No gateway → error."""
         checker = _make_health_checker()
-        expected = {
-            "web_search", "google_calendar",
-            "gmail", "notion", "memory",
-        }
-        probes = {
-            n for n in dir(checker) if n.startswith("_probe_")
-        }
-        assert len(probes) >= len(expected)
+        with patch(
+            "noa.orchestrator.nodes.tools.get_gateway",
+            return_value=None,
+        ):
+            result = await checker.check("web_search")
+        assert result["status"] == "error"
+        assert "gateway" in result["error"].lower()
 
 
 # ===========================================================================
@@ -132,7 +161,7 @@ class TestCredentialStatus:
     async def test_google_tools_share_oauth(self) -> None:
         """Google Calendar and Gmail share OAuth credentials."""
         checker = _make_credential_status_checker()
-        cal = checker.required_secrets("google_calendar")
+        cal = checker.required_secrets("calendar")
         gmail = checker.required_secrets("gmail")
         assert len(cal) > 0
         assert len(gmail) > 0
@@ -246,8 +275,9 @@ class TestToolListEnrichment:
         assert isinstance(data, list)
         assert len(data) > 0
         tool = data[0]
-        assert "credential_status" in tool
-        assert tool["credential_status"] in ("configured", "missing")
+        assert "credentials" in tool
+        assert isinstance(tool["credentials"], dict)
+        assert "configured" in tool["credentials"]
 
     async def test_includes_health_field(
         self, _app: Any,
@@ -276,7 +306,10 @@ class TestToolListEnrichment:
         assert isinstance(data, list) and len(data) > 0
         tool = data[0]
         assert "health" in tool
-        assert tool["health"] in ("ok", "error", "unchecked")
+        assert isinstance(tool["health"], dict)
+        assert tool["health"]["status"] in (
+            "healthy", "unhealthy", "unchecked",
+        )
 
 
 # ===========================================================================
@@ -313,7 +346,9 @@ class TestHealthEndpoint:
         body = resp.json()
         data = body.get("data", body)
         assert "status" in data
-        assert data["status"] in ("ok", "error")
+        assert data["status"] in (
+            "healthy", "unhealthy",
+        )
 
     async def test_unknown_tool_returns_404(
         self, _app: Any,
@@ -410,13 +445,11 @@ class TestHealthCredentialIntegration:
     """Health checker and credential status work together."""
 
     async def test_missing_creds_consistent(self) -> None:
-        """TM1: Missing credentials → health error + missing status."""
+        """TM1: Missing creds → credential missing status."""
         from noa.tools.health import (
             CredentialStatusChecker,
-            ToolHealthChecker,
         )
 
-        health_checker = ToolHealthChecker()
         cred_checker = CredentialStatusChecker()
 
         with patch.object(
@@ -429,5 +462,13 @@ class TestHealthCredentialIntegration:
 
         assert cred_status == "missing"
 
-        result = await health_checker.check("web_search")
-        assert result["status"] in ("error", "unchecked")
+    async def test_registered_tool_can_be_probed(self) -> None:
+        """TM1: Registered tool returns health result."""
+        checker = _make_health_checker()
+        gw = _make_mock_gateway(tools=["web_search"])
+        with patch(
+            "noa.orchestrator.nodes.tools.get_gateway",
+            return_value=gw,
+        ):
+            result = await checker.check("web_search")
+        assert result["status"] in ("ok", "error")

@@ -106,7 +106,7 @@ class DbCapabilityChecker:
                 ToolCapability.capability == cap_str,
             )
         result = await self._session.execute(stmt)
-        return result.scalar_one_or_none() is not None
+        return result.scalars().first() is not None
 
     async def grant(
         self,
@@ -116,6 +116,18 @@ class DbCapabilityChecker:
         function_name: str | None = None,
     ) -> None:
         cap_str = TOOL_CAPABILITIES.get(tool_name, tool_name)
+        # Check for existing grant to avoid duplicates
+        stmt = select(ToolCapability).where(
+            ToolCapability.user_id == user_id,
+            ToolCapability.tool_name == tool_name,
+            ToolCapability.capability == cap_str,
+            ToolCapability.function_name == function_name
+            if function_name is not None
+            else ToolCapability.function_name.is_(None),
+        )
+        result = await self._session.execute(stmt)
+        if result.scalars().first() is not None:
+            return  # Already granted
         record = ToolCapability(
             user_id=user_id,
             tool_name=tool_name,

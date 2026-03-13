@@ -64,6 +64,46 @@ This project runs in Docker containers (see `docker-compose.yml` and `docker-com
 
 **Never output secrets in plaintext** — not in terminal, logs, or files. If unavoidable: explain what/why, wait for approval, prefer masked alternatives.
 
+### ABSOLUTE BAN — Keychain & Secret-Exposing Commands
+
+The following commands are **ABSOLUTELY FORBIDDEN** under all circumstances. No exception, no workaround, no "just this once". These commands can expose secrets stored in the macOS Keychain or environment:
+
+```
+# Keychain reads — BANNED
+security find-generic-password -w ...
+security find-internet-password -w ...
+security find-generic-password -g ...
+security find-internet-password -g ...
+security dump-keychain
+security export
+
+# Environment / process inspection that may leak injected secrets — BANNED
+env
+printenv
+set | grep -i key
+echo $SECRET_KEY
+echo $JWT_SECRET
+echo $ANTHROPIC_API_KEY
+echo $OPENAI_API_KEY
+echo $GOOGLE_CLIENT_SECRET
+echo $BACKUP_PASSPHRASE
+echo $POSTGRES_PASSWORD
+cat .env*
+cat *secret*
+ps auxe    # shows environment of running processes
+
+# Any command piping Keychain output or secret env vars — BANNED
+security find-* ... | ...
+```
+
+**Rules:**
+1. Never run `security find-*-password` with `-w` or `-g` flags (these print the secret value)
+2. Never run `security dump-keychain` or `security export`
+3. Never `echo`, `cat`, `printenv`, or otherwise read environment variables that contain secrets
+4. Never pipe, redirect, or capture the output of any of the above
+5. If a script or tool needs a secret at runtime, it must use `tools/keychain_store.sh` which injects into the process environment without terminal output
+6. When debugging auth/credential issues, check **connectivity and HTTP status codes** — never print the credential itself
+
 ## Protected Documents
 
 **SPEC.md** and **STRATEGY.md** govern all design decisions. **Never modify without explicit human approval.** Propose first, wait for approval, change only what's approved.

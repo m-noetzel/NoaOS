@@ -80,8 +80,17 @@ def estimate_cost(
 
     Returns Decimal("0") for unknown provider/model combinations.
     """
-    key = (provider.lower(), model.lower())
+    prov = provider.lower()
+    mod = model.lower()
+    key = (prov, mod)
     pricing = PRICING_TABLE.get(key)
+
+    # Fallback: strip date suffix (e.g. "gpt-4.1-mini-2025-04-14" → "gpt-4.1-mini")
+    if pricing is None:
+        for (p, m), pr in PRICING_TABLE.items():
+            if p == prov and mod.startswith(m):
+                pricing = pr
+                break
 
     if pricing is None:
         return Decimal("0")

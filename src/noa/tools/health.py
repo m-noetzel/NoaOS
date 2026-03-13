@@ -1,7 +1,7 @@
 """Tool health-check and credential-status services — Phase TM1.
 
 Provides:
-- ToolHealthChecker: per-tool health probes (external API reachability)
+- ToolHealthChecker: per-tool health probes via gateway adapters
 - CredentialStatusChecker: reports configured vs. missing credentials
 - mask_credential: returns masked display of a secret value
 """
@@ -13,8 +13,6 @@ import logging
 import os
 from typing import Any
 
-import httpx
-
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -23,16 +21,14 @@ logger = logging.getLogger(__name__)
 
 _TOOL_REQUIRED_SECRETS: dict[str, list[str]] = {
     "web_search": ["TAVILY_API_KEY"],
-    "google_calendar": [
+    "calendar": [
         "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET",
-        "GOOGLE_REFRESH_TOKEN",
     ],
     "gmail": [
         "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET",
-        "GOOGLE_REFRESH_TOKEN",
     ],
-    "notion": ["NOTION_INTEGRATION_TOKEN"],
-    "memory": ["MEMORY_STORE_DSN"],
+    "notion": ["NOTION_TOKEN"],
+    "memory": [],
 }
 
 # All known tool names (for validation)
@@ -76,12 +72,10 @@ class CredentialStatusChecker:
         Default implementation checks environment variables.
         Can be patched in tests.
         """
-        import os
-
         return bool(os.environ.get(secret_name))
 
     async def get_status(self, tool_name: str) -> str:
-        """Return 'configured' if all required secrets are present, else 'missing'."""
+        """Return 'configured' or 'missing'."""
         secrets = self.required_secrets(tool_name)
         if not secrets:
             return "configured"
@@ -95,107 +89,115 @@ class CredentialStatusChecker:
 # ToolHealthChecker
 # ---------------------------------------------------------------------------
 
+# Lightweight probe requests per tool. These go through the
+# actual registered adapters in the gateway, which already have
+# valid credentials and auth clients wired at startup.
+_PROBE_REQUESTS: dict[str, dict[str, Any]] = {
+    "web_search": {
+        "function": "web_search",
+        "args": {"query": "test", "max_results": 1},
+    },
+    "calendar": {
+        "function": "list_events",
+        "args": {
+            "start_date": "2026-01-01T00:00:00Z",
+            "end_date": "2026-01-01T01:00:00Z",
+        },
+    },
+    "gmail": {
+        "function": "search_emails",
+        "args": {"query": "test", "max_results": 1},
+    },
+    "notion": {
+        "function": "search_pages",
+        "args": {"query": "test"},
+    },
+}
+
 
 class ToolHealthChecker:
-    """Per-tool health probes verifying external API reachability."""
+    """Per-tool health probes via the ToolGateway.
 
-    def __init__(self, timeout: float = 5.0) -> None:
+    Uses the actual registered adapters (with real credentials)
+    rather than reimplementing API calls.
+    """
+
+    def __init__(self, timeout: float = 10.0) -> None:
         self.timeout = timeout
 
-    # --- Probe methods (one per tool) ---
-
-    async def _probe_tavily(self) -> None:
-        """Probe Tavily web search API."""
-        key = os.environ.get("TAVILY_API_KEY")
-        if not key:
-            raise ConnectionError("TAVILY_API_KEY not configured")
-        async with httpx.AsyncClient(timeout=self.timeout) as c:
-            r = await c.post(
-                "https://api.tavily.com/search",
-                json={"api_key": key, "query": "test", "max_results": 1},
-            )
-            r.raise_for_status()
-
-    async def _probe_google_calendar(self) -> None:
-        """Probe Google Calendar API."""
-        token = os.environ.get("GOOGLE_REFRESH_TOKEN")
-        if not token:
-            raise ConnectionError("Google credentials not configured")
-        # Lightweight: list 0 events from primary calendar
-        access = os.environ.get("GOOGLE_ACCESS_TOKEN", "")
-        async with httpx.AsyncClient(timeout=self.timeout) as c:
-            r = await c.get(
-                "https://www.googleapis.com/calendar/v3"
-                "/calendars/primary/events",
-                params={"maxResults": "1"},
-                headers={"Authorization": f"Bearer {access}"},
-            )
-            r.raise_for_status()
-
-    async def _probe_gmail(self) -> None:
-        """Probe Gmail API."""
-        token = os.environ.get("GOOGLE_REFRESH_TOKEN")
-        if not token:
-            raise ConnectionError("Google credentials not configured")
-        access = os.environ.get("GOOGLE_ACCESS_TOKEN", "")
-        async with httpx.AsyncClient(timeout=self.timeout) as c:
-            r = await c.get(
-                "https://gmail.googleapis.com/gmail/v1"
-                "/users/me/messages",
-                params={"maxResults": "1"},
-                headers={"Authorization": f"Bearer {access}"},
-            )
-            r.raise_for_status()
-
-    async def _probe_notion(self) -> None:
-        """Probe Notion API."""
-        token = os.environ.get("NOTION_INTEGRATION_TOKEN")
-        if not token:
-            raise ConnectionError(
-                "NOTION_INTEGRATION_TOKEN not configured",
-            )
-        async with httpx.AsyncClient(timeout=self.timeout) as c:
-            r = await c.post(
-                "https://api.notion.com/v1/search",
-                json={"query": "", "page_size": 1},
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "Notion-Version": "2022-06-28",
-                },
-            )
-            r.raise_for_status()
-
-    async def _probe_memory(self) -> None:
-        """Probe memory store (always available locally)."""
-        # Memory store is file-based, always reachable
-
-    # --- Tool-to-probe mapping ---
-
-    _PROBE_MAP: dict[str, str] = {
-        "web_search": "_probe_tavily",
-        "google_calendar": "_probe_google_calendar",
-        "gmail": "_probe_gmail",
-        "notion": "_probe_notion",
-        "memory": "_probe_memory",
-    }
-
-    async def check(self, tool_name: str) -> dict[str, Any]:
-        """Run the health probe for the named tool.
+    async def check(
+        self, tool_name: str,
+    ) -> dict[str, Any]:
+        """Run a health probe for the named tool.
 
         Returns {"status": "ok"|"error", "error": str|None}.
         """
-        probe_method_name = self._PROBE_MAP.get(tool_name)
-        if probe_method_name is None:
-            return {"status": "error", "error": f"Unknown tool: {tool_name}"}
+        from noa.orchestrator.nodes.tools import get_gateway
 
-        probe = getattr(self, probe_method_name)
+        gw = get_gateway()
+
+        # If gateway not wired, check if secrets exist at least
+        if gw is None:
+            return {
+                "status": "error",
+                "error": "Tool gateway not initialized",
+            }
+
+        # Check if tool is registered in gateway
+        if tool_name not in gw.list_tools():
+            # Not registered = credentials missing at startup
+            secrets = _TOOL_REQUIRED_SECRETS.get(
+                tool_name, [],
+            )
+            missing = [
+                s for s in secrets
+                if not os.environ.get(s)
+            ]
+            if missing:
+                return {
+                    "status": "error",
+                    "error": (
+                        f"Not registered — missing: "
+                        f"{', '.join(missing)}"
+                    ),
+                }
+            return {
+                "status": "error",
+                "error": "Tool not registered in gateway",
+            }
+
+        # Tool is registered — do a real probe via adapter
+        probe = _PROBE_REQUESTS.get(tool_name)
+        if probe is None:
+            # No probe defined — registered = healthy
+            return {"status": "ok", "error": None}
+
+        from noa.tools.gateway import ToolRequest
+
+        req = ToolRequest(
+            tool=tool_name,
+            function=probe["function"],
+            args=probe["args"],
+        )
+
         try:
-            await asyncio.wait_for(probe(), timeout=self.timeout)
+            resp = await asyncio.wait_for(
+                gw.dispatch(req),
+                timeout=self.timeout,
+            )
         except TimeoutError:
-            msg = f"Health probe timeout after {self.timeout}s"
+            msg = f"Probe timeout after {self.timeout}s"
             return {"status": "error", "error": msg}
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Health probe failed for %s: %s", tool_name, exc)
+            logger.warning(
+                "Health probe failed for %s: %s",
+                tool_name, exc,
+            )
             return {"status": "error", "error": str(exc)}
 
+        if resp.error:
+            return {
+                "status": "error",
+                "error": resp.error,
+            }
         return {"status": "ok", "error": None}

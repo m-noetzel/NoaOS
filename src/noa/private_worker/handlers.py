@@ -32,12 +32,15 @@ async def _handle_remember(payload: dict[str, Any]) -> dict[str, Any]:
     # for now use empty placeholder
     embedding = payload.get("embedding", [])
 
+    user_id = payload.get("user_id")
+
     fact_id = _memory_store.store(
         fact=fact,
         category=category,
         embedding=embedding,
         source_thread_id=source_thread_id,
         auto_extracted=auto_extracted,
+        user_id=user_id,
     )
 
     if fact_id is None:
@@ -50,10 +53,12 @@ async def _handle_recall(payload: dict[str, Any]) -> dict[str, Any]:
     """Retrieve facts from the private memory store per §13.2."""
     query_embedding = payload.get("query_embedding", [])
     n_results = payload.get("n_results", 5)
+    user_id = payload.get("user_id")
 
     facts = _memory_store.recall(
         query_embedding=query_embedding,
         n_results=n_results,
+        user_id=user_id,
     )
 
     return {"status": "recalled", "facts": facts}

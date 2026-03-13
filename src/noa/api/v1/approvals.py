@@ -41,17 +41,73 @@ async def list_pending_approvals(
         .order_by(Approval.requested_at.desc())
     )
     approvals = result.scalars().all()
-    data = [
-        {
+    data = []
+    for a in approvals:
+        # Parse tool_name and tool_args from preview_text
+        preview = a.preview_text or ""
+        tool_name = None
+        tool_args = None
+        if "\n" in preview:
+            first_line, rest = preview.split("\n", 1)
+            tool_name = first_line.strip()
+            try:
+                import json as _json
+                tool_args = _json.loads(rest)
+            except (ValueError, TypeError):
+                pass
+        elif preview:
+            tool_name = preview.strip()
+
+        data.append({
             "id": str(a.id),
             "run_id": str(a.run_id),
             "risk_tier": a.risk_tier,
-            "preview_text": a.preview_text,
+            "preview_text": preview,
+            "tool_name": tool_name,
+            "tool_args": tool_args,
             "domain": a.domain,
-            "requested_at": a.requested_at.isoformat(),
-        }
-        for a in approvals
-    ]
+            "status": a.decision,  # Frontend expects "status" not "decision"
+            "created_at": a.requested_at.isoformat(),  # Frontend expects "created_at"
+        })
+    return success_envelope(data=data, trace_id=rid)
+
+
+@router.get("/history")
+async def list_approval_history(
+    request: Request,
+    user: AuthUser = Depends(require_auth),  # noqa: B008
+    session: AsyncSession = Depends(get_db_session),  # noqa: B008
+) -> dict[str, Any]:
+    """List decided approvals (approved/denied) for the authenticated user."""
+    rid = trace_id_ctx.get("")
+    user_id = user.user_id
+    result = await session.execute(
+        select(Approval)
+        .where(Approval.user_id == user_id, Approval.decision != "pending")
+        .order_by(Approval.decided_at.desc())
+        .limit(50)
+    )
+    approvals = result.scalars().all()
+    data = []
+    for a in approvals:
+        preview = a.preview_text or ""
+        tool_name = None
+        if "\n" in preview:
+            tool_name = preview.split("\n", 1)[0].strip()
+        elif preview:
+            tool_name = preview.strip()
+
+        data.append({
+            "id": str(a.id),
+            "run_id": str(a.run_id),
+            "risk_tier": a.risk_tier,
+            "preview_text": preview,
+            "tool_name": tool_name,
+            "domain": a.domain,
+            "status": a.decision,
+            "created_at": a.requested_at.isoformat(),
+            "decided_at": a.decided_at.isoformat() if a.decided_at else None,
+        })
     return success_envelope(data=data, trace_id=rid)
 
 

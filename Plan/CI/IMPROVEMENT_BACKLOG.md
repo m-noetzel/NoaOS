@@ -37,14 +37,14 @@ Maintained by the `ci` agent. Proposals require human approval before applicatio
 | CI-031 | Add app.state Write-Only Detection to QA M7 | P2 | **APPLIED** | Plan/QA_CHECKLIST.md | 2026-03-12 | 2026-03-12 | — |
 | CI-032 | Infrastructure Phase Estimate Bracket (~20-30 min default) | P2 | **APPLIED** | .claude/skills/phase-planning/SKILL.md | 2026-03-12 | 2026-03-12 | — |
 | CI-033 | Pre-Phase Deliverable Completeness Check Before QA Submission | P2 | **APPLIED** | CLAUDE.md | 2026-03-12 | 2026-03-12 | — |
-| CI-034 | Wave-Close Cross-Phase Smoke Test | P1 | PROPOSED | CLAUDE.md | 2026-03-12 | — | — |
-| CI-035 | QA S3b Deployment Config Security Checks | P2 | PROPOSED | Plan/QA_CHECKLIST.md | 2026-03-12 | — | — |
-| CI-036 | Generator Idempotency Test Gate (M2d) | P2 | PROPOSED | Plan/QA_CHECKLIST.md | 2026-03-12 | — | — |
-| CI-037 | QA Note Disposition Gate (M5d) | P2 | PROPOSED | CLAUDE.md + Plan/QA_CHECKLIST.md | 2026-03-12 | — | — |
-| CI-038 | Pre-Phase Test Plan QA Enforcement Gate (M1b) | P2 | PROPOSED | Plan/QA_CHECKLIST.md | 2026-03-12 | — | — |
-| CI-039 | Integration Test Delete/Cascade Coverage Rule | P2 | PROPOSED | CLAUDE.md | 2026-03-12 | — | — |
-| CI-040 | Dev Container TEST_DATABASE_URL Setup | P3 | PROPOSED | docker-compose.dev.yml | 2026-03-12 | — | — |
-| CI-041 | Nightly Mutation Test CI Job (jwt.py) | P3 | PROPOSED | .github/workflows/ci.yml | 2026-03-12 | — | — |
+| CI-034 | Wave-Close Cross-Phase Smoke Test | P1 | REJECTED | CLAUDE.md | 2026-03-12 | — | — |
+| CI-035 | QA S3b Deployment Config Security Checks | P2 | DEFERRED | Plan/QA_CHECKLIST.md | 2026-03-12 | — | — |
+| CI-036 | Generator Idempotency Test Gate (M2d) | P2 | DEFERRED | Plan/QA_CHECKLIST.md | 2026-03-12 | — | — |
+| CI-037 | QA Note Disposition Gate (M5d) | P2 | DEFERRED | CLAUDE.md + Plan/QA_CHECKLIST.md | 2026-03-12 | — | — |
+| CI-038 | Pre-Phase Test Plan QA Enforcement Gate (M1b) | P2 | DEFERRED | Plan/QA_CHECKLIST.md | 2026-03-12 | — | — |
+| CI-039 | Integration Test Delete/Cascade Coverage Rule | P2 | DEFERRED | CLAUDE.md | 2026-03-12 | — | — |
+| CI-040 | Dev Container TEST_DATABASE_URL Setup | P3 | DEFERRED | docker-compose.dev.yml | 2026-03-12 | — | — |
+| CI-041 | Nightly Mutation Test CI Job (jwt.py) | P3 | DEFERRED | .github/workflows/ci.yml | 2026-03-12 | — | — |
 
 ---
 

@@ -173,13 +173,19 @@ The plan is organized into **waves** — groups of related phases that deliver a
 
 Noa is a **single-user personal assistant** — no multi-user needed for now.
 
-### Wave 22: Observability & Ops
+### Wave 22: UX Fixes & Notion MCP
+- **UX-H1–H6, UX-M1–M2**: Fix SSE/calendar, send button, system prompt, runs display, tool details, Notion, costs, approvals toggle
+- **Notion MCP sidecar**: Replace custom NotionTool/NotionClient with official `@notionhq/notion-mcp-server` running as Docker sidecar + HTTP bridge → existing `McpRemoteAdapter`
+- System prompt file-backed (`prompts/` directory) + save button in UI
+- Approvals toggle in Settings
+
+### Wave 23: Observability & Ops
 - Lightweight monitoring (health dashboard, error rate tracking)
 - Alerting on failures (ntfy or similar, already partially wired)
 - Structured log aggregation and retention
 - Query performance audit (EXPLAIN ANALYZE on hot paths)
 
-### Wave 23: Polish & Extended Capabilities
+### Wave 24: Polish & Extended Capabilities
 - Frontend bundle optimization (tree-shaking, lazy routes audit)
 - Advanced tool integrations (new MCP servers, custom workflows)
 - Voice UX refinement (streaming transcription, inline playback)

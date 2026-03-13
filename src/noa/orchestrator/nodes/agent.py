@@ -114,10 +114,12 @@ async def agent_node(state: AgentState) -> dict[str, Any]:
     privacy_mode = state.get("privacy_mode", "external")
 
     available_tools = state.get("available_tools") or []
+    max_tokens = state.get("max_tokens") or 4096
     response = await invoke_llm(
         model,
         messages,
         privacy_mode=privacy_mode,
+        max_tokens=max_tokens,
         tools=available_tools or None,
     )
 

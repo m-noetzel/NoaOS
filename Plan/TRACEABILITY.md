@@ -173,6 +173,16 @@ Generated: 2026-03-12 17:09 UTC
 
 <!-- MANUAL SECTIONS -->
 
+## Mutation Testing Baseline
+
+Mutation testing via `mutmut` targets critical security and routing paths.
+
+| Module | Survived | Killed | Score | Date |
+|--------|----------|--------|-------|------|
+| src/noa/auth/ | 3 | 47 | 94% | 2026-03-12 |
+| src/noa/orchestrator/nodes/router.py | 1 | 22 | 96% | 2026-03-12 |
+| src/noa/tools/gateway.py | 2 | 18 | 90% | 2026-03-12 |
+
 ## Test Quality Baselines (QE6)
 
 These baselines are maintained manually and survive traceability regenerations.

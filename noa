@@ -375,16 +375,18 @@ cmd_dev() {
     sync_postgres_password
 
     # Start backend containers (without web — it runs on host)
+    # dev-api override publishes port 8000 to localhost so Vite proxy can reach it
     log "Starting backend containers..."
-    docker compose up -d
+    docker compose -f docker-compose.yml -f docker-compose.dev-api.yml up -d
     echo
 
     # Wait for API
     log "Waiting for API..."
     local retries=0
+    local api_ready=false
     while [[ $retries -lt 30 ]]; do
         if curl -sf http://localhost:8000/health &>/dev/null; then
-            ok "API is ready"
+            api_ready=true
             break
         fi
         printf "."
@@ -392,6 +394,10 @@ cmd_dev() {
         retries=$((retries + 1))
     done
     echo
+
+    if [[ "$api_ready" != "true" ]]; then
+        warn "API not responding at localhost:8000 — check: noa logs noa-api"
+    fi
 
     # Run migrations
     log "Running database migrations..."
@@ -407,8 +413,7 @@ cmd_dev() {
     echo
 
     # Start Vite in foreground (Ctrl+C stops it, backend keeps running)
-    # VITE_API_BASE_URL tells the frontend where the API is
-    export VITE_API_BASE_URL="http://localhost:8000"
+    # BASE_URL stays empty — Vite proxy handles /api → http://localhost:8000
     (cd "$NOA_DIR/web" && npm run dev)
 
     # When Vite exits (Ctrl+C), offer to stop backend too

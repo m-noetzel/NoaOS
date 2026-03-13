@@ -11,8 +11,8 @@ const statusIcons: Record<string, { icon: React.ReactNode; color: string }> = {
 export function RunSummary({ run, events }: { run: Run; events: RunEvent[] }) {
   const messageEvent = events.find((e) => e.type === "message_received");
   const resultEvent = events.find((e) => e.type === "result_ready");
-  const goal = (messageEvent?.data.text as string) || "—";
-  const result = run.summary || (resultEvent?.data.response_text as string)?.slice(0, 120) || "—";
+  const goal = (messageEvent?.data.message as string) || (messageEvent?.data.text as string) || "—";
+  const result = run.summary || (resultEvent?.data.response as string)?.slice(0, 120) || (resultEvent?.data.response_text as string)?.slice(0, 120) || "—";
   const cfg = statusIcons[run.status] || statusIcons.completed;
 
   return (

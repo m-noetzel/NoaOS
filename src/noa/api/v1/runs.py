@@ -279,9 +279,10 @@ async def replay_run_events(
     events = [
         {
             "id": str(row.id),
-            "event_type": row.event_type,
-            "timestamp": row.timestamp.isoformat(),
-            "payload": row.payload,
+            "run_id": str(row.run_id),
+            "type": row.event_type,
+            "created_at": row.timestamp.isoformat(),
+            "data": row.payload,
         }
         for row in rows
     ]

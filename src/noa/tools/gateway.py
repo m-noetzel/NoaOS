@@ -32,6 +32,7 @@ class ToolRequest:
     session_id: uuid.UUID | None = None
     trace_id: uuid.UUID | None = None
     step_up_verified: bool = False
+    approved: bool = False
 
 
 @dataclass
@@ -168,13 +169,32 @@ class ToolGateway:
                 await self._record_telemetry(request, resp, "capability_denied")
                 return resp
 
-        # 1c. Step-up auth check (M7 / §21)
+        # 1c. Approval + step-up auth check (M7 / §21)
         if self.policy_engine is not None:
             risk_tier = self.policy_engine.classify(request.function, request.args)
+
+            # Medium/high risk: require approval unless pre-approved
+            needs_approval = self.policy_engine.requires_approval(risk_tier)
+            if needs_approval and not getattr(request, "approved", False):
+                resp = ToolResponse(
+                    result={
+                        "approval_required": True,
+                        "risk_tier": risk_tier,
+                        "tool": request.tool,
+                        "function": request.function,
+                        "args": request.args,
+                    },
+                    error="Approval required before executing this action",
+                    provider="policy_engine",
+                )
+                await self._record_telemetry(request, resp, "approval_required")
+                return resp
+
+            # High risk: additionally require step-up auth (biometric)
             needs_step_up = self.policy_engine.requires_step_up_auth(risk_tier)
             if needs_step_up and not request.step_up_verified:
                 resp = ToolResponse(
-                    error="Step_up authentication required for high-risk action",
+                    error="Step-up authentication required for high-risk action",
                 )
                 await self._record_telemetry(request, resp, "step_up_required")
                 return resp

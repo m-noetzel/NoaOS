@@ -129,6 +129,7 @@ class MemoryStore:
         *,
         query_embedding: list[float],
         n_results: int = 5,
+        user_id: str | None = None,
     ) -> list[dict[str, Any]]:
         """Semantic search over approved facts using cosine similarity.
 
@@ -137,6 +138,7 @@ class MemoryStore:
         Args:
             query_embedding: Query vector for similarity search.
             n_results: Maximum number of results to return.
+            user_id: Optional user scope filter.
 
         Returns:
             List of matching facts sorted by similarity (descending).
@@ -146,6 +148,9 @@ class MemoryStore:
         for fact in self._facts.values():
             # Only return approved facts per §13.2
             if fact["status"] != "approved":
+                continue
+            # Filter by user_id when provided
+            if user_id is not None and fact.get("user_id") != user_id:
                 continue
 
             similarity = _cosine_similarity(
