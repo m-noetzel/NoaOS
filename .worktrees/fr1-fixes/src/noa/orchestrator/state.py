@@ -1,0 +1,39 @@
+"""AgentState schema for the LangGraph orchestrator.
+
+Spec ref: SPEC.md S2.1 -- state carried through every node.
+"""
+
+from __future__ import annotations
+
+from typing import Any, TypedDict
+
+
+class AgentState(TypedDict):
+    """Typed state dict flowing through every graph node.
+
+    Fields:
+        messages: Conversation history (user + assistant messages).
+        privacy_mode: "private" or "external" -- set by router.
+        selected_model: Model identifier chosen by router.
+        tool_calls: Tool invocations requested by the agent node.
+        tool_results: Results returned by the tools node.
+        response: Final formatted response string.
+        total_cost: Cumulative cost tracker (USD estimate).
+        tool_rounds: Number of tool-execution rounds completed (MR9 loop cap).
+    """
+
+    messages: list[dict[str, Any]]
+    privacy_mode: str
+    selected_model: str
+    user_model_override: str | None
+    user_provider_override: str | None
+    user_privacy_override: str | None
+    requested_tools: list[str] | None
+    tool_calls: list[dict[str, Any]]
+    tool_results: list[dict[str, Any]]
+    response: str | None
+    total_cost: float
+    model_config: dict[str, str]
+    tool_rounds: int
+    llm_usage: list[dict[str, Any]]
+    available_tools: list[dict[str, Any]]

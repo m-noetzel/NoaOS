@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+        NSMicrophoneUsageDescription is required by App Store submission when the
+        app uses AVAudioSession/AVAudioRecorder for voice input (Phase iOS8).
+        This plist must be merged into the host Xcode project's Info.plist when
+        the Swift Package is embedded in an .xcodeproj target.
+    -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Noa uses the microphone to record voice messages for transcription.</string>
+</dict>
+</plist>

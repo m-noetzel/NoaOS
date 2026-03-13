@@ -1,0 +1,7 @@
+# Noa backup schedule — SPEC.md §10.5
+# Daily Postgres backup at 02:00 UTC
+0 2 * * * /scripts/backup.sh >> /var/log/backup.log 2>&1
+# Daily private data backup at 02:30 UTC
+30 2 * * * /scripts/backup_private.sh >> /var/log/backup.log 2>&1
+# Weekly restore test at 03:00 UTC on Sunday
+0 3 * * 0 /scripts/restore.sh "$(ls -1t /backups/noa_*.sql.gz.gpg 2>/dev/null | head -1)" >> /var/log/backup.log 2>&1

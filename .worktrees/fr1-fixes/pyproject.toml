@@ -1,0 +1,160 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "noa"
+version = "0.1.0"
+description = "Noa — governed personal AI agent"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.10,<3.0",
+    "pydantic-settings>=2.7,<3.0",
+]
+
+[project.optional-dependencies]
+api = [
+    "fastapi>=0.115.0,<1.0",
+    "uvicorn[standard]>=0.34.0,<1.0",
+    "sqlalchemy[asyncio]>=2.0,<3.0",
+    "asyncpg>=0.30.0,<1.0",
+    "alembic>=1.14.0,<2.0",
+    "python-jose[cryptography]>=3.3,<4.0",
+    "passlib[bcrypt]>=1.7,<2.0",
+    "bcrypt>=4.0,<4.1",
+    "structlog>=24.0,<26.0",
+    "httpx>=0.28.0,<1.0",
+    "pydantic[email]>=2.10,<3.0",
+    "nh3>=0.2,<1.0",
+    "python-multipart>=0.0.9,<1.0",
+]
+orchestrator = [
+    "langgraph>=0.2,<1.0",
+    "langchain-core>=0.3,<1.0",
+]
+dev = [
+    "pytest>=8.2,<10.0",
+    "pytest-asyncio>=0.25,<1.0",
+    "pytest-cov>=6.0,<7.0",
+    "pytest-repeat>=0.9,<1.0",
+    "mutmut>=2.4,<3.0",
+    "pyyaml>=6.0,<7.0",
+    "ruff>=0.8,<1.0",
+    "mypy>=1.13,<2.0",
+    "httpx>=0.28.0,<1.0",
+    "aiosqlite>=0.20,<1.0",
+    "testcontainers[postgres]>=4.8,<5.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/noa"]
+
+[tool.coverage.run]
+source = ["src/noa"]
+omit = ["*/migrations/*", "*/alembic/*", "*/__pycache__/*"]
+
+[tool.coverage.report]
+fail_under = 70
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@abstractmethod",
+]
+
+[tool.coverage.html]
+directory = "htmlcov"
+
+[tool.mutmut]
+paths_to_mutate = "src/noa/auth/,src/noa/orchestrator/nodes/router.py,src/noa/tools/gateway.py"
+tests_dir = "tests/unit/"
+runner = "python -m pytest tests/unit/ -x -q --tb=no"
+# Limit to critical paths only — full codebase mutation is too slow for CI
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = [
+    "f1: Phase F1 — Project Scaffold & Docker Compose",
+    "f2: Phase F2 — Postgres Schema & Alembic Migrations",
+    "f3: Phase F3 — FastAPI Skeleton & Health Endpoints",
+    "f4: Phase F4 — Authentication & Session Management",
+    "oc1: Phase OC1 — LangGraph Orchestrator Skeleton",
+    "oc2: Phase OC2 — Run/Event Model & SSE Streaming",
+    "oc3: Phase OC3 — Audit Logging with Hash Chain",
+    "oc4: Phase OC4 — Policy Engine & Approval Framework",
+    "dw1: Phase DW1 — Private Worker with Ollama & RPC Contract",
+    "dw2: Phase DW2 — External Worker Skeleton",
+    "dw3: Phase DW3 — Docker Network Isolation & Verification",
+    "dw4: Phase DW4 — Privacy Router & Classification",
+    "ti1: Phase TI1 — Memory Tool (Remember/Recall)",
+    "ti2: Phase TI2 — Google Calendar Tool",
+    "ti3: Phase TI3 — Gmail Tool",
+    "ti4: Phase TI4 — Notion Tool",
+    "ti5: Phase TI5 — Web Search Tool (Provider-Agnostic)",
+    "ti6: Phase TI6 — Tool Interface, Registry & Governance",
+    "ab1: Phase AB1 — Cost Control & Token Tracking",
+    "ab2: Phase AB2 — Output Validation Pipeline",
+    "ab3: Phase AB3 — Task Scheduling & Prioritization",
+    "ab4: Phase AB4 — Durable Queue & Private Domain Availability",
+    "ab5: Phase AB5 — Coding Task Contract & Worker",
+    "mr9: Phase MR9 — Conditional Graph Edges",
+    "qc2: Phase QC2 — Security Hardening",
+    "ios1: Phase iOS1 — APNs Push Notification Backend",
+    "ios2: Phase iOS2 — Voice Upload & Processing",
+    "ios3: Phase iOS3 — Xcode Scaffold & Networking Layer",
+    "ios4: Phase iOS4 — Keychain Storage & Auth Flow",
+    "slow: marks tests as slow (deselect with '-m not slow')",
+]
+asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py311"
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "S", "B", "A", "C4", "SIM", "BLE"]
+ignore = [
+    "S101",   # allow assert in tests
+]
+# E722: bare except — catches `except:` without exception type
+# BLE001: blind exception — catches `except Exception:` without re-raise/logging
+# Both are ERRORS, not warnings — enforced at merge time
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+    "E501",   # line length — test verbosity is acceptable
+    "N806",   # variable naming — test helpers use non-snake-case freely
+    "S105",   # hardcoded passwords in tests — intentional test fixtures
+    "S106",   # hardcoded passwords as args in tests — intentional
+    "F841",   # local variable assigned but never used — test setup patterns
+    "BLE001", # blind exception catch — acceptable in test error-path assertions
+]
+"tests/integration/**/*.py" = [
+    "I001",   # import sort — lazy imports inside function bodies need specific order
+]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["langgraph.*", "langchain_core.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["jose", "jose.*", "passlib", "passlib.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["yaml"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["jwt", "jwt.*"]
+ignore_missing_imports = true
