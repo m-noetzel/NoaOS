@@ -167,13 +167,16 @@ The plan is organized into **waves** — groups of related phases that deliver a
 | **QE5** | Requirements Traceability Matrix | **Complete** | 30 | main | ~45 min | ~17 min | QA PASS_WITH_NOTES: traceability.py, TRACEABILITY.md (97/128 covered, 9 Phase-2 deferred orphans), CI step with continue-on-error |
 | **QE6** | Test Quality Infrastructure (Coverage, Mutation, Flaky Detection) | **Complete** | 16 | main | ~60 min | ~7 min | QA PASS_WITH_NOTES: pytest-cov (84% baseline, 70% threshold), mutmut config (auth/router/gateway), pytest-repeat nightly CI job |
 
+| — | — **WAVE 22: UX FIXES & AUDIT FINDINGS** — | — | — | — | — | — | — |
+| **FR1** | Domain Isolation & Privacy Enforcement | **Complete** | 30 | main | ~45 min | ~60 min | QA PASS_WITH_NOTES 2026-03-13 (cycle 2): BE-C3 domain column + thread scoping, BE-H8 tool visibility by domain, BE-H11 provider filtering by privacy_mode, migration 014 |
+
 ---
 
 ## Future Waves
 
 Noa is a **single-user personal assistant** — no multi-user needed for now.
 
-### Wave 22: UX Fixes & Notion MCP
+### Wave 22 (remaining): UX Fixes & Notion MCP
 - **UX-H1–H6, UX-M1–M2**: Fix SSE/calendar, send button, system prompt, runs display, tool details, Notion, costs, approvals toggle
 - **Notion MCP sidecar**: Replace custom NotionTool/NotionClient with official `@notionhq/notion-mcp-server` running as Docker sidecar + HTTP bridge → existing `McpRemoteAdapter`
 - System prompt file-backed (`prompts/` directory) + save button in UI
