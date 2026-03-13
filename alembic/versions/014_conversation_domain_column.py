@@ -29,6 +29,11 @@ def upgrade() -> None:
             server_default="external",
         ),
     )
+    op.create_check_constraint(
+        "ck_conversations_domain",
+        "conversations",
+        "domain IN ('private', 'external')",
+    )
     op.create_index(
         "ix_conversations_user_domain",
         "conversations",
@@ -38,4 +43,5 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_index("ix_conversations_user_domain", table_name="conversations")
+    op.drop_constraint("ck_conversations_domain", "conversations")
     op.drop_column("conversations", "domain")

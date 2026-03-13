@@ -137,37 +137,18 @@ async def list_providers(
     In external mode all configured providers are returned.
     """
     rid = trace_id_ctx.get("")
-    if privacy_mode == "private":
-        providers = [
-            {
-                "name": "ollama",
-                "domain": "private",
-                "description": "Local Ollama (on-device)",
-            },
-        ]
-    else:
-        providers = [
-            {
-                "name": "anthropic",
-                "domain": "external",
-                "description": "Anthropic Claude",
-            },
-            {
-                "name": "openai",
-                "domain": "external",
-                "description": "OpenAI GPT",
-            },
-            {
-                "name": "google_ai",
-                "domain": "external",
-                "description": "Google Gemini",
-            },
-            {
-                "name": "ollama",
-                "domain": "private",
-                "description": "Local Ollama (on-device)",
-            },
-        ]
+    provider_meta: dict[str, dict[str, str]] = {
+        "anthropic": {"domain": "external", "description": "Anthropic Claude"},
+        "openai": {"domain": "external", "description": "OpenAI GPT"},
+        "google_ai": {"domain": "external", "description": "Google Gemini"},
+        "ollama": {"domain": "private", "description": "Local Ollama (on-device)"},
+    }
+    names = _PRIVATE_PROVIDERS if privacy_mode == "private" else _ALL_PROVIDERS
+    providers = [
+        {"name": name, **provider_meta[name]}
+        for name in names
+        if name in provider_meta
+    ]
     return success_envelope(data=providers, trace_id=rid)
 
 

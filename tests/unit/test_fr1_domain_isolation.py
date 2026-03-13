@@ -359,6 +359,83 @@ class TestThreadMessagesDomainCheck:
 
 
 # ---------------------------------------------------------------------------
+# BE-C3: DELETE /{thread_id} — domain check
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteThreadDomainCheck:
+    """DELETE /api/v1/threads/{id}?privacy_mode=X — 403 on domain mismatch."""
+
+    @pytest.mark.asyncio
+    async def test_delete_private_thread_in_external_mode_returns_403(self, monkeypatch):
+        """Deleting a private thread in external mode returns 403."""
+        monkeypatch.setenv("SECRET_KEY", "test-secret")
+        factory, uid, priv_tid, ext_tid = await _make_db_with_threads()
+        app = _build_app(factory, uid)
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.delete(
+                f"/api/v1/threads/{priv_tid}?privacy_mode=external"
+            )
+
+        assert resp.status_code == 403
+        body_str = str(resp.json()).lower()
+        assert "domain" in body_str
+
+    @pytest.mark.asyncio
+    async def test_delete_external_thread_in_private_mode_returns_403(self, monkeypatch):
+        """Deleting an external thread in private mode returns 403."""
+        monkeypatch.setenv("SECRET_KEY", "test-secret")
+        factory, uid, priv_tid, ext_tid = await _make_db_with_threads()
+        app = _build_app(factory, uid)
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.delete(
+                f"/api/v1/threads/{ext_tid}?privacy_mode=private"
+            )
+
+        assert resp.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_delete_private_thread_in_private_mode_succeeds(self, monkeypatch):
+        """Deleting a private thread in private mode succeeds."""
+        monkeypatch.setenv("SECRET_KEY", "test-secret")
+        factory, uid, priv_tid, ext_tid = await _make_db_with_threads()
+        app = _build_app(factory, uid)
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.delete(
+                f"/api/v1/threads/{priv_tid}?privacy_mode=private"
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["data"]["deleted"] == str(priv_tid)
+
+    @pytest.mark.asyncio
+    async def test_delete_external_thread_in_external_mode_succeeds(self, monkeypatch):
+        """Deleting an external thread in external mode succeeds."""
+        monkeypatch.setenv("SECRET_KEY", "test-secret")
+        factory, uid, priv_tid, ext_tid = await _make_db_with_threads()
+        app = _build_app(factory, uid)
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.delete(
+                f"/api/v1/threads/{ext_tid}?privacy_mode=external"
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["data"]["deleted"] == str(ext_tid)
+
+
+# ---------------------------------------------------------------------------
 # BE-H8: Memory tool hidden in external mode
 # ---------------------------------------------------------------------------
 
@@ -577,7 +654,7 @@ class TestToolGatewayDomainEnforcement:
     @pytest.mark.asyncio
     async def test_memory_tool_dispatch_blocked_in_external_mode(self):
         """Dispatching memory tool with privacy_mode=external raises PermissionError."""
-        from noa.tools.gateway import ToolAdapter, ToolGateway, ToolRequest, ToolResponse
+        from noa.tools.gateway import ToolGateway, ToolRequest, ToolResponse
 
         class _FakeMemoryAdapter:
             domain = "private"
@@ -601,7 +678,7 @@ class TestToolGatewayDomainEnforcement:
     @pytest.mark.asyncio
     async def test_memory_tool_dispatch_allowed_in_private_mode(self):
         """Dispatching memory tool with privacy_mode=private succeeds."""
-        from noa.tools.gateway import ToolAdapter, ToolGateway, ToolRequest, ToolResponse
+        from noa.tools.gateway import ToolGateway, ToolRequest, ToolResponse
 
         class _FakeMemoryAdapter:
             domain = "private"

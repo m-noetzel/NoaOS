@@ -205,7 +205,7 @@ async def list_tools(
         functions = []
         any_enabled = False
         tool_risk_tier = "low"
-        tool_domain = "external"
+        function_domains: set[str] = set()
         risk_order = {"low": 0, "medium": 1, "high": 2}
         for func_name, func_def in tool_schema["functions"].items():
             try:
@@ -222,7 +222,7 @@ async def list_tools(
             fn_domain = func_def.get("domain", "external")
             if risk_order.get(fn_risk, 1) > risk_order.get(tool_risk_tier, 0):
                 tool_risk_tier = fn_risk
-            tool_domain = fn_domain
+            function_domains.add(fn_domain)
             functions.append({
                 "name": func_name,
                 "description": func_def["description"],
@@ -231,6 +231,9 @@ async def list_tools(
                 "domain": fn_domain,
                 "enabled": enabled,
             })
+
+        # Derive tool-level domain: private only if ALL functions are private
+        tool_domain = "private" if function_domains == {"private"} else "external"
 
         # Credential info in the shape the frontend expects
         uid = _extract_user_id(payload)

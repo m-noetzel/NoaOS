@@ -69,6 +69,7 @@ async def list_threads(
             "message_count": row.message_count,
             "domain": row.Conversation.domain,
             "created_at": row.Conversation.created_at.isoformat(),
+            # TODO: add updated_at to Conversation model (currently echoes created_at)
             "updated_at": row.Conversation.created_at.isoformat(),
         }
         for row in rows
@@ -102,6 +103,7 @@ async def create_thread(
             "title": conversation.title,
             "domain": conversation.domain,
             "created_at": conversation.created_at.isoformat(),
+            # TODO: add updated_at to Conversation model (currently echoes created_at)
             "updated_at": conversation.created_at.isoformat(),
         },
         trace_id=rid,
@@ -172,6 +174,7 @@ async def list_messages(
 async def delete_thread(
     thread_id: uuid.UUID,
     request: Request,
+    privacy_mode: Literal["private", "external"] = Query(default="external"),  # noqa: B008
     user: AuthUser = Depends(require_auth),  # noqa: B008
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
 ) -> dict[str, Any]:
@@ -179,6 +182,7 @@ async def delete_thread(
 
     iOS5 ThreadListView swipe-to-delete calls this endpoint.
     Returns 204-equivalent success envelope; thread and its messages are removed.
+    BE-C3: Domain check prevents cross-domain deletion.
     """
     rid = trace_id_ctx.get("")
 
@@ -193,6 +197,16 @@ async def delete_thread(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Thread {thread_id} not found",
+        )
+
+    # BE-C3: Domain isolation — cannot delete a thread across domains
+    if conversation.domain != privacy_mode:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                f"Thread {thread_id} belongs to domain '{conversation.domain}' "
+                f"but request is in domain '{privacy_mode}'"
+            ),
         )
 
     await session.delete(conversation)

@@ -182,7 +182,7 @@ async def submit_chat(
                 # Persist approval requests to DB so Approvals page shows them
                 if event.get("event_type") == "approval_requested":
                     approval_id = await _create_approval(
-                        user_id, run_id, event.get("payload", {}),
+                        user_id, run_id, event.get("payload", {}), privacy_mode,
                     )
                     # Inject approval_id into the SSE event payload
                     if approval_id:
@@ -233,15 +233,23 @@ async def _check_thread_domain(
     """
     factory = _get_session_factory()
     if factory is None:
-        return None
+        # fail-closed: if we can't verify domain, block the request
+        return "Domain check unavailable — DB factory not configured"
+
+    try:
+        tid = uuid.UUID(thread_id)
+    except ValueError:
+        return f"Invalid thread_id format: {thread_id!r}"
+
+    try:
+        uid = uuid.UUID(user_id)
+    except ValueError:
+        return f"Invalid user_id format: {user_id!r}"
 
     try:
         from sqlalchemy import select
 
         from noa.db.models.conversation import Conversation
-
-        tid = uuid.UUID(thread_id)
-        uid = uuid.UUID(user_id)
 
         async with factory() as session:
             result = await session.execute(
@@ -547,6 +555,7 @@ async def _create_approval(
     user_id: str,
     run_id: str,
     payload: dict[str, Any],
+    privacy_mode: str = "external",
 ) -> str | None:
     """Create a pending Approval row in the DB (best-effort).
 
@@ -554,7 +563,7 @@ async def _create_approval(
     """
     factory = _get_session_factory()
     if factory is None:
-        return None
+        return "no-db-factory"  # fail-closed: signal rather than silent None
 
     try:
         from noa.db.models.approval import Approval
@@ -579,7 +588,7 @@ async def _create_approval(
                 risk_tier=risk_tier,
                 preview_text=preview,
                 decision="pending",
-                domain="external",
+                domain=privacy_mode,
             ))
         logger.info("Created approval %s for run %s", approval_id, run_id)
         return str(approval_id)

@@ -164,33 +164,16 @@ class TestChatRoutes:
 
 
 class TestChatRequestSchema:
-    """Validate ChatRequest Pydantic model directly.
-
-    The schema is duplicated here (without importing the module that
-    requires FastAPI) to test validation rules.
-    """
-
-    def _make_model(self):
-        """Recreate the ChatRequest model matching the source definition."""
-
-        class ChatRequest(BaseModel):
-            message: str
-            thread_id: str | None = None
-            privacy_mode: str
-            model: str
-            provider: str
-            temperature: float | None = None
-            max_tokens: int | None = None
-
-        return ChatRequest
+    """Validate the real ChatRequest Pydantic model from noa.api.v1.chat."""
 
     def test_valid_full_request(self):
-        """Full ChatRequest with all fields validates."""
-        ChatRequest = self._make_model()
+        """Full ChatRequest with all optional fields validates."""
+        from noa.api.v1.chat import ChatRequest
+
         req = ChatRequest(
             message="Hello",
             thread_id="abc-123",
-            privacy_mode="standard",
+            privacy_mode="external",
             model="claude-sonnet-4-20250514",
             provider="anthropic",
             temperature=0.7,
@@ -200,70 +183,47 @@ class TestChatRequestSchema:
         assert req.temperature == 0.7
 
     def test_valid_minimal_request(self):
-        """ChatRequest with only required fields validates."""
-        ChatRequest = self._make_model()
-        req = ChatRequest(
-            message="Hi",
-            privacy_mode="private",
-            model="gpt-4",
-            provider="openai",
-        )
+        """ChatRequest with only 'message' (all other fields optional) validates."""
+        from noa.api.v1.chat import ChatRequest
+
+        req = ChatRequest(message="Hi")
         assert req.thread_id is None
+        assert req.privacy_mode is None
+        assert req.model is None
+        assert req.provider is None
         assert req.temperature is None
         assert req.max_tokens is None
 
     def test_missing_message_rejected(self):
         """ChatRequest without 'message' is rejected."""
-        ChatRequest = self._make_model()
+        from noa.api.v1.chat import ChatRequest
+
         with pytest.raises(ValidationError) as exc_info:
-            ChatRequest(
-                privacy_mode="standard",
-                model="claude-sonnet-4-20250514",
-                provider="anthropic",
-            )
+            ChatRequest(privacy_mode="external", model="claude-sonnet-4-20250514")
         errors = exc_info.value.errors()
         assert any(e["loc"] == ("message",) for e in errors)
 
-    def test_missing_privacy_mode_rejected(self):
-        """ChatRequest without 'privacy_mode' is rejected."""
-        ChatRequest = self._make_model()
-        with pytest.raises(ValidationError):
-            ChatRequest(
-                message="Hello",
-                model="claude-sonnet-4-20250514",
-                provider="anthropic",
-            )
+    def test_privacy_mode_optional(self):
+        """ChatRequest privacy_mode is optional — defaults to None (external at runtime)."""
+        from noa.api.v1.chat import ChatRequest
 
-    def test_missing_model_rejected(self):
-        """ChatRequest without 'model' is rejected."""
-        ChatRequest = self._make_model()
-        with pytest.raises(ValidationError):
-            ChatRequest(
-                message="Hello",
-                privacy_mode="standard",
-                provider="anthropic",
-            )
+        req = ChatRequest(message="Hello")
+        assert req.privacy_mode is None
 
-    def test_missing_provider_rejected(self):
-        """ChatRequest without 'provider' is rejected."""
-        ChatRequest = self._make_model()
-        with pytest.raises(ValidationError):
-            ChatRequest(
-                message="Hello",
-                privacy_mode="standard",
-                model="claude-sonnet-4-20250514",
-            )
+    def test_privacy_mode_accepts_private_and_external(self):
+        """ChatRequest privacy_mode accepts 'private' and 'external'."""
+        from noa.api.v1.chat import ChatRequest
+
+        req_priv = ChatRequest(message="Hi", privacy_mode="private")
+        req_ext = ChatRequest(message="Hi", privacy_mode="external")
+        assert req_priv.privacy_mode == "private"
+        assert req_ext.privacy_mode == "external"
 
     def test_temperature_accepts_float(self):
         """temperature field coerces numeric values to float."""
-        ChatRequest = self._make_model()
-        req = ChatRequest(
-            message="Hi",
-            privacy_mode="standard",
-            model="m",
-            provider="p",
-            temperature=1,
-        )
+        from noa.api.v1.chat import ChatRequest
+
+        req = ChatRequest(message="Hi", temperature=1)
         assert isinstance(req.temperature, float)
 
 
@@ -492,8 +452,8 @@ class TestApprovalsRoutes:
         assert ("post", "/{approval_id}/decide") in self.routes
 
     def test_route_count(self):
-        """Exactly 2 routes defined in approvals.py."""
-        assert len(self.routes) == 2
+        """3 routes defined in approvals.py (GET /pending, GET /history, POST /decide)."""
+        assert len(self.routes) == 3
 
 
 class TestApprovalDecisionSchema:
