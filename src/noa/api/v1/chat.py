@@ -110,6 +110,20 @@ async def submit_chat(
 
     runner = get_runner()
 
+    # BE-C3: Verify existing thread belongs to the correct domain
+    if body.thread_id is not None:
+        domain_error = await _check_thread_domain(
+            body.thread_id, user_id, privacy_mode,
+        )
+        if domain_error is not None:
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "ok": False,
+                    "error": {"code": "DOMAIN_MISMATCH", "message": domain_error},
+                },
+            )
+
     async def event_stream() -> Any:
         """Generate SSE events from the runner."""
         # Initial metadata event with run_id and thread_id
@@ -168,7 +182,7 @@ async def submit_chat(
                 # Persist approval requests to DB so Approvals page shows them
                 if event.get("event_type") == "approval_requested":
                     approval_id = await _create_approval(
-                        user_id, run_id, event.get("payload", {}),
+                        user_id, run_id, event.get("payload", {}), privacy_mode,
                     )
                     # Inject approval_id into the SSE event payload
                     if approval_id:
@@ -185,7 +199,9 @@ async def submit_chat(
             yield f"data: {json.dumps(err_event)}\n\n"
 
         # Persist messages, usage, events, and run status to DB (best-effort)
-        await _persist_messages(user_id, thread_id, run_id, body.message, response_text)
+        await _persist_messages(
+            user_id, thread_id, run_id, body.message, response_text, privacy_mode,
+        )
         if llm_usage:
             await _record_usage(user_id, run_id, llm_usage)
         await _persist_run_events(run_id, collected_events)
@@ -203,6 +219,59 @@ async def submit_chat(
             "X-Trace-ID": rid,
         },
     )
+
+
+async def _check_thread_domain(
+    thread_id: str,
+    user_id: str,
+    privacy_mode: str,
+) -> str | None:
+    """Verify the thread's domain matches the current privacy_mode.
+
+    BE-C3: Returns an error message string if there is a mismatch, None if OK.
+    Missing threads are allowed through (will be created with the correct domain).
+    """
+    factory = _get_session_factory()
+    if factory is None:
+        # fail-closed: if we can't verify domain, block the request
+        return "Domain check unavailable — DB factory not configured"
+
+    try:
+        tid = uuid.UUID(thread_id)
+    except ValueError:
+        return f"Invalid thread_id format: {thread_id!r}"
+
+    try:
+        uid = uuid.UUID(user_id)
+    except ValueError:
+        return f"Invalid user_id format: {user_id!r}"
+
+    try:
+        from sqlalchemy import select
+
+        from noa.db.models.conversation import Conversation
+
+        async with factory() as session:
+            result = await session.execute(
+                select(Conversation).where(
+                    Conversation.id == tid,
+                    Conversation.user_id == uid,
+                )
+            )
+            conversation = result.scalar_one_or_none()
+            if conversation is None:
+                # Thread doesn't exist yet — will be created with correct domain
+                return None
+            if conversation.domain != privacy_mode:
+                return (
+                    f"Thread {thread_id} belongs to domain '{conversation.domain}' "
+                    f"but request is in domain '{privacy_mode}'"
+                )
+    except Exception:  # noqa: BLE001
+        logger.warning("Failed to check thread domain for %s", thread_id)
+        return None
+
+    return None
 
 
 async def _make_run_service(
@@ -235,9 +304,12 @@ async def _make_run_service(
                 result = await session.execute(
                     select(Conversation).where(Conversation.id == tid)
                 )
-                if result.scalar_one_or_none() is None:
+                existing = result.scalar_one_or_none()
+                if existing is None:
                     title = user_message[:50].strip() or "New thread"
-                    session.add(Conversation(id=tid, user_id=uid, title=title))
+                    session.add(Conversation(
+                        id=tid, user_id=uid, title=title, domain=privacy_mode,
+                    ))
 
                 session.add(Run(
                     id=uuid.UUID(run_id),
@@ -313,10 +385,12 @@ async def _persist_messages(
     run_id: str,
     user_message: str,
     assistant_response: str,
+    privacy_mode: str = "external",
 ) -> None:
     """Persist user + assistant messages to the messages table.
 
     Creates the Conversation row if it doesn't exist yet (new thread from chat).
+    BE-C3: New conversations are created with the correct domain.
     """
     factory = _get_session_factory()
     if factory is None:
@@ -340,7 +414,9 @@ async def _persist_messages(
             if conv is None:
                 # Derive title from first ~50 chars of user message
                 title = user_message[:50].strip() or "New thread"
-                session.add(Conversation(id=tid, user_id=uid, title=title))
+                session.add(
+                    Conversation(id=tid, user_id=uid, title=title, domain=privacy_mode)
+                )
             elif conv.title in ("New Thread", "New thread", ""):
                 # Update placeholder title with first real message
                 conv.title = user_message[:50].strip() or conv.title
@@ -479,6 +555,7 @@ async def _create_approval(
     user_id: str,
     run_id: str,
     payload: dict[str, Any],
+    privacy_mode: str = "external",
 ) -> str | None:
     """Create a pending Approval row in the DB (best-effort).
 
@@ -486,7 +563,7 @@ async def _create_approval(
     """
     factory = _get_session_factory()
     if factory is None:
-        return None
+        return "no-db-factory"  # fail-closed: signal rather than silent None
 
     try:
         from noa.db.models.approval import Approval
@@ -511,7 +588,7 @@ async def _create_approval(
                 risk_tier=risk_tier,
                 preview_text=preview,
                 decision="pending",
-                domain="external",
+                domain=privacy_mode,
             ))
         logger.info("Created approval %s for run %s", approval_id, run_id)
         return str(approval_id)

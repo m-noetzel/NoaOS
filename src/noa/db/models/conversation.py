@@ -19,6 +19,9 @@ class Conversation(Base):
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False,
     )
     title: Mapped[str | None] = mapped_column(String(256))
+    domain: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="external",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
