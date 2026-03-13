@@ -167,20 +167,13 @@ The plan is organized into **waves** — groups of related phases that deliver a
 | **QE5** | Requirements Traceability Matrix | **Complete** | 30 | main | ~45 min | ~17 min | QA PASS_WITH_NOTES: traceability.py, TRACEABILITY.md (97/128 covered, 9 Phase-2 deferred orphans), CI step with continue-on-error |
 | **QE6** | Test Quality Infrastructure (Coverage, Mutation, Flaky Detection) | **Complete** | 16 | main | ~60 min | ~7 min | QA PASS_WITH_NOTES: pytest-cov (84% baseline, 70% threshold), mutmut config (auth/router/gateway), pytest-repeat nightly CI job |
 
-| — | — **WAVE 22: UX FIXES & AUDIT FINDINGS** — | — | — | — | — | — | — |
+| — | — **WAVE 22: FINDINGS FIXES & UX** — | — | — | — | — | — | — |
 | **FR1** | Domain Isolation & Privacy Enforcement | **Complete** | 30 | main | ~45 min | ~60 min | QA PASS_WITH_NOTES 2026-03-13 (cycle 2): BE-C3 domain column + thread scoping, BE-H8 tool visibility by domain, BE-H11 provider filtering by privacy_mode, migration 014 |
-
----
-
-## Future Waves
-
-Noa is a **single-user personal assistant** — no multi-user needed for now.
-
-### Wave 22 (remaining): UX Fixes & Notion MCP
-- **UX-H1–H6, UX-M1–M2**: Fix SSE/calendar, send button, system prompt, runs display, tool details, Notion, costs, approvals toggle
-- **Notion MCP sidecar**: Replace custom NotionTool/NotionClient with official `@notionhq/notion-mcp-server` running as Docker sidecar + HTTP bridge → existing `McpRemoteAdapter`
-- System prompt file-backed (`prompts/` directory) + save button in UI
-- Approvals toggle in Settings
+| **FR2** | Memory & Session Fixes | **Planned** | — | — | ~60 min | — | BE-H7 memory facts not persisted, BE-H10 private memory broken, BE-H6 /data volume mount, BE-H9 external domain memory, BE-H12 logout session clearing |
+| **FR3** | Backend Data Integrity & Infra | **Planned** | — | — | ~45 min | — | W21-H1 DELETE threads 500 (usage_stats FK CASCADE), W21-H2 backup crash-loop (setpgid), W21-M1 /docs env gating, W21-M2 traceability overwrite |
+| **FR4** | Chat & Streaming UX | **Planned** | — | — | ~60 min | — | UX-H1 SSE on calendar calls, UX-H2 send button always enabled, UX-H9 show user message immediately, UX-H10 agent activity stream, UX-H5 tool call details (Tavily results), UX-H3 system prompt file-backed + save button |
+| **FR5** | Cost, Runs & Dashboard UX | **Planned** | — | — | ~60 min | — | UX-H7 cost mismatch daily/monthly, UX-H8 per-provider pricing settings, UX-H11 budget limits on dashboard, UX-M1 costs in UI, UX-M7 cost breakdown by process/tool, UX-H4 runs page empty, UX-M5 artifacts empty, UX-M6 queue empty |
+| **FR6** | Tools, Settings & Polish | **Planned** | — | — | ~60 min | — | UX-H6 Notion can't read, UX-M2 approvals toggle, UX-M3 thread rename, UX-M4 agent execution limits, UX-M8 tools All/Usable toggle, UX-M9 tools search/filter, UX-M10 per-scope tool settings, UX-L1 logo sizing, L10 tool enable/disable UI, iOS-H5 iOS↔backend connection |
 
 ### Wave 23: Observability & Ops
 - Lightweight monitoring (health dashboard, error rate tracking)
