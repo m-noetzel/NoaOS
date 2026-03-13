@@ -250,7 +250,32 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         db_scheduler = DbMaintenanceScheduler(engine=_engine, interval_hours=24)
         await db_scheduler.start()
 
-    # Wire LLM pipeline (ProviderRouter, ToolRegistry, Runner)
+    # Wire both MemoryStores BEFORE wire_llm_pipeline() — register_tools() reads
+    # them from app_state when wiring the memory and external_memory tools.
+    # Private store: shared in-process in dev (§13.2)
+    try:
+        from noa.api.app_state import set_memory_store
+        from noa.private_worker.handlers import _memory_store as _ms  # noqa: PLC2701
+
+        set_memory_store(_ms)
+        logger.info("MemoryStore wired to API")
+    except Exception:  # noqa: BLE001
+        logger.warning("MemoryStore not available — memory endpoints will return empty")
+
+    # External store: separate namespace under /data/memory/external (BE-H9).
+    # Imported from noa.external_worker.handlers to avoid API→private_worker import.
+    try:
+        from noa.api.app_state import set_external_memory_store  # noqa: I001
+        from noa.external_worker.handlers import _memory_store as _ext_ms  # noqa: PLC2701
+
+        set_external_memory_store(_ext_ms)
+        logger.info("External MemoryStore wired to API")
+    except Exception:  # noqa: BLE001
+        logger.warning("External MemoryStore not available")
+
+    # Wire LLM pipeline (ProviderRouter, ToolRegistry, Runner).
+    # Memory stores must be wired above before this call — register_tools()
+    # inside wire_llm_pipeline reads both stores from app_state.
     if settings is not None:
         wire_llm_pipeline(settings)
 
@@ -289,16 +314,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             apns.initialize(apns_http_client)
             set_apns_service(apns)
             logger.info("APNs push notification service initialised")
-
-    # Wire MemoryStore from private worker (shared in-process in dev, §13.2)
-    try:
-        from noa.api.app_state import set_memory_store
-        from noa.private_worker.handlers import _memory_store as _ms  # noqa: PLC2701
-
-        set_memory_store(_ms)
-        logger.info("MemoryStore wired to API")
-    except Exception:  # noqa: BLE001
-        logger.warning("MemoryStore not available — memory endpoints will return empty")
 
     # Start retention scheduler for audit log purge (§28.7)
     from noa.maintenance.retention import RetentionScheduler
@@ -369,13 +384,19 @@ def create_app() -> FastAPI:
             exc_info=True,
         )
 
-    _is_production = os.environ.get("ENVIRONMENT", "").lower() == "production"
+    # W21-M1: Gate OpenAPI docs behind NOA_ENV — never expose in production.
+    # NOA_ENV is the canonical environment variable (used by Settings.noa_env).
+    # ENVIRONMENT is also accepted for backward compatibility.
+    # If EITHER is "production", suppress docs.
+    _noa_env = os.environ.get("NOA_ENV", "").lower()
+    _env_var = os.environ.get("ENVIRONMENT", "").lower()
+    _is_production = _noa_env == "production" or _env_var == "production"
     app = FastAPI(
         title="Noa",
         description="Noa — governed personal AI agent",
         version="0.1.0",
         lifespan=lifespan,
-        # M2: Hide OpenAPI docs in production — reduces attack surface
+        # M2 / W21-M1: Hide OpenAPI docs in production — reduces attack surface
         docs_url=None if _is_production else "/docs",
         redoc_url=None if _is_production else "/redoc",
         openapi_url=None if _is_production else "/openapi.json",

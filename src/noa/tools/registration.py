@@ -28,6 +28,7 @@ def register_tools(gateway: ToolGateway) -> None:
     _register_google_tools(gateway)
     _register_notion(gateway)
     _register_memory(gateway)
+    _register_external_memory(gateway)
 
 
 def _register_web_search(gateway: ToolGateway) -> None:
@@ -272,6 +273,57 @@ def _register_memory(gateway: ToolGateway) -> None:
     adapter = DirectApiAdapter(tool=tool)
     gateway.register("memory", adapter)
     logger.info("Registered memory tool (in-process MemoryStore)")
+
+
+def _register_external_memory(gateway: ToolGateway) -> None:
+    """Register the external-domain memory tool (BE-H9).
+
+    Uses the external MemoryStore wired during startup, providing
+    long-term memory for external domain agents with a separate
+    namespace from private domain memory.
+    """
+    from noa.api.app_state import get_external_memory_store
+
+    ext_store = get_external_memory_store()
+    if ext_store is None:
+        logger.info("External MemoryStore not available — skipping external_memory")
+        return
+
+    from noa.tools.adapters.direct import DirectApiAdapter
+    from noa.tools.memory import MemoryTool
+
+    async def _external_rpc(request: dict) -> dict:  # type: ignore[type-arg]
+        """In-process RPC shim using the external MemoryStore."""
+        task_type = request.get("task_type", "")
+        payload = request.get("payload", {})
+
+        if task_type == "remember":
+            fact_id = ext_store.store(
+                fact=payload.get("fact", ""),
+                category=payload.get("category", "preference"),
+                embedding=payload.get("embedding", []),
+                source_thread_id=payload.get("source_thread_id", ""),
+                auto_extracted=payload.get("auto_extracted", False),
+                user_id=payload.get("user_id"),
+            )
+            if fact_id is None:
+                return {"status": "ok", "result": {"status": "duplicate"}}
+            return {"status": "ok", "result": {"status": "stored", "fact_id": fact_id}}
+
+        if task_type == "recall":
+            facts = ext_store.recall(
+                query_embedding=payload.get("query_embedding", []),
+                n_results=payload.get("n_results", 5),
+                user_id=payload.get("user_id"),
+            )
+            return {"status": "ok", "result": {"status": "recalled", "facts": facts}}
+
+        return {"status": "error", "error": f"Unknown task type: {task_type}"}
+
+    tool = MemoryTool(rpc_client=_external_rpc)
+    adapter = DirectApiAdapter(tool=tool)
+    gateway.register("external_memory", adapter)
+    logger.info("Registered external_memory tool (external MemoryStore)")
 
 
 def register_mcp_server(

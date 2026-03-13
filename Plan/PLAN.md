@@ -169,9 +169,9 @@ The plan is organized into **waves** — groups of related phases that deliver a
 
 | — | — **WAVE 22: FINDINGS FIXES & UX** — | — | — | — | — | — | — |
 | **FR1** | Domain Isolation & Privacy Enforcement | **Complete** | 30 | main | ~45 min | ~60 min | QA PASS_WITH_NOTES 2026-03-13 (cycle 2): BE-C3 domain column + thread scoping, BE-H8 tool visibility by domain, BE-H11 provider filtering by privacy_mode, migration 014 |
-| **FR2** | Memory & Session Fixes | **Planned** | — | — | ~60 min | — | BE-H7 memory facts not persisted, BE-H10 private memory broken, BE-H6 /data volume mount, BE-H9 external domain memory, BE-H12 logout session clearing |
-| **FR3** | Backend Data Integrity & Infra | **Planned** | — | — | ~45 min | — | W21-H1 DELETE threads 500 (usage_stats FK CASCADE), W21-H2 backup crash-loop (setpgid), W21-M1 /docs env gating, W21-M2 traceability overwrite |
-| **FR4** | Chat & Streaming UX | **Planned** | — | — | ~60 min | — | UX-H1 SSE on calendar calls, UX-H2 send button always enabled, UX-H9 show user message immediately, UX-H10 agent activity stream, UX-H5 tool call details (Tavily results), UX-H3 system prompt file-backed + save button |
+| **FR2** | Memory & Session Fixes | **Complete** | 27 | main | ~60 min | ~60 min | BE-H6 (/data volume mount), BE-H7 (_handle_memory_approval), BE-H9 (external MemoryStore), BE-H10 (memory health), BE-H12 (logout cookie). 27 tests. |
+| **FR3** | Backend Data Integrity & Infra | **Complete** | — | main | ~45 min | ~45 min | W21-H1 (usage_stats FK CASCADE), W21-H2 (backup setpgid), W21-M1 (/docs NOA_ENV gate), W21-M2 (traceability --check). Migration 015. |
+| **FR4** | Chat & Streaming UX | **Complete** | — | main | ~60 min | ~60 min | UX-H1 (SSE keepalive 15s), UX-H2 (send always enabled), UX-H9 (optimistic message), UX-H10 (activity stream), UX-H5 (tool details), UX-H3 (system-prompt GET/PUT). Web components + runner. |
 | **FR5** | Cost, Runs & Dashboard UX | **Planned** | — | — | ~60 min | — | UX-H7 cost mismatch daily/monthly, UX-H8 per-provider pricing settings, UX-H11 budget limits on dashboard, UX-M1 costs in UI, UX-M7 cost breakdown by process/tool, UX-H4 runs page empty, UX-M5 artifacts empty, UX-M6 queue empty |
 | **FR6** | Tools, Settings & Polish | **Planned** | — | — | ~60 min | — | UX-H6 Notion can't read, UX-M2 approvals toggle, UX-M3 thread rename, UX-M4 agent execution limits, UX-M8 tools All/Usable toggle, UX-M9 tools search/filter, UX-M10 per-scope tool settings, UX-L1 logo sizing, L10 tool enable/disable UI, iOS-H5 iOS↔backend connection |
 

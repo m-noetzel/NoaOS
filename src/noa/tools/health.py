@@ -29,6 +29,7 @@ _TOOL_REQUIRED_SECRETS: dict[str, list[str]] = {
     ],
     "notion": ["NOTION_TOKEN"],
     "memory": [],
+    "external_memory": [],  # BE-H9: external domain memory — no credentials needed
 }
 
 # All known tool names (for validation)
@@ -115,6 +116,45 @@ _PROBE_REQUESTS: dict[str, dict[str, Any]] = {
 }
 
 
+def _check_memory_health(*, tool_name: str = "memory") -> dict[str, Any]:
+    """Check memory tool health by verifying MemoryStore is available.
+
+    The memory tool does not use external credentials — it only needs
+    the /data volume to be mounted and the MemoryStore singleton to be
+    accessible via app_state.  This probe never makes network calls.
+
+    Args:
+        tool_name: "memory" (private) or "external_memory" (BE-H9).
+    """
+    try:
+        if tool_name == "external_memory":
+            from noa.api.app_state import get_external_memory_store
+            store = get_external_memory_store()
+        else:
+            from noa.api.app_state import get_memory_store
+            store = get_memory_store()
+
+        if store is None:
+            return {
+                "status": "error",
+                "error": "MemoryStore not wired — /data volume may be missing",
+            }
+        # Confirm the store has a data_dir configured (volume mount check)
+        data_dir = getattr(store, "_data_dir", None)
+        if data_dir is None:
+            return {
+                "status": "error",
+                "error": (
+                    "MemoryStore has no data_dir"
+                    " — memory will not persist across restarts"
+                ),
+            }
+        return {"status": "ok", "error": None}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Memory health check error: %s", exc)
+        return {"status": "error", "error": str(exc)}
+
+
 class ToolHealthChecker:
     """Per-tool health probes via the ToolGateway.
 
@@ -161,6 +201,11 @@ class ToolHealthChecker:
                         f"{', '.join(missing)}"
                     ),
                 }
+            # No required secrets — tool may not need credentials.
+            # For memory tools specifically, check MemoryStore availability
+            # via app_state rather than via gateway registration.
+            if tool_name in ("memory", "external_memory"):
+                return _check_memory_health(tool_name=tool_name)
             return {
                 "status": "error",
                 "error": "Tool not registered in gateway",

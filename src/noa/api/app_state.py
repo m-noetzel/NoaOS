@@ -136,11 +136,25 @@ def get_memory_store() -> Any | None:
     return _get_from_app("memory_store") or _memory_store
 
 
+# External-domain memory store — separate namespace from private domain (BE-H9)
+_external_memory_store: Any | None = None
+
+
+def set_external_memory_store(store: Any) -> None:
+    global _external_memory_store  # noqa: PLW0603
+    _external_memory_store = store
+    _set_on_app("external_memory_store", store)
+
+
+def get_external_memory_store() -> Any | None:
+    return _get_from_app("external_memory_store") or _external_memory_store
+
+
 def reset_all() -> None:
     """Reset all state — for testing."""
     global _engine, _session_factory, _health_checker  # noqa: PLW0603
     global _provider_router, _runner, _gateway, _app_instance  # noqa: PLW0603
-    global _apns_service, _memory_store  # noqa: PLW0603
+    global _apns_service, _memory_store, _external_memory_store  # noqa: PLW0603
     _engine = None
     _session_factory = None
     _health_checker = None
@@ -150,3 +164,4 @@ def reset_all() -> None:
     _app_instance = None
     _apns_service = None
     _memory_store = None
+    _external_memory_store = None

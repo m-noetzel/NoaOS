@@ -15,7 +15,7 @@ import os
 import secrets
 import time
 import uuid
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -235,18 +235,42 @@ async def logout(
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
     settings: Settings = Depends(_get_settings),  # noqa: B008
 ) -> dict[str, Any]:
-    """Invalidate the current session."""
+    """Invalidate the current session.
+
+    BE-H12: Ensure cookies are deleted with the same attributes they were set
+    with (secure, samesite, httponly, path).  Browsers only honour a cookie
+    deletion when the Set-Cookie header precisely matches the original —
+    mismatched attributes cause the browser to ignore the deletion and the
+    session cookie remains, making it appear the user is still logged in.
+    """
     rid = trace_id_ctx.get("")
     if payload.session_id:
         try:
             service = AuthService(session=session, settings=settings)
             await service.logout(session_id=uuid.UUID(payload.session_id))
-        except Exception:  # noqa: BLE001, S110
-            pass  # Best-effort logout — token may be invalid/expired
+        except Exception:  # noqa: BLE001
+            logger.warning("Best-effort logout failed — token may be invalid/expired")
 
-    # C6: Clear httpOnly cookies on logout
-    response.delete_cookie("noa_access_token", path="/")
-    response.delete_cookie("noa_refresh_token", path="/api/v1/auth")
+    # C6: Clear httpOnly cookies on logout.
+    # Attributes must match _set_auth_cookies() exactly for browsers to honour
+    # the deletion (RFC 6265: path + domain must match; secure/samesite should match).
+    is_secure = settings.noa_env == Environment.PRODUCTION
+    samesite: Literal["strict", "lax"] = "strict" if is_secure else "lax"
+
+    response.delete_cookie(
+        "noa_access_token",
+        path="/",
+        httponly=True,
+        secure=is_secure,
+        samesite=samesite,
+    )
+    response.delete_cookie(
+        "noa_refresh_token",
+        path="/api/v1/auth",
+        httponly=True,
+        secure=is_secure,
+        samesite=samesite,
+    )
     return success_envelope(data={"status": "logged_out"}, trace_id=rid)
 
 

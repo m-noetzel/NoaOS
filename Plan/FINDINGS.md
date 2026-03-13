@@ -123,17 +123,17 @@
 | BE-H8 | High | Memory tool visible in external domain despite privacy_mode=private — domain isolation violated | **Resolved** | FR1 |
 | BE-H11 | High | OpenAI selectable as provider in private domain — external-only providers must be hidden when in private mode | **Resolved** | FR1 |
 | | | **── P1: Broken Core Features ──** | | |
-| BE-H7 | High | Approved memory facts not persisted — Memory page shows 0 facts after approving a memory | Open | — |
-| BE-H10 | High | Private memory tool broken — health "Unconfigured", remember/recall functions disabled, switching to private mode doesn't fix it | Open | — |
-| BE-H6 | High | Memory facts lost on API restart — /data volume not mounted on noa-api container | Open | — |
-| BE-H9 | High | No memory store for external domain — agent has no long-term memory when running in external mode | Open | — |
-| BE-H12 | High | Logout not fully clearing session — user sometimes still logged in after restart despite logging out | Open | — |
-| W21-H1 | High | DELETE /threads returns 500 -- usage_stats FK missing ondelete CASCADE/SET NULL | Open | — |
+| BE-H7 | High | Approved memory facts not persisted — Memory page shows 0 facts after approving a memory | **Resolved** | FR2 |
+| BE-H10 | High | Private memory tool broken — health "Unconfigured", remember/recall functions disabled, switching to private mode doesn't fix it | **Resolved** | FR2 |
+| BE-H6 | High | Memory facts lost on API restart — /data volume not mounted on noa-api container | **Resolved** | FR2 |
+| BE-H9 | High | No memory store for external domain — agent has no long-term memory when running in external mode | **Resolved** | FR2 |
+| BE-H12 | High | Logout not fully clearing session — user sometimes still logged in after restart despite logging out | **Resolved** | FR2 |
+| W21-H1 | High | DELETE /threads returns 500 -- usage_stats FK missing ondelete CASCADE/SET NULL | **Resolved** | FR3 |
 | UX-H1 | High | SSE connection fails on calendar tool calls (e.g. create event) | **Resolved** | FR4 |
 | UX-H6 | High | Notion connected but agent can't read anything | Open | — |
 | UX-H7 | High | Cost dashboard values don't match — daily and monthly show identical $0.08 despite different token counts | Open | — |
 | iOS-H5 | High | Noa iOS app not connected to backend — cannot communicate with the API | Open | — |
-| W21-H2 | High | Backup container crash-looping -- setpgid permission denied from DE3 hardening | Open | — |
+| W21-H2 | High | Backup container crash-looping -- setpgid permission denied from DE3 hardening | **Resolved** | FR3 |
 | | | **── P2: Chat Experience ──** | | |
 | UX-H9 | High | User message not shown immediately after sending — hidden until agent finishes responding | **Resolved** | FR4 |
 | UX-H10 | High | No visible agent activity stream — tool selection, execution steps, and reasoning not shown during processing | **Resolved** | FR4 |
@@ -157,12 +157,12 @@
 | UX-M6 | Medium | Queue page completely empty — no queued tasks shown | Open | — |
 | UX-H3 | High | System prompt not stored in repo `prompts/` dir; no save button in UI | **Resolved** | FR4 |
 | | | **── P6: Low / DevOps ──** | | |
-| W21-M1 | Medium | /docs and /openapi.json exposed unconditionally (no env gating) | Open | — |
-| W21-M2 | Medium | traceability.py --check overwrites manual TRACEABILITY.md sections | Open | — |
+| W21-M1 | Medium | /docs and /openapi.json exposed unconditionally (no env gating) | **Resolved** | FR3 |
+| W21-M2 | Medium | traceability.py --check overwrites manual TRACEABILITY.md sections | **Resolved** | FR3 |
 | UX-L1 | Low | Noa logo/icon in top-left squeezes awkwardly when sidebar toggles — should maintain fixed size | Open | — |
 | FR3-L1 | Low | Migration chain not tested — test suite uses create_all, so a broken down_revision reference (e.g. referencing a migration added by a concurrent branch) never surfaces in tests. Discovered: migration 015 (FR3) references down_revision="014" but 014 was missing from the FR3 worktree; alembic history crashed with KeyError. | Open | — |
 
-**Open:** 30 | **Partially Resolved:** 0 | **Resolved:** 121 | **Total:** 151
+**Open:** 21 | **Partially Resolved:** 0 | **Resolved:** 130 | **Total:** 151
 
 ---
 

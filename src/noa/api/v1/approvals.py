@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import logging
 import uuid
 from datetime import UTC, datetime
 from typing import Any, Literal
@@ -17,7 +19,67 @@ from noa.api.schemas.common import success_envelope
 from noa.auth.middleware import AuthUser, require_auth
 from noa.db.models.approval import Approval
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/v1/approvals", tags=["approvals"])
+
+
+def _handle_memory_approval(*, approval: Approval, decision: str) -> None:
+    """Update MemoryStore when a memory auto-extract approval is decided.
+
+    BE-H7: When a user approves a memory fact via the approvals flow,
+    the fact must be marked 'approved' in the MemoryStore so it becomes
+    available for recall.  When denied, the fact is removed.
+
+    The fact_id is embedded in the approval's preview_text as JSON args,
+    e.g.: ``memory\\n{"fact_id": "<uuid>", "fact": "...", ...}``
+    """
+    try:
+        from noa.api.app_state import get_memory_store
+
+        store = get_memory_store()
+        if store is None:
+            return
+
+        # Parse tool_name and fact_id from preview_text
+        preview = approval.preview_text or ""
+        if "\n" not in preview:
+            return
+        first_line, rest = preview.split("\n", 1)
+        tool_name = first_line.strip().lower()
+        if tool_name != "memory":
+            return
+
+        try:
+            args = json.loads(rest)
+        except (ValueError, TypeError):
+            return
+
+        fact_id = args.get("fact_id")
+        if not fact_id:
+            return
+
+        user_id = str(approval.user_id)
+        if decision == "approved":
+            updated = store.update_status(fact_id, "approved", user_id=user_id)
+            if updated:
+                logger.info(
+                    "Memory fact %s approved for user %s", fact_id, user_id
+                )
+            else:
+                logger.warning(
+                    "Memory fact %s not found in store (user=%s)", fact_id, user_id
+                )
+        elif decision == "denied":
+            deleted = store.delete(fact_id, user_id=user_id)
+            if deleted:
+                logger.info(
+                    "Memory fact %s denied and removed for user %s", fact_id, user_id
+                )
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "Failed to update MemoryStore on approval decision", exc_info=True
+        )
 
 
 class ApprovalDecision(BaseModel):
@@ -156,6 +218,10 @@ async def decide_approval(
     approval.decided_by_user_id = user.user_id
     await session.flush()
     await session.commit()
+
+    # BE-H7: When a memory auto-extract approval is approved, persist the
+    # fact to MemoryStore so it becomes available for recall.
+    _handle_memory_approval(approval=approval, decision=body.decision)
 
     return success_envelope(
         data={

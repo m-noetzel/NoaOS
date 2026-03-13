@@ -304,6 +304,67 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
             },
         },
     },
+    "external_memory": {
+        "description": "Remember and recall facts in the external domain.",
+        "functions": {
+            "remember": {
+                "description": (
+                    "Store a fact for long-term memory in the external domain. "
+                    "Use for non-sensitive context that should persist across "
+                    "external agent sessions."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "fact": {
+                            "type": "string",
+                            "description": "The fact to remember.",
+                        },
+                        "category": {
+                            "type": "string",
+                            "description": (
+                                "Category: preference, habit, contact, "
+                                "context, or general."
+                            ),
+                            "default": "general",
+                        },
+                        "source_thread_id": {
+                            "type": "string",
+                            "description": "Thread ID where the fact originated.",
+                            "default": "",
+                        },
+                    },
+                    "required": ["fact", "category"],
+                },
+                "risk_tier": "low",
+                "domain": "external",
+            },
+            "recall": {
+                "description": (
+                    "Search stored facts in the external domain. "
+                    "Use when you need to retrieve previously "
+                    "remembered external context."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Search query for facts.",
+                        },
+                        "n_results": {
+                            "type": "integer",
+                            "description": "Max results to return.",
+                            "default": 5,
+                        },
+                    },
+                    "required": ["query"],
+                },
+                "risk_tier": "low",
+                "domain": "external",
+            },
+        },
+    },
 }
 
 
