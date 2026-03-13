@@ -6,6 +6,7 @@ import type { UserSettings, PrivacyMode } from "@/api/types";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -125,6 +126,101 @@ function GoogleAuthSection() {
               {isConnecting ? "Connecting…" : "Connect Google"}
             </Button>
           </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// UX-H3: System Prompt section with its own Save button
+// ---------------------------------------------------------------------------
+
+interface SystemPromptResponse {
+  content: string;
+  is_default: boolean;
+}
+
+function SystemPromptSection() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [draft, setDraft] = useState<string | null>(null);
+
+  const { data: spRes, isLoading } = useQuery({
+    queryKey: ["system-prompt"],
+    queryFn: () => apiRequest<SystemPromptResponse>("/api/v1/settings/system-prompt"),
+  });
+
+  const currentContent = spRes?.data?.content ?? "";
+  const isDefault = spRes?.data?.is_default ?? true;
+  const value = draft ?? currentContent;
+
+  // Sync draft when query data arrives (only if no local edits yet)
+  useEffect(() => {
+    if (draft === null && spRes?.data) {
+      setDraft(spRes.data.content);
+    }
+  }, [spRes, draft]);
+
+  const saveMutation = useMutation({
+    mutationFn: (content: string) =>
+      apiRequest("/api/v1/settings/system-prompt", {
+        method: "PUT",
+        body: JSON.stringify({ content }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["system-prompt"] });
+      queryClient.invalidateQueries({ queryKey: ["settings"] });
+      toast({ title: "System prompt saved" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to save system prompt", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const isDirty = draft !== null && draft !== currentContent;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm">System Prompt</CardTitle>
+        <CardDescription>
+          Customize how Noa responds. {isDefault && !isDirty && <span className="text-muted-foreground/60">(Using default)</span>}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {isLoading ? (
+          <p className="text-sm text-muted-foreground">Loading…</p>
+        ) : (
+          <>
+            <Textarea
+              value={value}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder="Enter a system prompt…"
+              className="min-h-[100px] text-sm font-mono resize-y"
+              rows={4}
+              data-testid="system-prompt-textarea"
+            />
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                onClick={() => saveMutation.mutate(draft ?? "")}
+                disabled={saveMutation.isPending || !isDirty}
+                data-testid="system-prompt-save"
+              >
+                {saveMutation.isPending ? "Saving…" : isDirty ? "Save System Prompt *" : "Save System Prompt"}
+              </Button>
+              {isDirty && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setDraft(currentContent)}
+                >
+                  Reset
+                </Button>
+              )}
+            </div>
+          </>
         )}
       </CardContent>
     </Card>
@@ -402,6 +498,9 @@ export default function Settings() {
           </div>
         </CardContent>
       </Card>
+
+      {/* UX-H3: System prompt with dedicated Save button */}
+      <SystemPromptSection />
 
       <GoogleAuthSection />
 

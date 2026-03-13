@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 import logging
 import uuid
@@ -22,6 +24,10 @@ router = APIRouter(prefix="/api/v1", tags=["chat"])
 # M1: In-memory idempotency key tracking (TTL-based cleanup)
 _active_idempotency_keys: dict[str, float] = {}
 _IDEMPOTENCY_TTL_SECONDS = 300  # 5 minutes
+
+# UX-H1: SSE keepalive interval — send comment pings to prevent proxy timeouts
+# during long-running tool calls (e.g. Calendar API calls can take >30s).
+_SSE_KEEPALIVE_INTERVAL = 15  # seconds
 
 
 class ChatRequest(BaseModel):
@@ -155,21 +161,61 @@ async def submit_chat(
         response_text = ""
         collected_events: list[dict[str, Any]] = []
 
+        # UX-H1: Wrap the runner async generator so we can interleave keepalive
+        # pings without blocking. We race each event against a 15s sleep; if the
+        # sleep wins we emit an SSE comment (": keepalive") which proxies and
+        # browsers accept without triggering the error handler.
+        async def _run_with_keepalive() -> Any:
+            event_queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
+
+            async def _producer() -> None:
+                try:
+                    async for event in runner.run(
+                        message=body.message,
+                        run_service=run_svc,
+                        run_id=run_id,
+                        privacy_mode=privacy_mode,
+                        model=body.model,
+                        provider=body.provider,
+                        system_prompt=body.system_prompt,
+                        temperature=body.temperature,
+                        max_tokens=body.max_tokens,
+                        user_id=user_id,
+                        trace_id=rid,
+                        history=history,
+                    ):
+                        await event_queue.put(event)
+                finally:
+                    # Sentinel to signal completion
+                    await event_queue.put(None)
+
+            producer_task = asyncio.create_task(_producer())
+            try:
+                while True:
+                    try:
+                        event = await asyncio.wait_for(
+                            event_queue.get(),
+                            timeout=_SSE_KEEPALIVE_INTERVAL,
+                        )
+                        if event is None:
+                            # Producer finished
+                            break
+                        yield event
+                    except TimeoutError:
+                        # Yield a sentinel dict that the caller treats as keepalive
+                        yield {"_keepalive": True}
+            finally:
+                producer_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):  # noqa: BLE001
+                    await producer_task
+
         try:
-            async for event in runner.run(
-                message=body.message,
-                run_service=run_svc,
-                run_id=run_id,
-                privacy_mode=privacy_mode,
-                model=body.model,
-                provider=body.provider,
-                system_prompt=body.system_prompt,
-                temperature=body.temperature,
-                max_tokens=body.max_tokens,
-                user_id=user_id,
-                trace_id=rid,
-                history=history,
-            ):
+            async for event in _run_with_keepalive():
+                if event.get("_keepalive"):
+                    # SSE comment — keeps the connection alive, ignored by JS
+                    yield ": keepalive\n\n"
+                    continue
+
                 # Collect events for bulk persistence after stream ends
                 collected_events.append(event)
 

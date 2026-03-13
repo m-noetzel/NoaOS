@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,6 +16,10 @@ from noa.api.schemas.common import success_envelope
 from noa.auth.middleware import AuthUser, require_auth
 from noa.settings.repository import SettingsRepository
 from noa.settings.service import SettingsService
+
+# UX-H3: Path to the default system prompt file in the repo
+_PROMPTS_DIR = Path(__file__).parent.parent.parent.parent.parent / "prompts"
+_DEFAULT_SYSTEM_PROMPT_FILE = _PROMPTS_DIR / "system_prompt.txt"
 
 logger = logging.getLogger(__name__)
 
@@ -205,3 +210,84 @@ async def patch_settings(
     # Pass full settings (data) so partial updates don't drop other credentials.
     _reload_llm_pipeline_if_needed(updates, full_settings=data)
     return success_envelope(data=data, trace_id=rid)
+
+
+# ---------------------------------------------------------------------------
+# UX-H3: System prompt file endpoints
+# ---------------------------------------------------------------------------
+
+
+class SystemPromptBody(BaseModel):
+    """Request body for updating the system prompt."""
+
+    content: str
+
+
+def _load_default_system_prompt() -> str:
+    """Load the default system prompt from the prompts/ directory."""
+    try:
+        return _DEFAULT_SYSTEM_PROMPT_FILE.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+@router.get("/system-prompt")
+async def get_system_prompt(
+    request: Request,
+    user: AuthUser = Depends(require_auth),  # noqa: B008
+    session: AsyncSession = Depends(get_db_session),  # noqa: B008
+) -> dict[str, Any]:
+    """Get the current system prompt.
+
+    Returns the user's saved system_prompt from settings if set,
+    otherwise falls back to the default from prompts/system_prompt.txt.
+    """
+    rid = trace_id_ctx.get("")
+    service = SettingsService(SettingsRepository(session))
+    data = await service.get_settings(user.user_id)
+    # User's stored system prompt takes precedence; file is the default
+    user_prompt = data.get("system_prompt")
+    content = user_prompt or _load_default_system_prompt()
+    return success_envelope(
+        data={"content": content, "is_default": not user_prompt},
+        trace_id=rid,
+    )
+
+
+@router.put("/system-prompt")
+async def update_system_prompt(
+    body: SystemPromptBody,
+    request: Request,
+    user: AuthUser = Depends(require_auth),  # noqa: B008
+    session: AsyncSession = Depends(get_db_session),  # noqa: B008
+) -> dict[str, Any]:
+    """Save a custom system prompt for the user.
+
+    Stores the prompt in user settings so it persists across sessions.
+    To restore the default, PUT an empty string.
+    """
+    rid = trace_id_ctx.get("")
+    if len(body.content) > 10_000:
+        raise HTTPException(
+            status_code=422,
+            detail="System prompt exceeds 10,000 character limit",
+        )
+    service = SettingsService(SettingsRepository(session))
+    content = body.content.strip() or None  # empty string -> reset to default
+    data = await service.update_settings(user.user_id, {"system_prompt": content})
+    await session.commit()
+    # Return what was saved (or default if reset)
+    saved_content = data.get("system_prompt") or _load_default_system_prompt()
+    return success_envelope(
+        data={"content": saved_content, "is_default": not data.get("system_prompt")},
+        trace_id=rid,
+    )
+
+
+def load_default_system_prompt() -> str:
+    """Public helper: load default system prompt from prompts/ directory.
+
+    Used by the orchestrator to seed the system prompt when no user
+    override is present.
+    """
+    return _load_default_system_prompt()

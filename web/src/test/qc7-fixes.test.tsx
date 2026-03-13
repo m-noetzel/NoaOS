@@ -531,6 +531,8 @@ describe("UI-M3: SSE event type runtime validation", () => {
       "tool_called", "tool_result", "approval_requested", "approval_received",
       "artifact_created", "result_ready", "error", "planner_step",
       "run_started", "run_completed", "run_failed", "run_cancelled", "meta",
+      // UX-H10: tool lifecycle events added in FR4
+      "tool_start", "tool_end", "step",
     ];
 
     // The module should export VALID_SSE_EVENTS (or similar)
@@ -541,7 +543,7 @@ describe("UI-M3: SSE event type runtime validation", () => {
     for (const eventType of expectedTypes) {
       expect(validSet.has(eventType)).toBe(true);
     }
-    // No extra types in the set
+    // No extra types in the set (set.size must match expected exactly)
     expect(validSet.size).toBe(expectedTypes.length);
   });
 });
@@ -768,7 +770,7 @@ describe("UI-M4: Optimistic append on result_ready (no flash)", () => {
     });
 
     // The send button should be disabled while streaming
-    const sendButton = screen.getByRole("button", { name: "" });
+    const sendButton = screen.getByTestId("chat-send");
     // After result_ready, the input should be enabled again (isStreaming=false)
     act(() => {
       capturedOnEvent!({ event: "result_ready", data: {} });

@@ -8,16 +8,30 @@ import { RunStatusBadge } from "@/components/badges/RunStatusBadge";
 function activityLabel(event: SSEEvent): string | null {
   switch (event.event) {
     case "planner_step":
-      return event.data.step as string;
+      return (event.data.step as string) || "Planning next step";
+    // UX-H10: tool_start / tool_end lifecycle events
+    case "tool_start": {
+      const name = (event.data.tool_name as string) || (event.data.name as string) || "tool";
+      return `Starting: ${name}`;
+    }
+    case "tool_end": {
+      const name = (event.data.tool_name as string) || (event.data.name as string) || "tool";
+      return `Finished: ${name}`;
+    }
+    // UX-H10: generic step events
+    case "step": {
+      const label = (event.data.label as string) || (event.data.step as string) || (event.data.name as string);
+      return label ? `Step: ${label}` : "Executing step";
+    }
     case "tool_called": {
       const tc = (event.data.tool_call as Record<string, unknown>) || event.data;
       const name = (tc.name as string) || (event.data.tool_name as string) || "tool";
-      return `Calling tool: ${name}`;
+      return `Calling: ${name}`;
     }
     case "tool_result": {
       const tr = (event.data.tool_result as Record<string, unknown>) || event.data;
       const name = (tr.name as string) || (event.data.tool_name as string) || "tool";
-      return `Tool completed: ${name}`;
+      return `Result from: ${name}`;
     }
     case "approval_requested":
       return `Approval needed: ${event.data.tool}.${event.data.function}`;
@@ -39,15 +53,20 @@ function activityLabel(event: SSEEvent): string | null {
 function activityIcon(event: SSEEvent) {
   switch (event.event) {
     case "planner_step": {
-      const step = (event.data.step as string).toLowerCase();
+      const step = ((event.data.step as string) || "").toLowerCase();
       if (step.includes("search")) return <Search className="h-3 w-3" />;
       if (step.includes("pars") || step.includes("read")) return <FileText className="h-3 w-3" />;
       return <Brain className="h-3 w-3" />;
     }
+    case "tool_start":
     case "tool_called":
       return <Wrench className="h-3 w-3" />;
+    case "tool_end":
     case "tool_result":
       return <CheckCircle2 className="h-3 w-3" />;
+    case "step":
+    case "step_started":
+      return <Brain className="h-3 w-3" />;
     default:
       return <Brain className="h-3 w-3" />;
   }

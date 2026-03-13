@@ -234,7 +234,11 @@ export type SSEEventType =
   | "run_completed"
   | "run_failed"
   | "run_cancelled"
-  | "meta";
+  | "meta"
+  // UX-H10: Tool execution lifecycle events from agent
+  | "tool_start"
+  | "tool_end"
+  | "step";
 
 export interface SSEEvent {
   event: SSEEventType;

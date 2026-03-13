@@ -181,16 +181,51 @@ class OrchestratorRunner:
                 await self._checkpointer.save(run_id=run_id, state=result)
 
             # 6. Emit tool events if any
+            # UX-H10: pair each tool_called with tool_start/tool_end so the
+            # frontend ActivityStream shows per-tool execution progress.
             tool_calls = result.get("tool_calls", [])
+            tool_results = result.get("tool_results", [])
+
+            # Build a mapping from tool name → result for pairing start/end
+            result_by_name: dict[str, Any] = {}
+            for tr in tool_results:
+                if isinstance(tr, dict):
+                    name = tr.get("name", tr.get("tool_name", ""))
+                    if name:
+                        result_by_name[name] = tr
+
             for tc in tool_calls:
+                tool_name = (
+                    tc.get("name")
+                    if isinstance(tc, dict)
+                    else getattr(tc, "name", "tool")
+                )
+
+                # tool_start — signals the frontend that execution is beginning
+                start_event = self._make_event(
+                    "tool_start",
+                    {"tool_name": tool_name},
+                )
+                await self._persist_event(run_service, run_id, start_event)
+                yield start_event
+
+                # tool_called — full call details (inputs)
                 tc_event = self._make_event(
                     "tool_called",
-                    {"tool_call": tc},
+                    {"tool_call": tc, "tool_name": tool_name},
                 )
                 await self._persist_event(run_service, run_id, tc_event)
                 yield tc_event
 
-            tool_results = result.get("tool_results", [])
+                # tool_end — signals completion; include result if available
+                paired_result = result_by_name.get(tool_name, {})
+                end_event = self._make_event(
+                    "tool_end",
+                    {"tool_name": tool_name, "result": paired_result},
+                )
+                await self._persist_event(run_service, run_id, end_event)
+                yield end_event
+
             for tr in tool_results:
                 # Emit approval_requested event for actions needing approval
                 if isinstance(tr, dict) and tr.get("approval_required"):
@@ -206,9 +241,10 @@ class OrchestratorRunner:
                     await self._persist_event(run_service, run_id, approval_event)
                     yield approval_event
                 else:
+                    tr_name = tr.get("name", "") if isinstance(tr, dict) else ""
                     tr_event = self._make_event(
                         "tool_result",
-                        {"tool_result": tr},
+                        {"tool_result": tr, "tool_name": tr_name},
                     )
                     await self._persist_event(run_service, run_id, tr_event)
                     yield tr_event

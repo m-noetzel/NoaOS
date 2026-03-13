@@ -62,6 +62,8 @@ export default function Chat() {
   const [input, setInput] = useState("");
   const [streamingContent, setStreamingContent] = useState("");
   const [optimisticMessage, setOptimisticMessage] = useState<Message | null>(null);
+  // UX-H9: Optimistic user message shown immediately on send
+  const [optimisticUserMessage, setOptimisticUserMessage] = useState<Message | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamEvents, setStreamEvents] = useState<SSEEvent[]>([]);
   const [currentRunId, setCurrentRunId] = useState<string | null>(null);
@@ -149,23 +151,35 @@ export default function Chat() {
   const runs = runsRes?.data || [];
   const threadRuns = runs.filter((r) => r.thread_id === activeThread);
 
-  // UI-M4: Include optimistic message, clear it when refetch brings real data
+  // UI-M4: Include optimistic messages, clear them when refetch brings real data
   const messages = (() => {
-    if (optimisticMessage && rawMessages.length > 0) {
-      // If the refetched messages already contain assistant content matching the optimistic one, drop it
-      const hasReal = rawMessages.some(
+    let base = rawMessages;
+
+    // UX-H9: Remove optimistic user message once the real one arrives
+    if (optimisticUserMessage) {
+      const hasRealUser = rawMessages.some(
+        (m) => m.role === "user" && m.content === optimisticUserMessage.content
+      );
+      if (hasRealUser) {
+        queueMicrotask(() => setOptimisticUserMessage(null));
+      } else {
+        base = [...rawMessages, optimisticUserMessage];
+      }
+    }
+
+    // Optimistic assistant message (from streaming result_ready)
+    if (optimisticMessage) {
+      const hasReal = base.some(
         (m) => m.role === "assistant" && m.content === optimisticMessage.content
       );
       if (hasReal) {
-        // Clear optimistic on next tick to avoid state update during render
         queueMicrotask(() => setOptimisticMessage(null));
-        return rawMessages;
+        return base;
       }
+      return [...base, optimisticMessage];
     }
-    if (optimisticMessage) {
-      return [...rawMessages, optimisticMessage];
-    }
-    return rawMessages;
+
+    return base;
   })();
 
   const messageGroups = groupMessagesByRun(messages, threadRuns);
@@ -213,6 +227,10 @@ export default function Chat() {
           return "";
         });
         setIsStreaming(false);
+        // UX-H9: Do NOT clear optimisticUserMessage here — the deduplication logic
+        // in the messages memo removes it when the real message arrives from the
+        // refetch. Clearing early causes a flash where the message disappears
+        // momentarily before the refetch completes.
         queryClient.invalidateQueries({ queryKey: ["messages", activeThreadRef.current] });
         queryClient.invalidateQueries({ queryKey: ["threads"] });
         break;
@@ -253,15 +271,39 @@ export default function Chat() {
     });
   }
 
+  // CRITICAL 1: Disconnect SSE client when component unmounts to prevent
+  // event callbacks firing on an unmounted component and memory leaks.
+  useEffect(() => {
+    return () => { sseClientRef.current?.disconnect(); };
+  }, []);
+
   const handleSend = async () => {
-    if (!input.trim() || isStreaming) return;
+    // UX-H2: Allow clicking send even when input is empty (show toast), never
+    // disable the button outright — only block during active streaming.
+    if (isStreaming) return;
+    if (!input.trim()) {
+      toast({ title: "Type a message", description: "Enter a message before sending.", variant: "destructive" });
+      return;
+    }
 
     const message = input.trim();
     setInput("");
     setStreamingContent("");
-    setOptimisticMessage(null);
     setStreamEvents([]);
     setIsStreaming(true);
+
+    // UX-H9: Optimistically add the user message immediately so it appears in
+    // the chat before the SSE stream returns — creates a snappier feel.
+    const optimisticUserMessage: Message = {
+      id: `optimistic-user-${Date.now()}`,
+      thread_id: activeThread || "",
+      role: "user",
+      content: message,
+      created_at: new Date().toISOString(),
+    };
+    setOptimisticMessage(null);  // clear any previous assistant optimistic
+    // We add the user message via a separate state so it renders instantly
+    setOptimisticUserMessage(optimisticUserMessage);
 
     // UI-M5: Create a new thread and await its ID before connecting SSE
     let threadId = activeThread;
@@ -569,10 +611,12 @@ export default function Chat() {
                     data-testid="chat-input"
                   />
                 </div>
+                {/* UX-H2: Send is enabled at all times (only disabled during streaming) */}
                 <Button
                   onClick={handleSend}
                   disabled={isStreaming}
                   size="icon"
+                  aria-label="Send message"
                   className="h-10 w-10 shrink-0 rounded-xl gradient-primary shadow-md hover:shadow-lg hover:brightness-110 transition-all duration-200 disabled:opacity-30"
                   data-testid="chat-send"
                 >
