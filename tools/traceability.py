@@ -359,7 +359,8 @@ def run(
     rows = build_coverage(all_sections, phase_to_sections, file_to_sections)
     md = generate_markdown(rows)
 
-    if output_path is not None:
+    if output_path is not None and not check_mode:
+        # W21-M2: Skip file write in --check mode (read-only verification).
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         # M3: Preserve content below <!-- MANUAL SECTIONS --> sentinel if present
