@@ -129,17 +129,17 @@
 | BE-H9 | High | No memory store for external domain — agent has no long-term memory when running in external mode | Open | — |
 | BE-H12 | High | Logout not fully clearing session — user sometimes still logged in after restart despite logging out | Open | — |
 | W21-H1 | High | DELETE /threads returns 500 -- usage_stats FK missing ondelete CASCADE/SET NULL | Open | — |
-| UX-H1 | High | SSE connection fails on calendar tool calls (e.g. create event) | Open | — |
+| UX-H1 | High | SSE connection fails on calendar tool calls (e.g. create event) | **Resolved** | FR4 |
 | UX-H6 | High | Notion connected but agent can't read anything | Open | — |
 | UX-H7 | High | Cost dashboard values don't match — daily and monthly show identical $0.08 despite different token counts | Open | — |
 | iOS-H5 | High | Noa iOS app not connected to backend — cannot communicate with the API | Open | — |
 | W21-H2 | High | Backup container crash-looping -- setpgid permission denied from DE3 hardening | Open | — |
 | | | **── P2: Chat Experience ──** | | |
-| UX-H9 | High | User message not shown immediately after sending — hidden until agent finishes responding | Open | — |
-| UX-H10 | High | No visible agent activity stream — tool selection, execution steps, and reasoning not shown during processing | Open | — |
-| UX-H5 | High | Tool call details in chat don't show exact data (e.g. Tavily results missing) | Open | — |
+| UX-H9 | High | User message not shown immediately after sending — hidden until agent finishes responding | **Resolved** | FR4 |
+| UX-H10 | High | No visible agent activity stream — tool selection, execution steps, and reasoning not shown during processing | **Resolved** | FR4 |
+| UX-H5 | High | Tool call details in chat don't show exact data (e.g. Tavily results missing) | **Resolved** | FR4 |
 | UX-M3 | Medium | No rename option for thread names in sidebar — user cannot edit thread titles | Open | — |
-| UX-H2 | High | Send button disabled when text field is empty — should always be enabled | Open | — |
+| UX-H2 | High | Send button disabled when text field is empty — should always be enabled | **Resolved** | FR4 |
 | | | **── P3: Cost & Governance ──** | | |
 | UX-H8 | High | No settings UI for per-provider pricing — only default model priced, other providers show no cost | Open | — |
 | UX-H11 | High | Budget limits from Settings not displayed on Cost dashboard — no progress bar, threshold, or warning against configured limits | Open | — |
@@ -155,13 +155,14 @@
 | UX-M2 | Medium | No "human-in-the-loop" / approvals toggle in Settings UI | Open | — |
 | UX-M5 | Medium | Artifacts page completely empty — no artifacts displayed even after agent runs | Open | — |
 | UX-M6 | Medium | Queue page completely empty — no queued tasks shown | Open | — |
-| UX-H3 | High | System prompt not stored in repo `prompts/` dir; no save button in UI | Open | — |
+| UX-H3 | High | System prompt not stored in repo `prompts/` dir; no save button in UI | **Resolved** | FR4 |
 | | | **── P6: Low / DevOps ──** | | |
 | W21-M1 | Medium | /docs and /openapi.json exposed unconditionally (no env gating) | Open | — |
 | W21-M2 | Medium | traceability.py --check overwrites manual TRACEABILITY.md sections | Open | — |
 | UX-L1 | Low | Noa logo/icon in top-left squeezes awkwardly when sidebar toggles — should maintain fixed size | Open | — |
+| FR3-L1 | Low | Migration chain not tested — test suite uses create_all, so a broken down_revision reference (e.g. referencing a migration added by a concurrent branch) never surfaces in tests. Discovered: migration 015 (FR3) references down_revision="014" but 014 was missing from the FR3 worktree; alembic history crashed with KeyError. | Open | — |
 
-**Open:** 35 | **Partially Resolved:** 0 | **Resolved:** 115 | **Total:** 150
+**Open:** 30 | **Partially Resolved:** 0 | **Resolved:** 121 | **Total:** 151
 
 ---
 
@@ -1163,6 +1164,12 @@ Historical issues encountered during pipeline execution (formerly `Plan/ISSUES.m
 **Status:** Open
 **Description:** The approvals system exists in the backend (approval rules, pending approvals, step-up auth) but there's no UI toggle in Settings to enable/disable "human-in-the-loop" mode. Users cannot configure which tool actions require approval before execution. The Settings page (`web/src/pages/Settings.tsx`) shows model defaults, budget, credentials, and Google auth — but no approvals/governance section.
 **Files:** `web/src/pages/Settings.tsx`, `src/noa/policy/engine.py`
+
+### FR3-L1: Migration Chain Not Tested — Broken down_revision References Not Caught
+**Severity:** Low
+**Status:** Open
+**Description:** The test suite uses `Base.metadata.create_all` to set up in-memory SQLite databases, which bypasses alembic entirely. As a result, a migration that references a `down_revision` pointing to a non-existent file will never cause a test failure — but will cause `alembic history` and `alembic upgrade head` to crash in the worktree (and potentially in staging). Discovered during FR3 QA review: migration 015 references `down_revision="014"` but migration 014 (`014_conversation_domain_column.py`, created by FR1) was not present in the FR3 worktree because it was branched before FR1 merged. Running `alembic history` in the FR3 worktree crashed with `KeyError: '014'`. Fix: add a test `test_migration_chain_intact` that reads all migration files, builds the revision map, and asserts every `down_revision` points to an existing revision (or is None). This should run as part of the unit test suite (no DB required — pure file parsing).
+**Files:** `alembic/versions/`, `tests/unit/` (no test exists yet)
 
 ### BE-H6: Memory Facts Lost on API Container Restart
 **Severity:** High

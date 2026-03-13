@@ -10,6 +10,7 @@ WORKDIR /app
 
 COPY pyproject.toml ./
 COPY src/ ./src/
+COPY prompts/ ./prompts/
 COPY alembic.ini ./
 COPY alembic/ ./alembic/
 
