@@ -77,6 +77,22 @@
 - `memory.py` `update_fact`: mutates the dict returned by `get_by_id` directly — works because `get_by_id` returns a live reference into `_facts`. Fragile if `get_by_id` is ever refactored to return a copy.
 - `MemoryStore.store()` never populates `user_id` on the stored fact — tests work around this by directly writing `store._facts[fact_id]["user_id"] = uid`. This means new facts created via the orchestrator have no `user_id` and will be invisible to all `list_all(user_id=x)` calls.
 
+### FR2 Memory & Session Fixes
+- **Startup ordering bug pattern**: `register_tools(gateway)` in `app.py` lifespan runs at line ~119 but the external MemoryStore is wired at line ~311. `_register_external_memory` always calls `get_external_memory_store()` at registration time and returns `None`, so external_memory tool is silently never registered. Order matters: store must be wired BEFORE `register_tools()`.
+- **ARCH L1 violation in lifespan**: `app.py` imports `from noa.private_worker.memory_store import MemoryStore` directly. The pre-existing private-worker import (line 296) was tolerated, but the new BE-H9 import adds another violation of the "API layer never imports from workers directly" rule.
+- **Shared volume for both private and external memory stores**: The external MemoryStore is wired to write `/data/memory/external`, but both containers (noa-api and private-worker) share the `private-data` volume — the external-worker container has no `/data` volume at all. This is architecturally intentional (the external MemoryStore lives in the API process), but no external-worker-side volume was needed.
+- **`asyncio.get_event_loop().run_until_complete()` in sync tests**: This pattern appeared in test_fr2 at line 528 (same as iOS11 tests). Deprecated in Python 3.10+, fails on 3.12 when loop is already closed.
+
+### FR4 Chat & Streaming UX (Phase FR4)
+- `tool_start`, `tool_end`, and `step` are in frontend `VALID_SSE_EVENTS` and `SSEEventType` but the backend runner (`runner.py`) never emits them. `ActivityStream` handles them gracefully if they arrive — but they won't from the current orchestrator. Tests for UX-H10 exercise the component in isolation (pass synthetic events directly) and pass.
+- `EventTimeline.tsx` line 143 reads `event.data.response_text` for the `result_ready` event, but the runner emits the field as `payload.response` (not `response_text`). The timeline's result_ready row always shows nothing.
+- `Chat.tsx` has no cleanup `useEffect` to call `sseClientRef.current.disconnect()` on unmount. A tab navigation away mid-stream leaves an orphaned SSEClient consuming connection and calling React state setters on an unmounted component.
+- UX-H9 deduplication uses content-matching (`m.content === optimisticUserMessage.content`). Two identical messages in quick succession will deduplicate incorrectly. Low risk in practice (single-user, personal assistant).
+- `optimisticUserMessage` is set to `null` at `result_ready` (line 231) before the query refetch completes. If `invalidateQueries` is slow, there's a brief window where the user message disappears from the chat.
+- `_PROMPTS_DIR` path computation in `settings.py`: `Path(__file__).parent × 5 / "prompts"` — correctly resolves to project root / prompts.
+- SSE keepalive (`: keepalive\n\n`) is correctly silently ignored by the frontend SSE parser: `:...` lines don't match `id:`, `event:`, `data:` prefixes and the empty line with no accumulated `currentData` fires no event.
+- Settings router `/api/v1/settings/system-prompt` GET+PUT wired into `app.py` via `settings_router` (line 446). Correctly registered.
+
 ### iOS3 Networking Layer (Phase iOS3)
 - SPM package at `ios/Noa/Package.swift` — no `.xcodeproj` (spec said create one; delivered as SPM library instead).
 - `swift-tools-version: 5.9`; no `swiftLanguageVersions: [.v6]` — Swift 6 strict concurrency not enforced at build time despite claim.

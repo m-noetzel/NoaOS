@@ -130,39 +130,44 @@
 | BE-H12 | High | Logout not fully clearing session — user sometimes still logged in after restart despite logging out | **Resolved** | FR2 |
 | W21-H1 | High | DELETE /threads returns 500 -- usage_stats FK missing ondelete CASCADE/SET NULL | **Resolved** | FR3 |
 | UX-H1 | High | SSE connection fails on calendar tool calls (e.g. create event) | **Resolved** | FR4 |
-| UX-H6 | High | Notion connected but agent can't read anything | Open | — |
-| UX-H7 | High | Cost dashboard values don't match — daily and monthly show identical $0.08 despite different token counts | Open | — |
-| iOS-H5 | High | Noa iOS app not connected to backend — cannot communicate with the API | Open | — |
+| UX-H6 | High | Notion connected but agent can't read anything | **Resolved** | FR6 |
+| UX-H7 | High | Cost dashboard values don't match — daily and monthly show identical $0.08 despite different token counts | **Resolved** | FR5 |
+| iOS-H5 | High | Noa iOS app not connected to backend — cannot communicate with the API | **Resolved** | FR6 |
 | W21-H2 | High | Backup container crash-looping -- setpgid permission denied from DE3 hardening | **Resolved** | FR3 |
 | | | **── P2: Chat Experience ──** | | |
 | UX-H9 | High | User message not shown immediately after sending — hidden until agent finishes responding | **Resolved** | FR4 |
 | UX-H10 | High | No visible agent activity stream — tool selection, execution steps, and reasoning not shown during processing | **Resolved** | FR4 |
 | UX-H5 | High | Tool call details in chat don't show exact data (e.g. Tavily results missing) | **Resolved** | FR4 |
-| UX-M3 | Medium | No rename option for thread names in sidebar — user cannot edit thread titles | Open | — |
+| UX-M3 | Medium | No rename option for thread names in sidebar — user cannot edit thread titles | **Resolved** | FR6 |
 | UX-H2 | High | Send button disabled when text field is empty — should always be enabled | **Resolved** | FR4 |
 | | | **── P3: Cost & Governance ──** | | |
-| UX-H8 | High | No settings UI for per-provider pricing — only default model priced, other providers show no cost | Open | — |
-| UX-H11 | High | Budget limits from Settings not displayed on Cost dashboard — no progress bar, threshold, or warning against configured limits | Open | — |
-| UX-M1 | Medium | Costs not shown anywhere in the UI (runs, chat, dashboard) | Open | — |
-| UX-M7 | Medium | Cost dashboard missing breakdown by process (run/task) and by tool — only shows model and provider | Open | — |
-| UX-H4 | High | Runs page nearly empty — tool calls, costs, and details not displayed | Open | — |
-| UX-M4 | Medium | No settings for agent execution limits — missing max tool calls per task, max retries, timeout, and other governance parameters | Open | — |
+| UX-H8 | High | No settings UI for per-provider pricing — only default model priced, other providers show no cost | **Resolved** | FR5 |
+| UX-H11 | High | Budget limits from Settings not displayed on Cost dashboard — no progress bar, threshold, or warning against configured limits | **Resolved** | FR5 |
+| UX-M1 | Medium | Costs not shown anywhere in the UI (runs, chat, dashboard) | **Resolved** | FR5 |
+| UX-M7 | Medium | Cost dashboard missing breakdown by process (run/task) and by tool — only shows model and provider | **Resolved** | FR5 |
+| UX-H4 | High | Runs page nearly empty — tool calls, costs, and details not displayed | **Resolved** | FR5 |
+| UX-M4 | Medium | No settings for agent execution limits — missing max tool calls per task, max retries, timeout, and other governance parameters | **Resolved** | FR6 |
 | | | **── P4: Tools Management ──** | | |
-| UX-M8 | Medium | Tools page needs "All / Usable" toggle to switch between showing all tools vs only currently available ones | Open | — |
-| UX-M9 | Medium | Tools page missing search/filter function | Open | — |
-| UX-M10 | Medium | No setting to enable/disable specific tools per process scope (email writing, research, scheduling, etc.) | Open | — |
+| UX-M8 | Medium | Tools page needs "All / Usable" toggle to switch between showing all tools vs only currently available ones | **Resolved** | FR6 |
+| UX-M9 | Medium | Tools page missing search/filter function | **Resolved** | FR6 |
+| UX-M10 | Medium | No setting to enable/disable specific tools per process scope (email writing, research, scheduling, etc.) | **Resolved** | FR6 |
 | | | **── P5: Missing Pages & Features ──** | | |
-| UX-M2 | Medium | No "human-in-the-loop" / approvals toggle in Settings UI | Open | — |
-| UX-M5 | Medium | Artifacts page completely empty — no artifacts displayed even after agent runs | Open | — |
-| UX-M6 | Medium | Queue page completely empty — no queued tasks shown | Open | — |
+| UX-M2 | Medium | No "human-in-the-loop" / approvals toggle in Settings UI | **Resolved** | FR6 |
+| UX-M5 | Medium | Artifacts page completely empty — no artifacts displayed even after agent runs | **Resolved** | FR5 |
+| UX-M6 | Medium | Queue page completely empty — no queued tasks shown | **Resolved** | FR5 |
 | UX-H3 | High | System prompt not stored in repo `prompts/` dir; no save button in UI | **Resolved** | FR4 |
 | | | **── P6: Low / DevOps ──** | | |
 | W21-M1 | Medium | /docs and /openapi.json exposed unconditionally (no env gating) | **Resolved** | FR3 |
 | W21-M2 | Medium | traceability.py --check overwrites manual TRACEABILITY.md sections | **Resolved** | FR3 |
-| UX-L1 | Low | Noa logo/icon in top-left squeezes awkwardly when sidebar toggles — should maintain fixed size | Open | — |
+| UX-L1 | Low | Noa logo/icon in top-left squeezes awkwardly when sidebar toggles — should maintain fixed size | **Resolved** | FR6 |
 | FR3-L1 | Low | Migration chain not tested — test suite uses create_all, so a broken down_revision reference (e.g. referencing a migration added by a concurrent branch) never surfaces in tests. Discovered: migration 015 (FR3) references down_revision="014" but 014 was missing from the FR3 worktree; alembic history crashed with KeyError. | Open | — |
+| FR6-L1 | Low | Scope overrides (`_scope_overrides` in `src/noa/api/v1/tools.py`) are in-memory only — lost on server restart. User scope configurations (PATCH /tools/scopes/{scope_name}) are not persisted to DB. A future phase should persist to a JSON column on UserSettings or a separate table. | Open | — |
+| W22-H1 | High | Agent limit settings are dead-end stores — `max_tool_calls`, `max_retries`, `timeout_seconds` are stored in DB and served by the settings API but the orchestrator never reads them. Users configure execution limits that the agent ignores entirely. Violates "no dead-end stores" rule. | Open | — |
+| W22-H2 | High | `approvals_enabled` toggle is a dead-end store — stored in settings, served by API, but neither the policy engine nor the orchestrator checks it. Toggling "Human-in-the-loop approvals" off in the UI has no effect on approval flow execution. | Open | — |
+| W22-M1 | Medium | Runs and Cost endpoints not filtered by domain — `/api/v1/runs` and `/api/v1/cost/*` show data from all domains regardless of active privacy mode. FR1 isolated threads/messages by domain but did not extend the pattern to runs and cost records. | Open | — |
+| W22-M2 | Medium | No Pydantic validation constraints on agent limit fields — `max_tool_calls`, `max_retries`, `timeout_seconds` accept negative values (e.g. `max_tool_calls=-99`) without error. `Field(ge=1)` / `Field(ge=0, le=...)` constraints missing from `UpdateSettingsRequest`. | Open | — |
 
-**Open:** 21 | **Partially Resolved:** 0 | **Resolved:** 130 | **Total:** 151
+**Open:** 8 | **Partially Resolved:** 0 | **Resolved:** 148 | **Total:** 156
 
 ---
 
@@ -1111,7 +1116,7 @@ Historical issues encountered during pipeline execution (formerly `Plan/ISSUES.m
 | L7 | Medium | Chat error events silently swallowed in UI | **Resolved** | Added toast notification on SSE error events |
 | L8 | Medium | No thread deletion in Chat UI | **Resolved** | Added hover delete button with confirmation on thread sidebar |
 | L9 | Medium | Cookie secure flag hardcoded True — breaks HTTP dev | **Resolved** | Environment-dependent (strict in prod, lax in dev) |
-| L10 | Low | Tool management page (enable/disable connections) | Open | Existing enable/disable endpoints; UI enhancement needed |
+| L10 | Low | Tool management page (enable/disable connections) | **Resolved** | FR6 |
 | L11 | Low | No LangSmith/diagnostics page | Open | Feature request |
 | L12 | Low | No user management page | Open | Feature request |
 | L13 | Low | Costs not showing despite runs | Partially resolved | Runs now persist; cost recording needs UsageStats schema fix |

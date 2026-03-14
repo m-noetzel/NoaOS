@@ -8,6 +8,38 @@
 import Foundation
 import Observation
 
+// MARK: - Backend connection status (iOS-H5)
+
+/// Connection state for the backend health check.
+public enum BackendConnectionStatus: Sendable {
+    case unknown
+    case checking
+    case reachable
+    case unreachable(String)
+}
+
+/// Protocol for making health check HTTP requests.
+/// Allows test doubles to replace the real URLSession without subclassing.
+public protocol HealthCheckProviding: Sendable {
+    func checkHealth(url: URL) async throws -> Int
+}
+
+/// Default implementation using URLSession.
+public struct URLSessionHealthChecker: HealthCheckProviding {
+    private let session: URLSession
+
+    public init(session: URLSession = .shared) {
+        self.session = session
+    }
+
+    public func checkHealth(url: URL) async throws -> Int {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 5
+        let (_, response) = try await session.data(for: request)
+        return (response as? HTTPURLResponse)?.statusCode ?? 0
+    }
+}
+
 // MARK: - SettingsViewModel
 
 /// Observable settings state for SwiftUI binding.
@@ -27,21 +59,60 @@ public final class SettingsViewModel {
     /// `true` when the disconnect confirmation sheet should be visible.
     public var showDisconnectConfirmation: Bool = false
 
+    // MARK: - iOS-H5: Backend connection status
+
+    /// The base URL the app is connecting to.
+    public var backendURL: String {
+        NoaEnvironment.current.baseURL.absoluteString
+    }
+
+    /// Current connection status for the backend health check.
+    public var backendStatus: BackendConnectionStatus = .unknown
+
     // MARK: - Private
 
     private let googleAuthService: any GoogleAuthServicing
     /// Optional biometric guard for the connect action (medium-risk per spec §29.3).
     /// When nil, connect proceeds without biometric prompt.
     private let biometricService: (any BiometricAuthenticating)?
+    /// Health checker for pings — separate from APIClient so it works pre-auth.
+    private let healthChecker: any HealthCheckProviding
 
     // MARK: - Init
 
     public init(
         googleAuthService: any GoogleAuthServicing,
-        biometricService: (any BiometricAuthenticating)? = nil
+        biometricService: (any BiometricAuthenticating)? = nil,
+        healthChecker: (any HealthCheckProviding)? = nil
     ) {
         self.googleAuthService = googleAuthService
         self.biometricService = biometricService
+        self.healthChecker = healthChecker ?? URLSessionHealthChecker()
+    }
+
+    // MARK: - iOS-H5: Backend health check
+
+    /// Ping the backend health endpoint and update `backendStatus`.
+    ///
+    /// Uses `/health` which does not require authentication so it works
+    /// even before login (useful for diagnosing connection issues).
+    public func checkBackendHealth() async {
+        backendStatus = .checking
+        let base = NoaEnvironment.current.baseURL
+        guard let url = URL(string: "/health", relativeTo: base)?.absoluteURL else {
+            backendStatus = .unreachable("Invalid backend URL")
+            return
+        }
+        do {
+            let statusCode = try await healthChecker.checkHealth(url: url)
+            if statusCode == 200 {
+                backendStatus = .reachable
+            } else {
+                backendStatus = .unreachable("Unexpected response (HTTP \(statusCode))")
+            }
+        } catch {
+            backendStatus = .unreachable(error.localizedDescription)
+        }
     }
 
     // MARK: - Public actions

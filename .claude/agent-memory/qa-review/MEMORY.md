@@ -26,6 +26,8 @@ Note: `--override-ini="pythonpath=src"` needed to avoid langsmith pydantic_core 
 
 **Missing migration pattern (C4, TM2):** Column added to ORM model but no alembic migration. Tests pass via create_all.
 
+**"Migration chain broken across worktree branches" (FR3):** When two concurrent worktrees add migrations, the later worktree may reference a `down_revision` that only exists on main (from the earlier merged worktree). `alembic history` crashes with `KeyError`. Tests pass because they use `create_all`. Add a test that verifies every migration's `down_revision` points to an existing file (pure file parsing, no DB needed). Check this every time a migration's `down_revision` != the numerically preceding migration file.
+
 **flush-without-commit:** get_db_session does NOT auto-commit. Every write endpoint needs session.commit().
 
 **"Scope reduction without plan update" (DE1):** Phase plan specifies 5 deliverables, only 1 delivered (ci.yml). cd.yml/web-ci.yml/ios-ci.yml all missing. Always compare delivered files against PHASE_DETAILS.md file table, not just "does the one file that exists look correct."
@@ -36,6 +38,8 @@ Note: `--override-ini="pythonpath=src"` needed to avoid langsmith pydantic_core 
 
 **"Config-only tests miss runtime behavior" (DE1-DE3):** Three consecutive deployment phases validated by parsing YAML/Dockerfile text. No real Docker Compose execution. First real deployment is the actual integration test.
 
+**"Route dict overwrite when enumerating routes" (smoke test pattern):** When building `{r.path: r.methods for r in router.routes}`, paths with multiple HTTP methods (e.g. PATCH and DELETE on same path) will overwrite each other — only the last one survives. Always use `any(r.path == path and method in r.methods for r in router.routes)` to check for a specific method.
+
 ### Security Checks (run every review)
 1. `except Exception:` blocks -- pre-existing or new? Do they log?
 2. Domain isolation: no cross-domain imports
@@ -43,7 +47,11 @@ Note: `--override-ini="pythonpath=src"` needed to avoid langsmith pydantic_core 
 4. No unsafe fallback defaults (`or ""`, `or "dev"` on secrets)
 5. Wiring: new services instantiated in app.py startup
 
+**"prompts/ directory absent from Docker COPY" (FR4):** Path-relative file loading (`__file__.parent.parent.parent.parent.parent / "prompts"`) works in dev worktree but silently fails (OSError caught, returns "") in Docker because only `src/`, `alembic/`, `pyproject.toml` are COPYed. Always verify that repo-relative file lookups are either included in the Dockerfile or have a documented production fallback.
+
 **"Fail-closed breaks test that relied on factory=None=skip" (FR1):** Adding fail-closed domain check (returns error when factory=None) breaks existing tests that patch factory=None expecting the check to be skipped. Always run full test suite when adding fail-closed behavior to an existing function. Check if existing tests rely on the old fallback semantics.
+
+**"Health check skips store validation when tool IS registered" (FR2):** `ToolHealthChecker.check("memory")` only calls `_check_memory_health()` when the tool is NOT registered in the gateway. When the tool IS registered, no probe is defined for memory tools, so it returns "ok" immediately without verifying the store's data_dir or accessibility. A health check that returns "ok" by absence-of-probe rather than positive verification is a false-positive risk. Always verify that health checks make a POSITIVE assertion, not just "no probe defined = ok".
 
 **"FINDINGS.md count not decremented after resolve" (FR1):** Findings rows correctly marked Resolved, but the `**Open:** N` footer count was not decremented. test_qe3_findings.py::test_findings_open_count_consistent catches this. Always update the count line at `Plan/FINDINGS.md:164` when resolving findings.
 
@@ -75,6 +83,11 @@ Note: `--override-ini="pythonpath=src"` needed to avoid langsmith pydantic_core 
 - **QE4 (2026-03-12):** PASS_WITH_NOTES. 30 integration tests (6 suites) against real Postgres. Alembic migrations 010+011 fix schema drift (GO1 google_refresh_token, TM5 custom_tools). CI `test-integration` job added. Validates that create_all() hides drift that real migrations expose.
 - **QE6 (2026-03-12):** PASS_WITH_NOTES. 16 tests. Coverage 84% (threshold 70%), mutmut configured (auth/router/gateway), pytest-repeat nightly CI. Notes: no CI mutation step (manual-only), TOML parsing fragile, no behavioral smoke for mutmut/repeat. Wave 21 complete.
 - **FR1 (2026-03-13):** Cycle 1 FAIL, Cycle 2 PASS_WITH_NOTES. 30 tests (real SQLite DB). Domain isolation: thread scoping (BE-C3), tool visibility (BE-H8), provider filtering (BE-H11). Fixes: seeded real Conversation row in regression test (correct pattern), updated FINDINGS.md count to 35 open. Notes: fail-open on DB exception in _check_thread_domain (FR1-L1), cascade delete not tested at DB level, pytest.mark.fr1 unregistered.
+- **FR2 (2026-03-13):** PASS_WITH_NOTES. 27 tests. BE-H6 (volume mount), BE-H7 (memory approval wiring), BE-H9 (external memory store + noa.memory shared layer), BE-H10 (health check), BE-H12 (logout cookie deletion). Notes: M5b FAIL — FINDINGS.md not updated (5 findings still Open). pytest.mark.fr2 unregistered. Memory health false-positive when tool IS registered but store has no data_dir. noa.memory transitive coupling pattern not yet in ARCH_INVARIANTS.md.
+- **FR3 (2026-03-13):** PASS_WITH_NOTES. 14 tests. W21-H1 (FK cascade), W21-H2 (backup cap_drop), W21-M1 (/docs gating), W21-M2 (traceability --check). Gap: migration chain broken in worktree (015 refs 014, but 014 missing). Works post-merge. New finding FR3-L1: migration chain not tested. datetime.utcnow deprecation in traceability.py.
+- **FR4 (2026-03-13):** PASS_WITH_NOTES. 19 backend + 18 frontend tests. UX-H1/H2/H3/H5/H9/H10. Keepalive 15s asyncio.Queue pattern. tool_start/tool_end intentionally live-only (not in VALID_EVENT_TYPES, correctly excluded from DB). prompts/ absent from Docker COPY — default system prompt empty in production. M5b: 6 findings not marked Resolved in FINDINGS.md (CI-015 violation).
+- **FR5 (2026-03-13):** PASS_WITH_NOTES. 12 Python + 11 frontend tests. UX-H4/H7/H8/H11/M1/M5/M6/M7. Cost dashboard, pricing endpoint, budget progress bar, empty states, run links. 2 ruff E501 in cost.py. CostRecord.run_id typed string in types.ts but backend returns null (type lie, JSX handles it defensively). No negative test for invalid period param (422). Findings properly updated. S5 PASS (real SQLite integration).
+- **FR6 (2026-03-14):** PASS_WITH_NOTES. 19 Python + 18 frontend + 8 Swift tests. Thread rename (PATCH /threads/{id}), governance toggle + agent limits (settings), tool scopes (GET+PATCH /tools/scopes), Notion auto-grant, iOS backend health (BackendConnectionStatus). All pass. Notes: max_tool_calls/max_retries/timeout_seconds accept negative values (no Pydantic bounds). _scope_overrides in-memory only (FR6-L1). iOS T-FR6-04 soft assertion accepts both reachable/unreachable. Wave 22 UX cleanup effectively complete (FR1-FR6). 4 open findings (all Low).
 
 ### Infrastructure Security Baseline (2026-03-12)
 - Claude Code: ~102 allow rules. `Bash(curl:*)` in allow conflicts with `Bash(curl)` in deny. `Bash(sed:*)` allows arbitrary file edits.

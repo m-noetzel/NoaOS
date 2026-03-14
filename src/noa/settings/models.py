@@ -78,6 +78,14 @@ class UserSettings(Base):
         String(512), default="http://private-worker:11434",
     )
 
+    # Governance settings (UX-M2, UX-M4)
+    approvals_enabled: Mapped[bool | None] = mapped_column(
+        default=True, server_default="1",
+    )
+    max_tool_calls: Mapped[int | None] = mapped_column(default=10)
+    max_retries: Mapped[int | None] = mapped_column(default=3)
+    timeout_seconds: Mapped[int | None] = mapped_column(default=120)
+
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC),

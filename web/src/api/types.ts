@@ -177,7 +177,7 @@ export interface Artifact {
 }
 
 export interface CostRecord {
-  run_id: string;
+  run_id: string | null;
   tokens_in: number;
   tokens_out: number;
   cost_usd: number;
@@ -210,6 +210,19 @@ export interface UserSettings {
   notion_token: string | null;
   tavily_api_key: string | null;
   ollama_base_url: string | null;
+  // UX-M2: Governance
+  approvals_enabled?: boolean;
+  // UX-M4: Agent limits
+  max_tool_calls?: number;
+  max_retries?: number;
+  timeout_seconds?: number;
+}
+
+// UX-M10: Tool scope
+export interface ToolScope {
+  name: string;
+  tools: string[];
+  is_custom: boolean;
 }
 
 // --- SSE Events ---

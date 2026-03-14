@@ -41,6 +41,10 @@ usage() {
     echo "  noa setup            First-time setup (build images, verify keychain)"
     echo "  noa shell [service]  Open shell in a container"
     echo "  noa dev              Dev mode (backend containers + Vite UI with hot reload)"
+    echo "  noa dev-full         Full dev stack in Docker (dev + postgres + API)"
+    echo "  noa dev-full workers Same + private-worker + external-worker"
+    echo "  noa dev-full down    Stop dev-full stack"
+    echo "  noa dev-full build   Rebuild dev-full images"
     echo "  noa claude           Start Claude Code in the dev container"
     echo "  noa claude build     Rebuild dev container (updates Claude Code)"
     echo "  noa reset-password <email> [pw]  Reset a user's password"
@@ -526,6 +530,63 @@ cmd_db() {
     esac
 }
 
+cmd_dev_full() {
+    local subcmd="${1:-up}"
+    local compose="docker compose -f docker-compose.dev-full.yml"
+
+    case "$subcmd" in
+        up|workers)
+            log "Starting dev-full stack..."
+            if ! preflight; then
+                err "Pre-flight failed. Run 'noa setup' first."
+                exit 1
+            fi
+            echo
+
+            if [[ "$subcmd" == "workers" ]]; then
+                log "Including private-worker + external-worker"
+                $compose --profile workers up -d
+            else
+                $compose up -d
+            fi
+
+            echo
+            log "Waiting for API..."
+            local retries=0
+            while [[ $retries -lt 30 ]]; do
+                if curl -sf http://localhost:8000/health &>/dev/null; then
+                    echo
+                    ok "Dev-full stack running at ${BOLD}http://localhost:8000${NC}"
+                    $compose ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null || $compose ps
+                    return 0
+                fi
+                printf "."
+                sleep 2
+                retries=$((retries + 1))
+            done
+            echo
+            warn "API not responding — check: $compose logs noa-api-dev"
+            ;;
+        down)
+            log "Stopping dev-full stack..."
+            $compose --profile workers down
+            ok "Dev-full stack stopped"
+            ;;
+        build)
+            log "Rebuilding dev-full images..."
+            $compose --profile workers build
+            ok "Dev-full images rebuilt"
+            ;;
+        *)
+            echo "Usage: noa dev-full [workers|down|build]"
+            echo "  (no arg)   Start dev + postgres + API"
+            echo "  workers    Same + private-worker + external-worker"
+            echo "  down       Stop all dev-full services"
+            echo "  build      Rebuild all dev-full images"
+            ;;
+    esac
+}
+
 # ── Main ─────────────────────────────────────────────────────────
 
 # Always load Keychain first — docker compose needs env vars even for
@@ -572,6 +633,7 @@ case "$cmd" in
     preflight)      preflight ;;
     setup|init)     cmd_setup ;;
     dev)            cmd_dev ;;
+    dev-full)       cmd_dev_full "$@" ;;
     keys)           cmd_keys ;;
     set)            cmd_set "$@" ;;
     reset-password) cmd_reset_password "$@" ;;

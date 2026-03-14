@@ -2,13 +2,15 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { apiRequest } from "@/api/client";
-import type { UserSettings, PrivacyMode } from "@/api/types";
+import type { UserSettings, PrivacyMode, PricingModel } from "@/api/types";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 
 // ---------------------------------------------------------------------------
@@ -268,6 +270,12 @@ export default function Settings() {
     queryFn: () => apiRequest<UserSettings>("/api/v1/settings"),
   });
 
+  const { data: pricingRes } = useQuery({
+    queryKey: ["pricing"],
+    queryFn: () => apiRequest<PricingModel[]>("/api/v1/cost/pricing"),
+  });
+  const pricingData = pricingRes?.data || [];
+
   const settings = settingsRes?.data;
 
   const [model, setModel] = useState("");
@@ -277,6 +285,12 @@ export default function Settings() {
   const [monthlyBudget, setMonthlyBudget] = useState("200");
   const [budgetError, setBudgetError] = useState<string | null>(null);
   const [ollamaUrl, setOllamaUrl] = useState("http://private-worker:11434");
+  // UX-M2: Governance — approvals toggle
+  const [approvalsEnabled, setApprovalsEnabled] = useState(true);
+  // UX-M4: Agent limits
+  const [maxToolCalls, setMaxToolCalls] = useState("10");
+  const [maxRetries, setMaxRetries] = useState("3");
+  const [timeoutSeconds, setTimeoutSeconds] = useState("120");
   const [initialized, setInitialized] = useState(false);
   // FE-M5: Track unsaved changes to warn before navigation
   const [isDirty, setIsDirty] = useState(false);
@@ -298,6 +312,10 @@ export default function Settings() {
       setDailyBudget(String(settings.budget_daily_usd || 10));
       setMonthlyBudget(String(settings.budget_monthly_usd || 200));
       setOllamaUrl(settings.ollama_base_url || "http://private-worker:11434");
+      setApprovalsEnabled(settings.approvals_enabled ?? true);
+      setMaxToolCalls(String(settings.max_tool_calls ?? 10));
+      setMaxRetries(String(settings.max_retries ?? 3));
+      setTimeoutSeconds(String(settings.timeout_seconds ?? 120));
       setInitialized(true);
       setIsDirty(false);
     }
@@ -361,6 +379,11 @@ export default function Settings() {
         budget_daily_usd: parseFloat(dailyBudget),
         budget_monthly_usd: parseFloat(monthlyBudget),
         ollama_base_url: ollamaUrl,
+        // UX-M2, UX-M4
+        approvals_enabled: approvalsEnabled,
+        max_tool_calls: parseInt(maxToolCalls, 10),
+        max_retries: parseInt(maxRetries, 10),
+        timeout_seconds: parseInt(timeoutSeconds, 10),
       };
       return apiRequest<UserSettings>("/api/v1/settings", {
         method: "PUT",
@@ -499,10 +522,115 @@ export default function Settings() {
         </CardContent>
       </Card>
 
+      {/* UX-M2: Governance — human-in-the-loop approvals toggle */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm">Governance</CardTitle>
+          <CardDescription>Control agent approval requirements</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label className="text-xs">Require Human Approval</Label>
+              <p className="text-xs text-muted-foreground">
+                When enabled, high-risk tool calls require your approval before executing.
+              </p>
+            </div>
+            <Switch
+              data-testid="approvals-toggle"
+              checked={approvalsEnabled}
+              onCheckedChange={(v) => { setApprovalsEnabled(v); markDirty(); }}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* UX-M4: Agent execution limits */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm">Agent Limits</CardTitle>
+          <CardDescription>Control agent execution boundaries</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="max-tool-calls" className="text-xs">Max Tool Calls per Task</Label>
+            <Input
+              id="max-tool-calls"
+              type="number"
+              min="1"
+              max="100"
+              value={maxToolCalls}
+              onChange={(e) => { setMaxToolCalls(e.target.value); markDirty(); }}
+              data-testid="max-tool-calls"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="max-retries" className="text-xs">Max Retries</Label>
+            <Input
+              id="max-retries"
+              type="number"
+              min="0"
+              max="10"
+              value={maxRetries}
+              onChange={(e) => { setMaxRetries(e.target.value); markDirty(); }}
+              data-testid="max-retries"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="timeout-seconds" className="text-xs">Timeout (seconds)</Label>
+            <Input
+              id="timeout-seconds"
+              type="number"
+              min="10"
+              max="3600"
+              value={timeoutSeconds}
+              onChange={(e) => { setTimeoutSeconds(e.target.value); markDirty(); }}
+              data-testid="timeout-seconds"
+            />
+          </div>
+        </CardContent>
+      </Card>
+
       {/* UX-H3: System prompt with dedicated Save button */}
       <SystemPromptSection />
 
       <GoogleAuthSection />
+
+      {/* UX-H8: Pricing reference table */}
+      {pricingData.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm">Model Pricing</CardTitle>
+            <CardDescription>Read-only reference — prices per 1M tokens</CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead>Provider</TableHead>
+                  <TableHead>Model</TableHead>
+                  <TableHead className="text-right">Input (per 1M)</TableHead>
+                  <TableHead className="text-right">Output (per 1M)</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {pricingData.map((p, i) => (
+                  <TableRow key={i} className="hover:bg-transparent">
+                    <TableCell className="text-xs capitalize">{p.provider}</TableCell>
+                    <TableCell className="text-xs font-mono">{p.model}</TableCell>
+                    <TableCell className="text-right text-xs font-mono">
+                      {p.input_price_per_m === 0 ? "Free" : `$${p.input_price_per_m.toFixed(2)}`}
+                    </TableCell>
+                    <TableCell className="text-right text-xs font-mono">
+                      {p.output_price_per_m === 0 ? "Free" : `$${p.output_price_per_m.toFixed(2)}`}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
 
       <Button onClick={handleSave}>
         {isDirty ? "Save Settings *" : "Save Settings"}

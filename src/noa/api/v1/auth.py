@@ -148,9 +148,15 @@ async def login(
             device_id=did,
         )
     except AccountLockedError as exc:
+        # Extract minutes from message for Retry-After header
+        import re
+
+        match = re.search(r"(\d+) minute", str(exc))
+        retry_after = int(match.group(1)) * 60 if match else 1800
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=str(exc),
+            headers={"Retry-After": str(retry_after)},
         ) from exc
     except AuthError as exc:
         raise HTTPException(

@@ -51,6 +51,12 @@ class UpdateSettingsRequest(BaseModel):
     notion_token: str | None = None
     tavily_api_key: str | None = None
     ollama_base_url: str | None = None
+    # UX-M2: Governance — human-in-the-loop approvals toggle
+    approvals_enabled: bool | None = None
+    # UX-M4: Agent execution limits
+    max_tool_calls: int | None = None
+    max_retries: int | None = None
+    timeout_seconds: int | None = None
 
 
 def _reload_llm_pipeline_if_needed(

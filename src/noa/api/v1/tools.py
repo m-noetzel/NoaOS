@@ -11,6 +11,7 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from noa.api.deps import get_db_session as _real_get_db_session
@@ -438,13 +439,65 @@ async def check_tool_health(
 # ---------------------------------------------------------------------------
 
 
+async def _auto_grant_capability(
+    uid: str, name: str, payload: Any, rid: str,
+) -> None:
+    """Best-effort capability grant when credentials are saved.
+
+    UX-H6: Auto-grants the tool capability so the agent can use the tool
+    immediately after credentials are saved without a separate enable step.
+    Runs with its own DB session obtained from app_state; silently degrades
+    if the DB is unavailable (e.g. in tests that don't wire a DB session).
+    """
+    try:
+        from noa.api.app_state import get_session_factory
+
+        session_factory = get_session_factory()
+        if session_factory is None:
+            logger.debug(
+                "No session factory available; skipping capability auto-grant for '%s'",
+                name,
+            )
+            return
+
+        user_id = (
+            payload.user_id
+            if hasattr(payload, "user_id")
+            else uuid.UUID(uid)
+        )
+        async with session_factory() as session:
+            checker = DbCapabilityChecker(session)
+            await checker.grant(user_id=user_id, tool_name=name, granted_by=user_id)
+            logger.info(
+                "Auto-granted capability '%s' for tool '%s' on credential save [%s]",
+                TOOL_CAPABILITIES[name],
+                name,
+                rid,
+            )
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "Failed to auto-grant capability for tool '%s' [%s]",
+            name,
+            rid,
+            exc_info=True,
+        )
+
+
 @router.post("/{name}/credentials")
 async def store_credentials(
     name: str,
     body: dict[str, Any],
     payload: Any = Depends(require_auth),  # noqa: B008
 ) -> dict[str, Any]:
-    """Store credentials for a tool. Returns masked values."""
+    """Store credentials for a tool. Returns masked values.
+
+    UX-H6: When a Notion credential is saved, auto-grants the notion.read
+    capability so the agent can immediately read Notion pages.
+    The same auto-grant logic applies to any tool that has a default
+    capability defined in TOOL_CAPABILITIES.
+    The capability grant is best-effort; if the DB is unavailable the
+    credential storage still succeeds.
+    """
     if name not in KNOWN_TOOLS and name not in TOOL_CAPABILITIES:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -457,10 +510,15 @@ async def store_credentials(
     # Store per-user (production: encrypted vault)
     _credential_store[(uid, name)] = dict(body)
 
+    # UX-H6: Auto-grant the tool capability when credentials are configured.
+    if name in TOOL_CAPABILITIES:
+        await _auto_grant_capability(uid, name, payload, rid)
+
     # Return masked version
     masked = {k: mask_credential(v) for k, v in body.items()}
+    cap_granted = name in TOOL_CAPABILITIES
     return success_envelope(
-        data={"tool": name, "credentials": masked},
+        data={"tool": name, "credentials": masked, "capability_granted": cap_granted},
         trace_id=rid,
     )
 
@@ -630,5 +688,84 @@ async def get_credentials(
             "credentials": masked,
             "configured": bool(stored),
         },
+        trace_id=rid,
+    )
+
+
+# ---------------------------------------------------------------------------
+# UX-M10: Tool scope settings endpoints
+# ---------------------------------------------------------------------------
+
+# In-memory per-user scope overrides: maps user_id -> {scope: [tool__func, ...]}
+# Default (no override) falls through to the ToolScopeRegistry predefined list.
+_scope_overrides: dict[str, dict[str, list[str]]] = {}
+
+
+@router.get("/scopes")
+async def list_tool_scopes(
+    payload: Any = Depends(require_auth),  # noqa: B008
+) -> dict[str, Any]:
+    """List all defined tool scopes with per-scope tool lists.
+
+    Returns predefined scopes (email_draft, research, scheduling) plus any
+    user-defined overrides. Each scope entry shows which tool functions are
+    enabled for that context.
+    """
+    from noa.tools.scopes import ToolScopeRegistry
+
+    rid = trace_id_ctx.get("")
+    uid = _extract_user_id(payload)
+    registry = ToolScopeRegistry()
+    user_overrides = _scope_overrides.get(uid, {})
+
+    scopes = []
+    for scope_name in registry.list_scopes():
+        default_tools = registry.get_scope(scope_name)
+        effective_tools = user_overrides.get(scope_name, default_tools)
+        scopes.append({
+            "name": scope_name,
+            "tools": effective_tools,
+            "is_custom": scope_name in user_overrides,
+        })
+
+    return success_envelope(data=scopes, trace_id=rid)
+
+
+class ScopeUpdateRequest(BaseModel):
+    """Request body for updating a scope's tool allowlist."""
+
+    tools: list[str]
+
+
+@router.patch("/scopes/{scope_name}")
+async def update_tool_scope(
+    scope_name: str,
+    body: ScopeUpdateRequest,
+    payload: Any = Depends(require_auth),  # noqa: B008
+) -> dict[str, Any]:
+    """Update a scope's tool allowlist for this user.
+
+    UX-M10: Lets the user control which tools are allowed per scope.
+    The tools list should contain tool__function identifiers
+    (e.g. "gmail__read_email", "notion__read_page").
+    """
+    from noa.tools.scopes import ToolScopeRegistry
+
+    rid = trace_id_ctx.get("")
+    uid = _extract_user_id(payload)
+    registry = ToolScopeRegistry()
+
+    if scope_name not in registry.list_scopes():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unknown scope: {scope_name}",
+        )
+
+    if uid not in _scope_overrides:
+        _scope_overrides[uid] = {}
+    _scope_overrides[uid][scope_name] = list(body.tools)
+
+    return success_envelope(
+        data={"scope": scope_name, "tools": body.tools, "status": "updated"},
         trace_id=rid,
     )

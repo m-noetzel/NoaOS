@@ -2,61 +2,59 @@
 
 ## Backlog State
 
-- `Plan/CI/IMPROVEMENT_BACKLOG.md` has CI-001 through CI-007 (all PROPOSED, none applied)
-- CI-006 references deleted `write-code` skill — stale proposal
-- Last analysis: `Plan/CI/analysis_2026-03-07_insights.md` (from Insights report)
+- `Plan/CI/IMPROVEMENT_BACKLOG.md` has CI-001 through CI-044
+- Last analysis: `Plan/CI/analysis_2026-03-14_wave22.md`
+- CI-042 (P1): dead-end store broadening -- awaiting human approval
 
-## Problem Categories Observed (Waves 1-18)
+## Validated Recurring Categories (3+ waves)
 
-### Wiring gaps (most frequent — ~12 occurrences)
-- "Wired in class, not at startup" — QC5, QC8, HD, iOS1 all had this
-- Service implemented + tests pass (manual injection) + never instantiated in `app.py`
-- M7 checklist catches some but not async registration or fire-and-forget hooks
-- **Gate effectiveness:** M7 catches ~80% of wiring issues in QA. The remaining 20% are "wired but not called" (HD checkpointer pattern)
+### Dead-end stores (confirmed persistent -- Waves 20, 21 partial, 22)
+- Wave 20 DE3: `workers_degraded` app.state flag, never read
+- Wave 22 FR6: 4 governance settings fields (DB-persisted), never consumed by orchestrator/policy
+- CI-031 (app.state detection) is effective but too narrow -- does not cover DB fields
+- CI-042 proposed to broaden M7 to all storage mechanisms
+- Root cause: implement agent adds persistence + UI without confirming consumer is in-scope
 
-### Missing migrations (~3 occurrences)
-- C4 (Wave 14B), TM2 (Wave 18) — ORM model has column, no alembic migration
-- Tests pass via `create_all()`, production crashes
-- No gate currently catches this
+### Wiring gaps (persistent since Wave 14B, but decreasing)
+- M7 checklist catches ~80% of wiring issues
+- Remaining 20%: "wired but not called" pattern (HD checkpointer, dead-end stores)
+- CI-031 + CI-042 together should close this gap
 
-### Half-fixes on security findings (~4 occurrences)
-- QC2: C6 fixed backend (httpOnly cookies) but frontend unchanged
-- QC5: M3/M6 implemented in class but never wired in startup
-- Pattern: fix passes because test covers the mechanism, not the integration
+### Test plan non-compliance (persistent -- Waves 19, 20, 21, 22)
+- CI-023 (implement agent test plan) has 0% compliance across 4 consecutive waves
+- CI-038 (M1b QA enforcement gate) remains DEFERRED
+- The implement agent ignores the advisory instruction entirely
 
-### Stale documentation (~ongoing)
-- FINDINGS.md counts drift from table contents
-- PLAN.md header gets out of sync
-- Agent memory files empty despite design
+## Applied Fix Effectiveness (confirmed)
 
-### Test quality issues
-- Source inspection tests (QC2) — pass even if code unreachable
-- Constructor/existence tests — test Python, not feature
-- Stub-only tests — verify stub matches stub schema
-- Over-mocking (3+ mocks) — testing mocks, not code
+| Fix | Status | Evidence |
+|-----|--------|----------|
+| CI-009 (L12 write-path scoping) | EFFECTIVE since W19 | 0 violations in W20, W21, W22 |
+| CI-013 (M5b findings currency) | EFFECTIVE since W19 | 0 drift in W20, W21, W22 -- pattern fully reversed |
+| CI-015 (findings sync) | EFFECTIVE since W19 | No stale findings at any wave close |
+| CI-017 (M8b field optionality) | EFFECTIVE since W19 | No iOS 422 failures in W20, W21, W22 |
+| CI-030 (ruff on tests/) | EFFECTIVE since W20 | 0 test-file ruff violations in W21, W22 |
+| CI-031 (app.state write-only) | PARTIALLY EFFECTIVE | 0 app.state violations but missed DB dead-end stores |
+| CI-033 (pre-QA deliverable) | PARTIALLY EFFECTIVE | No completeness FAILs but doesn't catch test gaps |
+| CI-023 (pre-phase test plan) | NOT EFFECTIVE | 0% compliance across 4 waves |
 
 ## Gate Effectiveness
 
 | Gate | Catches | Misses |
 |------|---------|--------|
 | M6 (bare except) | ruff E722/BLE001 violations | `noqa` suppressed blocks without logging |
-| M7 (wiring) | Unregistered routers, uninstantiated services | "Wired but never called" pattern |
-| M8 (domain isolation) | Direct cross-domain imports | Shared modules with implicit coupling |
+| M7 (wiring) | Unregistered routers, uninstantiated services, app.state write-only | DB-persisted dead-end stores (CI-042 proposed) |
+| M8 (domain isolation) | Direct cross-domain imports | Cross-phase isolation gaps (threads isolated but runs/cost not) |
 | S5 (smoke test) | Import failures, basic instantiation | Full user flow breakage |
-
-## Insights Report Integration
-
-- Report at `~/.claude/usage-data/report.html`
-- Facet data at `~/.claude/usage-data/facets/*.json`
-- Top friction categories (2026-03-07): implementation-first bias, wrong output locations, Docker env confusion
-- Cross-reference with FINDINGS.md categories when analyzing
+| M5b (findings currency) | Findings drift | -- (fully effective) |
+| M8b (field optionality) | iOS nil-omission Pydantic gaps | TypeScript type lies (CI-043 proposed) |
 
 ## Process Notes
 
-- CI agent runs at **wave boundary only** (after retrospective, before next-wave planning) — NOT after individual QA reviews
-- Signal input: read `Plan/CI/signals.md` first — qa-review appends one row per phase; use it to prioritize which reviews to drill into
+- CI agent runs at **wave boundary only** (after retrospective, before next-wave planning)
+- Signal input: read `Plan/CI/signals.md` first -- prioritize which reviews to drill into
 - P1 proposals = human gate (pause and notify)
-- Evidence threshold: P1/P2 require 2+ occurrences **within last 3 waves** or 1 critical+gate-gap (gate must explicitly reference the issue class); P3 requires 1+ plausibly systemic occurrence within last 3 waves
-- Always check backlog for existing proposals before creating duplicates; explicitly justify non-duplication per proposal
-- Use `low|medium|high` for impact and implementation burden — never fabricate hour counts
-- Memory stores only stable validated patterns — per-wave counts belong in backlog/signal log, not memory
+- Evidence threshold: P1/P2 require 2+ occurrences within last 3 waves or 1 critical+gate-gap
+- Always check backlog for existing proposals before creating duplicates
+- Use `low|medium|high` for impact and implementation burden -- never fabricate hour counts
+- Memory stores only stable validated patterns -- per-wave counts belong in backlog/signal log

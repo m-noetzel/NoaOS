@@ -45,10 +45,37 @@ Maintained by the `ci` agent. Proposals require human approval before applicatio
 | CI-039 | Integration Test Delete/Cascade Coverage Rule | P2 | DEFERRED | CLAUDE.md | 2026-03-12 | — | — |
 | CI-040 | Dev Container TEST_DATABASE_URL Setup | P3 | DEFERRED | docker-compose.dev.yml | 2026-03-12 | — | — |
 | CI-041 | Nightly Mutation Test CI Job (jwt.py) | P3 | DEFERRED | .github/workflows/ci.yml | 2026-03-12 | — | — |
+| CI-042 | Broaden Dead-End Store Detection to DB-Persisted Fields (M7) | P1 | PROPOSED | Plan/QA_CHECKLIST.md | 2026-03-14 | — | — |
+| CI-043 | Add tsc --noEmit to Verify Gate | P2 | PROPOSED | CLAUDE.md | 2026-03-14 | — | — |
+| CI-044 | Signal Log Completeness Enforcement | P3 | PROPOSED | CLAUDE.md | 2026-03-14 | — | — |
 
 ---
 
 ## Proposal Details
+
+### Wave 22 Boundary (2026-03-14)
+
+Full analysis: [`Plan/CI/analysis_2026-03-14_wave22.md`](analysis_2026-03-14_wave22.md)
+
+- **CI-042** (P1 -- human gate required): Broaden M7 dead-end store detection beyond `app.state` to cover DB-persisted fields. Wave 20 DE3 had `workers_degraded` write-only (caught by CI-031). Wave 22 FR6 introduced 4 governance settings fields persisted to DB but never consumed by orchestrator/policy engine. CI-031's `app.state` scope did not cover this. Proposed: add M7 checklist item requiring that any new DB column, ORM field, or settings field has at least one consumer. Fields exposed as functional UI controls without a backend consumer are High severity dead-end stores.
+- **CI-043** (P2): Add `tsc --noEmit` to the verify gate in CLAUDE.md. Wave 22 FR5 had `CostRecord.run_id` typed `string` in TS but backend returns `null`. Retro explicitly recommends this addition. Catches frontend type lies before QA.
+- **CI-044** (P3): Enforce signal log completeness -- qa-review must append one row per phase. FR1-FR4 (4 of 6 Wave 22 phases) have no signal log entries, reducing CI visibility.
+
+**Effectiveness confirmed this wave:**
+- CI-013 (M5b Findings Currency): EFFECTIVE -- all 27 findings correctly synced. Zero drift.
+- CI-015 (Findings Sync): EFFECTIVE -- no stale findings at wave close.
+- CI-030 (Ruff on tests/): EFFECTIVE -- zero test-file ruff violations in Wave 22.
+- CI-009 (L12 Write-Path User Scoping): EFFECTIVE -- no write-path scoping violations in Wave 22.
+- CI-017 (M8b Cross-Language Field Optionality): EFFECTIVE -- all new Optional fields correctly defaulted.
+
+**Partially effective this wave:**
+- CI-031 (M7 app.state Write-Only): PARTIALLY EFFECTIVE -- effective for `app.state` writes (0 violations) but scope too narrow for DB-persisted dead-end stores (W22-H1/H2). CI-042 proposed to broaden.
+- CI-033 (Pre-QA Deliverable Check): PARTIALLY EFFECTIVE -- no completeness FAIL verdicts, but FR1 still had a 2nd QA cycle for a test gap (CI-033 checks files, not test scenarios).
+
+**Not effective this wave:**
+- CI-023 (Pre-Phase Test Plan): NOT EFFECTIVE -- 0/6 phases had a test plan. 3rd consecutive wave at 0% compliance. CI-038 (M1b enforcement gate) remains DEFERRED.
+
+---
 
 ### Wave 21 Boundary (2026-03-12)
 

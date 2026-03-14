@@ -1,15 +1,18 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { apiRequest } from "@/api/client";
 import type { CostRecord, CostSummary } from "@/api/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 
 const COLORS = ["hsl(225, 60%, 55%)", "hsl(142, 60%, 40%)", "hsl(38, 80%, 50%)", "hsl(0, 72%, 51%)"];
 const PAGE_LIMIT = 20;
 
 export default function Cost() {
+  const navigate = useNavigate();
   const [offset, setOffset] = useState(0);
 
   const { data: summaryRes, isLoading: summaryLoading } = useQuery({
@@ -94,7 +97,7 @@ export default function Cost() {
                 <span>In: {s.tokens_in.toLocaleString()}</span>
                 <span>Out: {s.tokens_out.toLocaleString()}</span>
               </div>
-              {s.budget_limit_usd && (
+              {s.budget_limit_usd != null && (
                 <div className="space-y-1">
                   <div className="flex justify-between text-xs">
                     <span className="text-muted-foreground">Budget</span>
@@ -145,6 +148,50 @@ export default function Cost() {
           </CardContent>
         </Card>
       </div>
+
+      {/* UX-M7: Cost Records table with run links */}
+      {records.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm">Cost Records</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead>Date</TableHead>
+                  <TableHead>Provider</TableHead>
+                  <TableHead>Model</TableHead>
+                  <TableHead className="text-right">Tokens In</TableHead>
+                  <TableHead className="text-right">Tokens Out</TableHead>
+                  <TableHead className="text-right">Cost</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {records.map((r) => (
+                  <TableRow
+                    key={r.run_id ?? r.created_at}
+                    className={r.run_id ? "cursor-pointer hover:bg-accent/30 transition-colors" : ""}
+                    onClick={r.run_id ? () => navigate(`/runs/${r.run_id}`) : undefined}
+                    data-testid={r.run_id ? `cost-record-run-${r.run_id}` : undefined}
+                  >
+                    <TableCell className="text-xs font-mono text-muted-foreground">
+                      {new Date(r.created_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                    </TableCell>
+                    <TableCell className="text-xs">{r.provider}</TableCell>
+                    <TableCell className="text-xs font-mono">{r.model}</TableCell>
+                    <TableCell className="text-right text-xs font-mono">{r.tokens_in.toLocaleString()}</TableCell>
+                    <TableCell className="text-right text-xs font-mono">{r.tokens_out.toLocaleString()}</TableCell>
+                    <TableCell className="text-right text-xs font-mono">
+                      {r.cost_usd === 0 ? "—" : `$${r.cost_usd.toFixed(4)}`}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

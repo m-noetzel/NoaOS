@@ -34,6 +34,11 @@ _ALL_FIELDS = frozenset({
     "notion_token",
     "tavily_api_key",
     "ollama_base_url",
+    # UX-M2, UX-M4: governance & agent limits
+    "approvals_enabled",
+    "max_tool_calls",
+    "max_retries",
+    "timeout_seconds",
 })
 
 _DEFAULTS: dict[str, Any] = {
@@ -52,6 +57,11 @@ _DEFAULTS: dict[str, Any] = {
     "notion_token": None,
     "tavily_api_key": None,
     "ollama_base_url": "http://private-worker:11434",
+    # UX-M2, UX-M4: governance & agent limits
+    "approvals_enabled": True,
+    "max_tool_calls": 10,
+    "max_retries": 3,
+    "timeout_seconds": 120,
 }
 
 

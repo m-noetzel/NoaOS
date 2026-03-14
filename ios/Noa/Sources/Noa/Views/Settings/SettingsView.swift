@@ -28,6 +28,11 @@ public struct SettingsView: View {
 
     public var body: some View {
         List {
+            // MARK: - Backend Connection section (iOS-H5)
+            Section("Backend") {
+                backendSection
+            }
+
             // MARK: - Google Account section
             Section("Google Account") {
                 googleSection
@@ -49,7 +54,10 @@ public struct SettingsView: View {
             }
         }
         .onAppear {
-            Task { await viewModel.loadStatus() }
+            Task {
+                await viewModel.loadStatus()
+                await viewModel.checkBackendHealth()
+            }
         }
         // Disconnect confirmation alert
         .alert("Disconnect Google Account?", isPresented: $viewModel.showDisconnectConfirmation) {
@@ -73,6 +81,60 @@ public struct SettingsView: View {
                 Text(msg)
             }
         }
+    }
+
+    // MARK: - Backend section (iOS-H5)
+
+    @ViewBuilder
+    private var backendSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Backend URL")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(viewModel.backendURL)
+                .font(.caption.monospaced())
+                .foregroundStyle(.primary)
+                .textSelection(.enabled)
+        }
+        .padding(.vertical, 4)
+
+        HStack {
+            Text("Connection")
+            Spacer()
+            switch viewModel.backendStatus {
+            case .unknown:
+                Text("Not checked")
+                    .foregroundStyle(.secondary)
+            case .checking:
+                ProgressView()
+                    .controlSize(.small)
+            case .reachable:
+                Label("Reachable", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                    .font(.callout)
+            case .unreachable(let reason):
+                VStack(alignment: .trailing, spacing: 2) {
+                    Label("Unreachable", systemImage: "xmark.circle.fill")
+                        .foregroundStyle(.red)
+                        .font(.callout)
+                    Text(reason)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.trailing)
+                }
+            }
+        }
+
+        Button {
+            Task { await viewModel.checkBackendHealth() }
+        } label: {
+            Label("Test Connection", systemImage: "network")
+        }
+        .disabled({
+            if case .checking = viewModel.backendStatus { return true }
+            return false
+        }())
+        .accessibilityLabel("Test backend connection")
     }
 
     // MARK: - Google section

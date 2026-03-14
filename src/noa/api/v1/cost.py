@@ -17,6 +17,25 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/cost", tags=["cost"])
 
 
+@router.get("/pricing")
+async def cost_pricing(
+    user: Any = Depends(require_auth),  # noqa: B008
+) -> dict[str, Any]:
+    """Return the model pricing table."""
+    from noa.cost.pricing import PRICING_TABLE
+
+    entries = [
+        {
+            "provider": provider,
+            "model": model,
+            "input_price_per_m": float(pricing.input_per_million),
+            "output_price_per_m": float(pricing.output_per_million),
+        }
+        for (provider, model), pricing in PRICING_TABLE.items()
+    ]
+    return success_envelope(data=entries, trace_id=trace_id_ctx.get(""))
+
+
 def _get_session_factory() -> Any:
     from noa.api.app_state import get_session_factory
 
@@ -51,6 +70,7 @@ async def cost_summary(
             from sqlalchemy import func, select
 
             from noa.db.models.usage import UsageStats
+            from noa.settings.repository import SettingsRepository
 
             # For summary, return both daily and monthly aggregates
             summaries = []
@@ -61,6 +81,19 @@ async def cost_summary(
 
             today_start = datetime(now.year, now.month, now.day, tzinfo=UTC)
             month_start = datetime(now.year, now.month, 1, tzinfo=UTC)
+
+            # Load user settings to get budget limits
+            settings = await SettingsRepository(session).get_by_user_id(uid)
+            budget_daily = (
+                float(settings.budget_daily_usd)
+                if settings and settings.budget_daily_usd is not None
+                else None
+            )
+            budget_monthly = (
+                float(settings.budget_monthly_usd)
+                if settings and settings.budget_monthly_usd is not None
+                else None
+            )
 
             for p in (["daily", "monthly"] if period == "monthly" else ["daily"]):
                 since = today_start if p == "daily" else month_start
@@ -77,11 +110,13 @@ async def cost_summary(
                 )
                 result = await session.execute(stmt)
                 row = result.one()
+                budget_limit = budget_daily if p == "daily" else budget_monthly
                 summaries.append({
                     "period": p,
                     "tokens_in": int(row.tokens_in),
                     "tokens_out": int(row.tokens_out),
                     "cost_usd": float(row.cost_usd),
+                    "budget_limit_usd": budget_limit,
                 })
 
         return success_envelope(data=summaries, trace_id=rid)

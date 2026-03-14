@@ -78,6 +78,13 @@ export default function Artifacts() {
 
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : artifacts.length === 0 ? (
+        <div className="rounded-lg border border-border/50 glass p-12 text-center">
+          <p className="text-sm font-medium">No artifacts yet</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            Artifacts are created when the agent writes files or generates outputs.
+          </p>
+        </div>
       ) : (
         <div className="grid gap-3 lg:grid-cols-2">
           {artifacts.map((art) => (

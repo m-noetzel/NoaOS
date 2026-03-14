@@ -3,8 +3,11 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/api/client";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import CredentialModal from "@/components/tools/CredentialModal";
+import type { ToolScope } from "@/api/types";
 
 interface ToolFunction {
   name: string;
@@ -36,18 +39,54 @@ interface Tool {
   functions?: ToolFunction[];
 }
 
+// UX-M8: Filter modes
+type FilterMode = "all" | "usable";
+
 export default function Tools() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [expandedTool, setExpandedTool] = useState<string | null>(null);
   const [credentialModal, setCredentialModal] = useState<string | null>(null);
+  // UX-M8: All vs Usable toggle
+  const [filterMode, setFilterMode] = useState<FilterMode>("all");
+  // UX-M9: Search/filter input
+  const [searchQuery, setSearchQuery] = useState("");
+  // UX-M10: Scope settings panel
+  const [showScopes, setShowScopes] = useState(false);
 
   const { data: toolsRes, isLoading, isError, error } = useQuery({
     queryKey: ["tools"],
     queryFn: () => apiRequest<Tool[]>("/api/v1/tools"),
   });
 
-  const tools = toolsRes?.data || [];
+  // UX-M10: Load scope data
+  const { data: scopesRes } = useQuery({
+    queryKey: ["tool-scopes"],
+    queryFn: () => apiRequest<ToolScope[]>("/api/v1/tools/scopes"),
+    enabled: showScopes,
+  });
+
+  const allTools = toolsRes?.data || [];
+
+  // UX-M8: Filter by usability (healthy + configured credentials)
+  const visibleTools = allTools
+    .filter((tool) => {
+      if (filterMode === "usable") {
+        const isHealthy = tool.health?.status === "healthy";
+        const hasCredentials = tool.credentials?.configured !== false;
+        return isHealthy && hasCredentials;
+      }
+      return true;
+    })
+    // UX-M9: Search filter (name or description, case-insensitive)
+    .filter((tool) => {
+      if (!searchQuery.trim()) return true;
+      const q = searchQuery.toLowerCase();
+      return (
+        tool.name.toLowerCase().includes(q) ||
+        (tool.description || "").toLowerCase().includes(q)
+      );
+    });
 
   const toggleToolMutation = useMutation({
     mutationFn: async ({ name, enabled }: { name: string; enabled: boolean }) => {
@@ -122,6 +161,23 @@ export default function Tools() {
     },
   });
 
+  // UX-M10: Update scope tool list
+  const updateScopeMutation = useMutation({
+    mutationFn: async ({ scope, tools }: { scope: string; tools: string[] }) => {
+      return apiRequest(`/api/v1/tools/scopes/${scope}`, {
+        method: "PATCH",
+        body: JSON.stringify({ tools }),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["tool-scopes"] });
+      toast({ title: "Scope updated" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to update scope", description: err.message, variant: "destructive" });
+    },
+  });
+
   const handleToolToggle = (name: string, currentEnabled: boolean) => {
     toggleToolMutation.mutate({ name, enabled: !currentEnabled });
   };
@@ -150,6 +206,8 @@ export default function Tools() {
     );
   }
 
+  const scopes = scopesRes?.data || [];
+
   return (
     <div className="p-6 space-y-4">
       <div>
@@ -157,13 +215,115 @@ export default function Tools() {
         <p className="text-sm text-muted-foreground">Registered tool capabilities</p>
       </div>
 
+      {/* UX-M8 + UX-M9: Filter bar */}
+      <div className="flex items-center gap-3">
+        {/* UX-M9: Search input */}
+        <Input
+          data-testid="tools-search"
+          placeholder="Search tools..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="max-w-xs h-8 text-sm"
+        />
+
+        {/* UX-M8: All / Usable toggle */}
+        <div className="flex items-center gap-1 rounded-lg border p-1">
+          <button
+            data-testid="filter-all"
+            className={`px-3 py-1 text-xs rounded-md transition-colors ${
+              filterMode === "all"
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+            onClick={() => setFilterMode("all")}
+          >
+            All Tools
+          </button>
+          <button
+            data-testid="filter-usable"
+            className={`px-3 py-1 text-xs rounded-md transition-colors ${
+              filterMode === "usable"
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+            onClick={() => setFilterMode("usable")}
+          >
+            Usable Only
+          </button>
+        </div>
+
+        {/* UX-M10: Scope settings toggle */}
+        <Button
+          variant="outline"
+          size="sm"
+          className="ml-auto h-8 text-xs"
+          onClick={() => setShowScopes(!showScopes)}
+          data-testid="scopes-toggle"
+        >
+          {showScopes ? "Hide" : "Show"} Scope Settings
+        </Button>
+      </div>
+
+      {/* UX-M10: Tool scope settings panel */}
+      {showScopes && (
+        <div className="rounded-lg border p-4 space-y-4" data-testid="scopes-panel">
+          <h2 className="text-sm font-semibold">Tool Scopes</h2>
+          <p className="text-xs text-muted-foreground">
+            Control which tools are available in each task context.
+            Changes take effect on the next task run.
+          </p>
+          {scopes.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Loading scopes...</p>
+          ) : (
+            <div className="space-y-4">
+              {scopes.map((scope) => (
+                <div key={scope.name} className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium capitalize">{scope.name.replace("_", " ")}</span>
+                    {scope.is_custom && (
+                      <Badge variant="outline" className="text-xs">Custom</Badge>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {scope.tools.map((tool) => (
+                      <div
+                        key={tool}
+                        className="flex items-center gap-1 rounded-md border bg-muted/50 px-2 py-1"
+                      >
+                        <span className="text-xs font-mono">{tool}</span>
+                        <button
+                          className="text-muted-foreground hover:text-destructive text-xs ml-1"
+                          onClick={() => {
+                            const newTools = scope.tools.filter((t) => t !== tool);
+                            updateScopeMutation.mutate({ scope: scope.name, tools: newTools });
+                          }}
+                          aria-label={`Remove ${tool} from ${scope.name}`}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Loading...</p>
-      ) : tools.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No tools registered</p>
+      ) : visibleTools.length === 0 ? (
+        <p className="text-sm text-muted-foreground" data-testid="tools-empty">
+          {allTools.length === 0
+            ? "No tools registered"
+            : filterMode === "usable"
+              ? "No usable tools found. Configure credentials and run a health check to enable tools."
+              : "No tools match your search."}
+        </p>
       ) : (
         <div className="space-y-3">
-          {tools.map((tool) => {
+          {visibleTools.map((tool) => {
             const isExpanded = expandedTool === tool.name;
             const healthStatus = tool.health?.status || "unknown";
 
@@ -269,7 +429,7 @@ export default function Tools() {
                       )}
                     </div>
 
-                    {/* Functions table */}
+                    {/* Functions table — L10: per-function enable/disable */}
                     {tool.functions && tool.functions.length > 0 && (
                       <div className="space-y-2">
                         <h3 className="text-sm font-medium">Functions</h3>
@@ -302,6 +462,7 @@ export default function Tools() {
                                   handleFunctionToggle(tool.name, fn.name, fn.enabled)
                                 }
                                 disabled={toggleFunctionMutation.isPending}
+                                aria-label={`${fn.enabled ? "Disable" : "Enable"} ${fn.name}`}
                               />
                             </div>
                           ))}

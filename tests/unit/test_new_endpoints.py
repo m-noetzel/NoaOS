@@ -127,8 +127,8 @@ class TestThreadsRoutes:
         assert ("get", "/{thread_id}/messages") in self.routes
 
     def test_route_count(self):
-        """Routes defined in threads.py (GET list, POST create, GET messages, DELETE thread)."""
-        assert len(self.routes) == 4
+        """Routes defined in threads.py (GET list, POST create, GET messages, PATCH rename, DELETE thread)."""
+        assert len(self.routes) == 5
 
     def test_create_thread_request_model_defined(self):
         """CreateThreadRequest Pydantic model is defined."""

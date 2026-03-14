@@ -170,6 +170,68 @@ async def list_messages(
     return success_envelope(data=data, trace_id=rid)
 
 
+class UpdateThreadRequest(BaseModel):
+    """Request body for renaming a thread."""
+
+    title: str
+
+
+@router.patch("/{thread_id}")
+async def update_thread(
+    thread_id: uuid.UUID,
+    body: UpdateThreadRequest,
+    request: Request,
+    user: AuthUser = Depends(require_auth),  # noqa: B008
+    session: AsyncSession = Depends(get_db_session),  # noqa: B008
+) -> dict[str, Any]:
+    """Update a thread's title (UX-M3: inline rename).
+
+    Only the title field is updateable. Returns the updated thread.
+    Returns 404 if the thread does not belong to the authenticated user.
+    """
+    rid = trace_id_ctx.get("")
+
+    result = await session.execute(
+        select(Conversation).where(
+            Conversation.id == thread_id,
+            Conversation.user_id == user.user_id,
+        )
+    )
+    conversation = result.scalar_one_or_none()
+    if conversation is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Thread {thread_id} not found",
+        )
+
+    title = body.title.strip()
+    if not title:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Thread title cannot be empty",
+        )
+    if len(title) > 256:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Thread title cannot exceed 256 characters",
+        )
+
+    conversation.title = title
+    await session.commit()
+    await session.refresh(conversation)
+
+    return success_envelope(
+        data={
+            "id": str(conversation.id),
+            "title": conversation.title,
+            "domain": conversation.domain,
+            "created_at": conversation.created_at.isoformat(),
+            "updated_at": conversation.created_at.isoformat(),
+        },
+        trace_id=rid,
+    )
+
+
 @router.delete("/{thread_id}")
 async def delete_thread(
     thread_id: uuid.UUID,

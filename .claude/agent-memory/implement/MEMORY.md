@@ -123,6 +123,15 @@ iOS `APIClient` expects specific JSON shapes. When modifying backend responses, 
 - pyproject.toml per-file-ignores for `tests/integration/**/*.py` includes `I001` (import sort — lazy imports inside functions need specific ordering)
 - Schema drift pitfall: ORM models added in a wave without a migration will fail integration tests but pass SQLite unit tests (create_all bypasses Alembic). Always check `alembic/versions/` when adding DB columns.
 
+### Pre-existing failure tracking
+When tests fail during FR work, always verify whether failures existed at HEAD before your changes with `git stash && python3 -m pytest <failing_tests>; git stash apply stash@{0}`. This prevents false alarm debugging. The 5 pre-existing failures in Wave 22 (as of FR6): `test_capability_strings_use_dot_notation`, `test_enable_grants_capability`, `test_known_tool_without_grant_denied`, `test_gateway_blocks_high_risk_without_step_up`, `test_gateway_allows_high_risk_with_step_up`.
+
+### AsyncMock pitfall with SQLAlchemy result proxies
+`AsyncMock()` makes ALL attribute accesses return coroutines, including `.scalars()`, `.first()`, etc. When a test mocks `session.execute()` with `AsyncMock`, calling `result.scalars().first()` fails with `'coroutine' object has no attribute 'first'`. Solution: use `MagicMock` for the execute return value, only `AsyncMock` for the method itself: `mock_session.execute = AsyncMock(return_value=MagicMock())`.
+
+### DB session in credential endpoints
+When an endpoint needs best-effort DB access (not mandatory for response), use `get_session_factory()` from `app_state` directly rather than adding `session: AsyncSession = Depends(get_db_session)` to the endpoint signature. This way tests that don't wire a DB session still get 200 responses. See `_auto_grant_capability()` in `tools.py` for the pattern.
+
 ## Test Patterns That Fail QA
 
 - Constructor/existence tests (`assert obj is not None`)

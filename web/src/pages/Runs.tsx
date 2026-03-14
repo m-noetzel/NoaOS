@@ -22,6 +22,23 @@ export default function Runs() {
 
   const runs = runsRes?.data || [];
 
+  if (!isLoading && runs.length === 0) {
+    return (
+      <div className="p-6 space-y-4">
+        <div>
+          <h1 className="text-lg font-semibold">Runs</h1>
+          <p className="text-sm text-muted-foreground">Execution history across all threads</p>
+        </div>
+        <div className="rounded-lg border border-border/50 glass p-12 text-center">
+          <p className="text-sm font-medium">No runs yet</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            Start a conversation in Chat to create your first agent run.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 space-y-4">
       <div>
@@ -52,10 +69,6 @@ export default function Runs() {
               <TableRow>
                 <TableCell colSpan={8} className="text-center text-muted-foreground py-8">Loading…</TableCell>
               </TableRow>
-            ) : runs.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={8} className="text-center text-muted-foreground py-8">No runs found</TableCell>
-              </TableRow>
             ) : (
               runs.map((run) => (
                 <TableRow
@@ -79,7 +92,7 @@ export default function Runs() {
                     {(run.tokens_in + run.tokens_out).toLocaleString()}
                   </TableCell>
                   <TableCell className="text-right text-xs font-mono">
-                    ${run.cost_usd.toFixed(4)}
+                    {run.cost_usd === 0 ? "—" : `$${run.cost_usd.toFixed(4)}`}
                   </TableCell>
                   <TableCell className="text-right text-xs font-mono text-muted-foreground">
                     {run.duration_ms ? `${(run.duration_ms / 1000).toFixed(1)}s` : "—"}

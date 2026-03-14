@@ -74,6 +74,13 @@ export default function Queue() {
       </div>
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : active.length === 0 && queued.length === 0 ? (
+        <div className="rounded-lg border border-border/50 glass p-12 text-center">
+          <p className="text-sm font-medium">No active tasks</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            The queue is empty. Running conversations will appear here.
+          </p>
+        </div>
       ) : (
         <>
           <Section title="Active" items={active} />

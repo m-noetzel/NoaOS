@@ -172,8 +172,9 @@ The plan is organized into **waves** — groups of related phases that deliver a
 | **FR2** | Memory & Session Fixes | **Complete** | 27 | main | ~60 min | ~60 min | BE-H6 (/data volume mount), BE-H7 (_handle_memory_approval), BE-H9 (external MemoryStore), BE-H10 (memory health), BE-H12 (logout cookie). 27 tests. |
 | **FR3** | Backend Data Integrity & Infra | **Complete** | — | main | ~45 min | ~45 min | W21-H1 (usage_stats FK CASCADE), W21-H2 (backup setpgid), W21-M1 (/docs NOA_ENV gate), W21-M2 (traceability --check). Migration 015. |
 | **FR4** | Chat & Streaming UX | **Complete** | — | main | ~60 min | ~60 min | UX-H1 (SSE keepalive 15s), UX-H2 (send always enabled), UX-H9 (optimistic message), UX-H10 (activity stream), UX-H5 (tool details), UX-H3 (system-prompt GET/PUT). Web components + runner. |
-| **FR5** | Cost, Runs & Dashboard UX | **Planned** | — | — | ~60 min | — | UX-H7 cost mismatch daily/monthly, UX-H8 per-provider pricing settings, UX-H11 budget limits on dashboard, UX-M1 costs in UI, UX-M7 cost breakdown by process/tool, UX-H4 runs page empty, UX-M5 artifacts empty, UX-M6 queue empty |
-| **FR6** | Tools, Settings & Polish | **Planned** | — | — | ~60 min | — | UX-H6 Notion can't read, UX-M2 approvals toggle, UX-M3 thread rename, UX-M4 agent execution limits, UX-M8 tools All/Usable toggle, UX-M9 tools search/filter, UX-M10 per-scope tool settings, UX-L1 logo sizing, L10 tool enable/disable UI, iOS-H5 iOS↔backend connection |
+| **FR5** | Cost, Runs & Dashboard UX | **Complete** | 12 Python + 11 Web | main | ~60 min | ~60 min | QA PASS_WITH_NOTES 2026-03-13: UX-H7/H8/H11/M1/M7/H4/M5/M6 resolved. |
+| **FR6** | Tools, Settings & Polish | **Complete** | 19 Python + 18 Web + 8 Swift | main | ~60 min | ~90 min | QA PASS_WITH_NOTES 2026-03-14: UX-H6/M2/M3/M4/M8/M9/M10/L1 + L10 + iOS-H5 resolved. Settings governance/agent-limits, thread rename PATCH, scope endpoints, Notion auto-grant. |
+| — | — **WAVE 22 BOUNDARY** — | **Complete** | — | — | — | — | System audit 7.2/10. Retro done. CI analysis done (CI-042 P1). 3 new findings: W22-H1/H2 (dead-end stores), W22-M1 (runs/cost not domain-filtered). HUMAN GATE: approve CI-042 + Wave 23 plan. |
 
 ### Wave 23: Observability & Ops
 - Lightweight monitoring (health dashboard, error rate tracking)

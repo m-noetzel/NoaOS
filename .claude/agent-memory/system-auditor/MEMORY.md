@@ -56,6 +56,14 @@ usage_stats.run_id FK to runs lacks ondelete clause. Thread deletion cascades to
 - `_RateLimit` dataclass in gateway.py -- left after inline reimplementation
 - `mcp_adapter.py` still has NotImplementedError (superseded by TM6 mcp_remote.py but retained for tests)
 - `tools.py:64` fallback tool executor -- NotImplementedError if gateway not wired
+- **Wave 22 dead-end stores**: `approvals_enabled`, `max_tool_calls`, `max_retries`, `timeout_seconds` in UserSettings ORM -- stored and served via API but orchestrator/policy engine never reads them
+
+## Domain Isolation Gaps (Wave 22)
+
+FR1 added `Conversation.domain` column. Threads/messages correctly filter by `privacy_mode`. But:
+- `runs.py` does NOT filter by domain -- all user runs shown regardless of mode
+- `cost.py` does NOT filter by domain -- costs aggregated across domains
+Pattern: when adding domain isolation, check ALL data endpoints, not just the primary entity.
 
 ## Audit Report Format
 
@@ -71,6 +79,7 @@ usage_stats.run_id FK to runs lacks ondelete clause. Thread deletion cascades to
 - Wave 20 (2026-03-12): 7.5/10 (CI pipeline would fail on push; stale dev container; Google OAuth env var gaps)
 - Wave 21 (2026-03-12): 7.5/10 (ruff+mypy clean; DELETE threads FK bug; backup container crash-loop)
 - Production readiness (2026-03-12): 6.5/10 (code quality excellent; deployment NOT ready: no LLM keys, ProviderRouter doesn't load user keys, in-memory credential store, no TLS, no backups)
+- Wave 22 (2026-03-14): 7.2/10 (no container available; 0 regressions; 2 new High: dead-end stores for governance settings)
 
 ## Production Readiness Blockers (2026-03-12)
 
