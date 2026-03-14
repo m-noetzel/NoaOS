@@ -156,7 +156,10 @@ async def agent_node(state: AgentState) -> dict[str, Any]:
         "llm_usage": prev_usage,
     }
 
-    if not tool_calls and content:
+    if not tool_calls:
+        # No more tool calls — this is the final agent turn.
+        # Set response even if content is empty (LLM legitimately
+        # finished without text after a tool round).
         result["response"] = content
 
     # Build assistant message.

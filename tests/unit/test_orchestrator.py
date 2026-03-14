@@ -383,6 +383,66 @@ class TestAgentNode:
         # Should have empty tool_calls or a direct response
         assert result.get("tool_calls", []) == [] or result.get("response") is not None
 
+    def test_agent_sets_response_when_empty_content_no_tools(self):
+        """When LLM returns empty content and no tool calls (post-tool-round),
+        agent must still set response in state so responder doesn't fallback.
+        Regression test for: agent.py condition was `if not tool_calls and content`
+        which missed the empty-content case.
+        """
+        import asyncio
+
+        from noa.orchestrator.nodes.agent import LLMResponse, agent_node
+
+        mock_response = LLMResponse(
+            content="",
+            tool_calls=[],
+        )
+
+        state = _make_agent_state(
+            messages=[
+                _make_user_message("Search the web for Python news"),
+                {"role": "assistant", "content": "", "tool_calls": [
+                    {"name": "web_search", "args": {"query": "Python news"}},
+                ]},
+                {"role": "tool", "name": "web_search", "content": "Results here"},
+            ],
+        )
+
+        with patch(
+            "noa.orchestrator.nodes.agent.invoke_llm",
+            return_value=mock_response,
+        ):
+            result = asyncio.run(agent_node(state))
+
+        # response must be set (even if empty string) so responder
+        # knows the agent finished intentionally
+        assert "response" in result
+
+    def test_agent_does_not_set_response_when_tool_calls_present(self):
+        """When LLM returns tool calls, agent must NOT set response —
+        the tools haven't run yet, so there's nothing to respond with.
+        """
+        import asyncio
+
+        from noa.orchestrator.nodes.agent import LLMResponse, agent_node
+
+        mock_response = LLMResponse(
+            content="Let me search for that.",
+            tool_calls=[{"name": "web_search", "args": {"query": "test"}}],
+        )
+
+        state = _make_agent_state(
+            messages=[_make_user_message("Search for test")],
+        )
+
+        with patch(
+            "noa.orchestrator.nodes.agent.invoke_llm",
+            return_value=mock_response,
+        ):
+            result = asyncio.run(agent_node(state))
+
+        assert "response" not in result
+
 
 # ===========================================================================
 # 5. Tool Node — Allowlist Enforcement
@@ -527,6 +587,66 @@ class TestResponderNode:
         # Original state should not be mutated
         assert state["total_cost"] == original_cost
 
+    def test_responder_skips_empty_assistant_messages(self):
+        """Responder must skip assistant messages with empty content when
+        synthesizing from message history — don't treat '' as a valid response.
+        Regression: responder picked up empty content from tool-call assistant
+        messages and returned it as the final response.
+        """
+        from noa.orchestrator.nodes.responder import responder_node
+
+        state = _make_agent_state(
+            messages=[
+                _make_user_message("Search for Python news"),
+                {"role": "assistant", "content": ""},  # tool-call msg with empty content
+                {"role": "tool", "name": "web_search", "content": "results"},
+                {"role": "assistant", "content": "Here are the results."},
+            ],
+            response=None,
+        )
+
+        result = responder_node(state)
+        assert result["response"] == "Here are the results."
+
+    def test_responder_uses_tool_context_when_all_messages_empty(self):
+        """When all assistant messages have empty content but tool_results
+        exist, responder should provide a contextual message instead of
+        the generic 'I'm sorry' fallback.
+        """
+        from noa.orchestrator.nodes.responder import responder_node
+
+        state = _make_agent_state(
+            messages=[
+                _make_user_message("Search for Python news"),
+                {"role": "assistant", "content": ""},
+            ],
+            tool_results=[{"name": "web_search", "result": "some data"}],
+            response=None,
+        )
+
+        result = responder_node(state)
+        assert "web_search" in result["response"]
+        assert "sorry" not in result["response"].lower()
+
+    def test_responder_empty_response_from_agent_is_accepted(self):
+        """When agent explicitly sets response='' (empty string after tool
+        round with no content), responder should use message history or
+        tool context — not the raw empty string.
+        """
+        from noa.orchestrator.nodes.responder import responder_node
+
+        state = _make_agent_state(
+            messages=[
+                _make_user_message("Hi"),
+                {"role": "assistant", "content": "Hello there!"},
+            ],
+            response="",
+        )
+
+        result = responder_node(state)
+        # Should pick up "Hello there!" from message history
+        assert result["response"] == "Hello there!"
+
 
 # ===========================================================================
 # 7. Deterministic Execution
@@ -565,6 +685,53 @@ class TestDeterministicExecution:
         assert core_nodes == expected_core, (
             f"Graph must contain exactly {expected_core}, got {core_nodes}"
         )
+
+
+# ===========================================================================
+# 7b. System Prompt — Tool Chaining (MVP-H1)
+# ===========================================================================
+
+class TestSystemPromptToolChaining:
+    """System prompt must instruct LLM about multi-step tool use."""
+
+    def test_system_prompt_mentions_tool_chaining(self):
+        """When tools are available, the system prompt must tell the LLM
+        it can call multiple tools in sequence across turns.
+        (MVP-H1 — agent can't chain tools without this instruction)
+        """
+        from noa.orchestrator.runner import OrchestratorRunner
+
+        tools = [
+            {"name": "web_search"},
+            {"name": "calendar"},
+        ]
+        prompt = OrchestratorRunner._build_system_prompt(tools)
+
+        assert "sequence" in prompt.lower() or "chain" in prompt.lower(), (
+            "System prompt must mention tool chaining/sequencing"
+        )
+
+    def test_system_prompt_instructs_always_respond(self):
+        """System prompt must tell LLM to always provide a summary
+        after using tools — prevents empty-content responses.
+        """
+        from noa.orchestrator.runner import OrchestratorRunner
+
+        tools = [{"name": "web_search"}]
+        prompt = OrchestratorRunner._build_system_prompt(tools)
+
+        assert "summary" in prompt.lower() or "respond" in prompt.lower(), (
+            "System prompt must instruct LLM to always respond after tool use"
+        )
+
+    def test_system_prompt_without_tools_has_no_chaining(self):
+        """When no tools are available, don't mention tool chaining."""
+        from noa.orchestrator.runner import OrchestratorRunner
+
+        prompt = OrchestratorRunner._build_system_prompt([])
+
+        assert "chain" not in prompt.lower()
+        assert "sequence" not in prompt.lower()
 
 
 # ===========================================================================

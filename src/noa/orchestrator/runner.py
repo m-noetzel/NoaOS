@@ -355,7 +355,16 @@ class OrchestratorRunner:
                 " could benefit from external data or"
                 " actions:\n"
                 + "\n".join(lines)
-                + "\n\nWhen a user asks for current"
+                + "\n\nYou can call multiple tools in"
+                " sequence across turns. After each tool"
+                " returns its result, you will be called"
+                " again and can use another tool or"
+                " respond with your final answer."
+                " For complex tasks, chain tools together:"
+                " e.g. search the web first, then use the"
+                " results to draft an email or create a"
+                " calendar event."
+                "\n\nWhen a user asks for current"
                 " information (news, weather, facts that"
                 " may have changed), USE the web_search"
                 " tool rather than relying on your training"
@@ -363,6 +372,9 @@ class OrchestratorRunner:
                 " specific service (e.g. 'use Tavily',"
                 " 'search the web'), call the appropriate"
                 " tool."
+                "\n\nAfter using tools, ALWAYS provide a"
+                " clear summary of what you found or did."
+                " Never leave the user without a response."
             )
 
         return (

@@ -19,10 +19,30 @@ def responder_node(state: AgentState) -> dict[str, Any]:
         messages = state.get("messages", [])
         for msg in reversed(messages):
             if msg.get("role") == "assistant":
-                response = msg.get("content", "")
-                break
+                candidate = msg.get("content", "")
+                if candidate:
+                    response = candidate
+                    break
 
-    # If still empty, provide a fallback.
+    # If still empty after tool rounds, check if tool results contain
+    # useful content we can summarize (the LLM returned empty content
+    # after processing tool results — this is the actual bug scenario).
+    if not response:
+        tool_results = state.get("tool_results", [])
+        if tool_results:
+            # The LLM processed tools but produced no text.
+            # Rather than showing "I'm sorry", indicate what happened.
+            tool_names = [
+                r.get("name", "unknown") for r in tool_results
+            ]
+            response = (
+                f"I completed the requested actions using "
+                f"{', '.join(tool_names)}, but wasn't able to "
+                f"formulate a summary. Please ask me to elaborate "
+                f"on the results."
+            )
+
+    # Last resort fallback.
     if not response:
         response = "I'm sorry, I couldn't generate a response."
 
