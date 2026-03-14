@@ -60,6 +60,13 @@ def _make_agent_state(
         "model_config": model_config or {},
         "llm_usage": [],
         "available_tools": [],
+        # W22-H1/H2: agent limits and approvals toggle
+        "max_tool_calls": 10,
+        "max_retries": 3,
+        "timeout_seconds": 120,
+        "approvals_enabled": True,
+        # MVP-H3: private domain availability
+        "private_available": True,
     }
 
 
@@ -691,13 +698,12 @@ class TestDeterministicExecution:
 # 7b. System Prompt — Tool Chaining (MVP-H1)
 # ===========================================================================
 
-class TestSystemPromptToolChaining:
-    """System prompt must instruct LLM about multi-step tool use."""
+class TestToolContext:
+    """Tool context provides operational metadata about available tools."""
 
-    def test_system_prompt_mentions_tool_chaining(self):
-        """When tools are available, the system prompt must tell the LLM
+    def test_tool_context_mentions_chaining(self):
+        """When tools are available, tool context must tell the LLM
         it can call multiple tools in sequence across turns.
-        (MVP-H1 — agent can't chain tools without this instruction)
         """
         from noa.orchestrator.runner import OrchestratorRunner
 
@@ -705,33 +711,44 @@ class TestSystemPromptToolChaining:
             {"name": "web_search"},
             {"name": "calendar"},
         ]
-        prompt = OrchestratorRunner._build_system_prompt(tools)
+        ctx = OrchestratorRunner._build_tool_context(tools)
 
-        assert "sequence" in prompt.lower() or "chain" in prompt.lower(), (
-            "System prompt must mention tool chaining/sequencing"
+        assert "sequence" in ctx.lower() or "chain" in ctx.lower(), (
+            "Tool context must mention tool chaining/sequencing"
         )
 
-    def test_system_prompt_instructs_always_respond(self):
-        """System prompt must tell LLM to always provide a summary
+    def test_tool_context_instructs_always_respond(self):
+        """Tool context must tell LLM to always provide a summary
         after using tools — prevents empty-content responses.
         """
         from noa.orchestrator.runner import OrchestratorRunner
 
         tools = [{"name": "web_search"}]
-        prompt = OrchestratorRunner._build_system_prompt(tools)
+        ctx = OrchestratorRunner._build_tool_context(tools)
 
-        assert "summary" in prompt.lower() or "respond" in prompt.lower(), (
-            "System prompt must instruct LLM to always respond after tool use"
+        assert "summary" in ctx.lower() or "respond" in ctx.lower(), (
+            "Tool context must instruct LLM to always respond after tool use"
         )
 
-    def test_system_prompt_without_tools_has_no_chaining(self):
-        """When no tools are available, don't mention tool chaining."""
+    def test_tool_context_empty_when_no_tools(self):
+        """When no tools are available, tool context must be empty."""
         from noa.orchestrator.runner import OrchestratorRunner
 
-        prompt = OrchestratorRunner._build_system_prompt([])
+        ctx = OrchestratorRunner._build_tool_context([])
 
-        assert "chain" not in prompt.lower()
-        assert "sequence" not in prompt.lower()
+        assert ctx == ""
+
+    def test_tool_context_has_no_personality(self):
+        """Tool context must NOT contain personality instructions —
+        those belong in prompts/system_prompt.txt (transparency principle).
+        """
+        from noa.orchestrator.runner import OrchestratorRunner
+
+        tools = [{"name": "web_search"}]
+        ctx = OrchestratorRunner._build_tool_context(tools)
+
+        assert "you are noa" not in ctx.lower()
+        assert "personal ai assistant" not in ctx.lower()
 
 
 # ===========================================================================

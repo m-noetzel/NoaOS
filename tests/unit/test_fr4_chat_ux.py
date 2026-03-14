@@ -158,69 +158,30 @@ class TestSystemPromptFile:
             content = prompt_file.read_text(encoding="utf-8").strip()
             assert len(content) > 20, "System prompt file is too short/empty"
 
-    def test_load_default_system_prompt_helper(self) -> None:
-        """load_default_system_prompt() returns non-empty string."""
-        from noa.api.v1.settings import load_default_system_prompt
+    def test_read_system_prompt_helper(self) -> None:
+        """read_system_prompt() returns non-empty string from file."""
+        from noa.settings.service import read_system_prompt
 
-        result = load_default_system_prompt()
+        result = read_system_prompt()
         assert isinstance(result, str)
-        # May be empty string if file doesn't exist, but function must not raise
-        # (graceful fallback)
+        assert len(result) > 20, "System prompt file should have content"
 
 
 class TestSystemPromptEndpoints:
-    """UX-H3: GET/PUT /api/v1/settings/system-prompt."""
+    """UX-H3: GET/PUT /api/v1/settings/system-prompt.
 
-    def _app_with_mock_service(
-        self,
-        mock_service: AsyncMock,
-    ) -> TestClient:
-        """Create a test client with mocked SettingsService and fake DB."""
+    System prompt is file-backed (prompts/system_prompt.txt).
+    These tests mock the file read/write functions.
+    """
+
+    def test_get_system_prompt_reads_from_file(self) -> None:
+        """GET /api/v1/settings/system-prompt reads the file directly."""
         app = create_app()
         app.dependency_overrides[require_auth] = _fake_user
-        app.dependency_overrides[get_db_session] = _fake_db
 
-        mock_repo = MagicMock()
-        with (
-            patch("noa.api.v1.settings.SettingsRepository", return_value=mock_repo),
-            patch("noa.api.v1.settings.SettingsService", return_value=mock_service),
-        ):
-            client = TestClient(app, raise_server_exceptions=False)
-            # Store patches so they stay active; use context inside test method
-        return app, mock_repo
-
-    def test_get_system_prompt_endpoint_exists(self) -> None:
-        """GET /api/v1/settings/system-prompt returns 200."""
-        app = create_app()
-        app.dependency_overrides[require_auth] = _fake_user
-        app.dependency_overrides[get_db_session] = _fake_db
-
-        mock_service = AsyncMock()
-        mock_service.get_settings.return_value = {"system_prompt": "My custom prompt"}
-        mock_repo = MagicMock()
-
-        with (
-            patch("noa.api.v1.settings.SettingsRepository", return_value=mock_repo),
-            patch("noa.api.v1.settings.SettingsService", return_value=mock_service),
-        ):
-            client = TestClient(app, raise_server_exceptions=False)
-            response = client.get("/api/v1/settings/system-prompt")
-
-        assert response.status_code == 200
-
-    def test_get_system_prompt_returns_user_prompt_when_set(self) -> None:
-        """GET returns user's saved prompt when system_prompt is in settings."""
-        app = create_app()
-        app.dependency_overrides[require_auth] = _fake_user
-        app.dependency_overrides[get_db_session] = _fake_db
-
-        mock_service = AsyncMock()
-        mock_service.get_settings.return_value = {"system_prompt": "Be concise."}
-        mock_repo = MagicMock()
-
-        with (
-            patch("noa.api.v1.settings.SettingsRepository", return_value=mock_repo),
-            patch("noa.api.v1.settings.SettingsService", return_value=mock_service),
+        with patch(
+            "noa.settings.service.read_system_prompt",
+            return_value="You are Noa.",
         ):
             client = TestClient(app, raise_server_exceptions=False)
             response = client.get("/api/v1/settings/system-prompt")
@@ -228,98 +189,65 @@ class TestSystemPromptEndpoints:
         assert response.status_code == 200
         data = response.json()
         assert data["ok"] is True
-        assert data["data"]["content"] == "Be concise."
-        assert data["data"]["is_default"] is False
+        assert data["data"]["content"] == "You are Noa."
 
-    def test_get_system_prompt_falls_back_to_file_when_none(self) -> None:
-        """GET returns file-based default when no user prompt is set."""
+    def test_get_system_prompt_returns_empty_when_file_missing(self) -> None:
+        """GET returns empty string when file doesn't exist."""
         app = create_app()
         app.dependency_overrides[require_auth] = _fake_user
-        app.dependency_overrides[get_db_session] = _fake_db
 
-        mock_service = AsyncMock()
-        mock_service.get_settings.return_value = {"system_prompt": None}
-        mock_repo = MagicMock()
-
-        with (
-            patch("noa.api.v1.settings.SettingsRepository", return_value=mock_repo),
-            patch("noa.api.v1.settings.SettingsService", return_value=mock_service),
-            patch(
-                "noa.api.v1.settings._load_default_system_prompt",
-                return_value="You are Noa, a personal AI agent.",
-            ),
+        with patch(
+            "noa.settings.service.read_system_prompt",
+            return_value="",
         ):
             client = TestClient(app, raise_server_exceptions=False)
             response = client.get("/api/v1/settings/system-prompt")
 
         assert response.status_code == 200
-        data = response.json()
-        assert data["data"]["content"] == "You are Noa, a personal AI agent."
-        assert data["data"]["is_default"] is True
+        assert response.json()["data"]["content"] == ""
 
-    def test_put_system_prompt_saves_content(self) -> None:
-        """PUT /api/v1/settings/system-prompt persists the custom prompt."""
+    def test_put_system_prompt_writes_to_file(self) -> None:
+        """PUT /api/v1/settings/system-prompt writes to the file."""
         app = create_app()
         app.dependency_overrides[require_auth] = _fake_user
-        app.dependency_overrides[get_db_session] = _fake_db
-
-        new_prompt = "Always respond in German."
-        mock_service = AsyncMock()
-        mock_service.update_settings.return_value = {"system_prompt": new_prompt}
-        mock_repo = MagicMock()
 
         with (
-            patch("noa.api.v1.settings.SettingsRepository", return_value=mock_repo),
-            patch("noa.api.v1.settings.SettingsService", return_value=mock_service),
+            patch("noa.settings.service.write_system_prompt") as mock_write,
+            patch(
+                "noa.settings.service.read_system_prompt",
+                return_value="Always respond in German.",
+            ),
         ):
             client = TestClient(app, raise_server_exceptions=False)
             response = client.put(
                 "/api/v1/settings/system-prompt",
-                json={"content": new_prompt},
+                json={"content": "Always respond in German."},
             )
 
         assert response.status_code == 200
-        data = response.json()
-        assert data["ok"] is True
+        mock_write.assert_called_once_with("Always respond in German.")
 
     def test_put_system_prompt_rejects_too_long_content(self) -> None:
         """PUT returns 422 if content exceeds 10,000 characters."""
         app = create_app()
         app.dependency_overrides[require_auth] = _fake_user
-        app.dependency_overrides[get_db_session] = _fake_db
 
-        mock_service = AsyncMock()
-        mock_repo = MagicMock()
-
-        with (
-            patch("noa.api.v1.settings.SettingsRepository", return_value=mock_repo),
-            patch("noa.api.v1.settings.SettingsService", return_value=mock_service),
-        ):
-            client = TestClient(app, raise_server_exceptions=False)
-            response = client.put(
-                "/api/v1/settings/system-prompt",
-                json={"content": "x" * 10_001},
-            )
+        client = TestClient(app, raise_server_exceptions=False)
+        response = client.put(
+            "/api/v1/settings/system-prompt",
+            json={"content": "x" * 10_001},
+        )
 
         assert response.status_code == 422
 
-    def test_put_empty_content_resets_to_default(self) -> None:
-        """PUT with empty string saves None (resets to file default)."""
+    def test_put_empty_content_writes_empty(self) -> None:
+        """PUT with empty string writes empty to the file."""
         app = create_app()
         app.dependency_overrides[require_auth] = _fake_user
-        app.dependency_overrides[get_db_session] = _fake_db
-
-        mock_service = AsyncMock()
-        mock_service.update_settings.return_value = {"system_prompt": None}
-        mock_repo = MagicMock()
 
         with (
-            patch("noa.api.v1.settings.SettingsRepository", return_value=mock_repo),
-            patch("noa.api.v1.settings.SettingsService", return_value=mock_service),
-            patch(
-                "noa.api.v1.settings._load_default_system_prompt",
-                return_value="You are Noa.",
-            ),
+            patch("noa.settings.service.write_system_prompt") as mock_write,
+            patch("noa.settings.service.read_system_prompt", return_value=""),
         ):
             client = TestClient(app, raise_server_exceptions=False)
             response = client.put(
@@ -328,13 +256,7 @@ class TestSystemPromptEndpoints:
             )
 
         assert response.status_code == 200
-        data = response.json()
-        assert data["data"]["is_default"] is True
-        # update_settings must have been called with system_prompt=None
-        mock_service.update_settings.assert_called_once()
-        call_kwargs = mock_service.update_settings.call_args
-        updates = call_kwargs[0][1] if call_kwargs[0] else call_kwargs.kwargs.get("updates", {})
-        assert updates.get("system_prompt") is None
+        mock_write.assert_called_once_with("")
 
 
 # ---------------------------------------------------------------------------

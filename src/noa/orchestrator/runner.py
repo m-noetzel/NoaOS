@@ -47,6 +47,11 @@ class OrchestratorRunner:
         user_id: str | None = None,
         trace_id: str | None = None,
         history: list[dict[str, Any]] | None = None,
+        max_tool_calls: int = 10,
+        max_retries: int = 3,
+        timeout_seconds: int = 120,
+        approvals_enabled: bool = True,
+        private_available: bool = True,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Execute the graph and yield structured events.
 
@@ -59,6 +64,10 @@ class OrchestratorRunner:
             provider: Optional provider override.
             user_id: Authenticated user ID for structured logging.
             trace_id: Request trace ID for structured logging.
+            max_tool_calls: Max tool calls per agent step (W22-H1).
+            max_retries: Max tool-execution rounds (W22-H1).
+            timeout_seconds: Orchestrator timeout in seconds (W22-H1).
+            approvals_enabled: Whether human approval checks are enforced (W22-H2).
 
         Yields:
             Event dicts with event_type, payload, timestamp.
@@ -125,12 +134,17 @@ class OrchestratorRunner:
                 ]
 
             messages: list[dict[str, Any]] = []
-            # Build system prompt: user-provided or default
-            sp = system_prompt or self._build_system_prompt(
-                avail_tools,
+            # System prompt: use exactly what was passed (from
+            # settings → UI → ChatRequest). Tool context is
+            # appended as operational metadata.
+            sp = system_prompt or ""
+            tool_ctx = self._build_tool_context(avail_tools)
+            combined = (
+                (sp + "\n\n" + tool_ctx) if sp and tool_ctx
+                else sp or tool_ctx
             )
-            if sp:
-                messages.append({"role": "system", "content": sp})
+            if combined:
+                messages.append({"role": "system", "content": combined})
 
             # Include conversation history for multi-turn context
             if history:
@@ -159,6 +173,14 @@ class OrchestratorRunner:
                 "available_tools": avail_tools,
                 "temperature": temperature,
                 "max_tokens": max_tokens or 4096,
+                # W22-H1: User-configured agent limits
+                "max_tool_calls": max_tool_calls,
+                "max_retries": max_retries,
+                "timeout_seconds": timeout_seconds,
+                # W22-H2: Human-in-the-loop approvals toggle
+                "approvals_enabled": approvals_enabled,
+                # MVP-H3: Private domain availability (for router node)
+                "private_available": private_available,
             }
 
             # A4: Load checkpoint if available (resume support)
@@ -312,77 +334,77 @@ class OrchestratorRunner:
                 )
 
     @staticmethod
-    def _build_system_prompt(
+    def _build_tool_context(
         avail_tools: list[dict[str, Any]],
     ) -> str:
-        """Build default system prompt with tool info."""
+        """Build tool-availability context appended to the system prompt.
+
+        This is operational metadata — tells the LLM what tools exist
+        and how to use them. Personality and behavior instructions come
+        from the user's system prompt (prompts/system_prompt.txt → DB
+        → UI → ChatRequest). Transparency principle: no hidden prompts.
+        """
         tool_names = (
             [t["name"] for t in avail_tools] if avail_tools else []
         )
-        tools_section = ""
-        if tool_names:
-            descs = {
-                "web_search": (
-                    "Search the web for current information"
-                    " (powered by Tavily)"
-                ),
-                "calendar": (
-                    "List, create, and manage"
-                    " Google Calendar events"
-                ),
-                "gmail": (
-                    "Search, read, send, and draft"
-                    " emails via Gmail"
-                ),
-                "notion": (
-                    "Search, read, and create Notion pages"
-                ),
-                "memory": (
-                    "Remember facts about the user (remember)"
-                    " or recall previously stored facts (recall)."
-                    " Use remember when the user shares preferences,"
-                    " habits, or important personal information."
-                    " Use recall to retrieve stored knowledge"
-                ),
-            }
-            lines = []
-            for name in tool_names:
-                desc = descs.get(name, name)
-                lines.append(f"- {name}: {desc}")
-            tools_section = (
-                "\n\nYou have the following tools available."
-                " Use them proactively when a user's question"
-                " could benefit from external data or"
-                " actions:\n"
-                + "\n".join(lines)
-                + "\n\nYou can call multiple tools in"
-                " sequence across turns. After each tool"
-                " returns its result, you will be called"
-                " again and can use another tool or"
-                " respond with your final answer."
-                " For complex tasks, chain tools together:"
-                " e.g. search the web first, then use the"
-                " results to draft an email or create a"
-                " calendar event."
-                "\n\nWhen a user asks for current"
-                " information (news, weather, facts that"
-                " may have changed), USE the web_search"
-                " tool rather than relying on your training"
-                " data. When a user asks you to use a"
-                " specific service (e.g. 'use Tavily',"
-                " 'search the web'), call the appropriate"
-                " tool."
-                "\n\nAfter using tools, ALWAYS provide a"
-                " clear summary of what you found or did."
-                " Never leave the user without a response."
-            )
+        if not tool_names:
+            return ""
+
+        descs = {
+            "web_search": (
+                "Search the web for current information"
+                " (powered by Tavily)"
+            ),
+            "calendar": (
+                "List, create, and manage"
+                " Google Calendar events"
+            ),
+            "gmail": (
+                "Search, read, send, and draft"
+                " emails via Gmail"
+            ),
+            "notion": (
+                "Search, read, and create Notion pages"
+            ),
+            "memory": (
+                "Remember facts about the user (remember)"
+                " or recall previously stored facts (recall)."
+                " Use remember when the user shares preferences,"
+                " habits, or important personal information."
+                " Use recall to retrieve stored knowledge"
+            ),
+        }
+        lines = []
+        for name in tool_names:
+            desc = descs.get(name, name)
+            lines.append(f"- {name}: {desc}")
 
         return (
-            "You are Noa, a personal AI assistant."
-            " You are helpful, precise, and concise."
-            " Answer in the same language the user"
-            " writes in."
-            + tools_section
+            "You have the following tools available."
+            " Use them proactively when a user's question"
+            " could benefit from external data or"
+            " actions:\n"
+            + "\n".join(lines)
+            + "\n\nYou can call multiple tools in"
+            " sequence across turns. After each tool"
+            " returns its result, you will be called"
+            " again and can use another tool or"
+            " respond with your final answer."
+            " For complex tasks, chain tools together:"
+            " e.g. search the web first, then use the"
+            " results to draft an email or create a"
+            " calendar event."
+            "\n\nWhen a user asks for current"
+            " information (news, weather, facts that"
+            " may have changed), USE the web_search"
+            " tool rather than relying on your training"
+            " data. When a user asks you to use a"
+            " specific service (e.g. 'use Tavily',"
+            " 'search the web'), call the appropriate"
+            " tool."
+            "\n\nAfter using tools, ALWAYS provide a"
+            " clear summary of what you found or did."
+            " Never leave the user without a response."
         )
 
     @staticmethod

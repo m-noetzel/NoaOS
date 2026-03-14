@@ -125,7 +125,9 @@ async def agent_node(state: AgentState) -> dict[str, Any]:
 
     raw_tool_calls: list[dict[str, Any]] = response.tool_calls or []
     # Enforce bounded autonomy: cap tool calls.
-    tool_calls = raw_tool_calls[:MAX_TOOL_CALLS]
+    # Read limit from state (user-configured) with fallback to module constant.
+    tool_call_limit: int = state.get("max_tool_calls") or MAX_TOOL_CALLS  # type: ignore[assignment]
+    tool_calls = raw_tool_calls[:tool_call_limit]
 
     content: str = response.content or ""
 

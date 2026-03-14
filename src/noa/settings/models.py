@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     Numeric,
     String,
+    Text,
     UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -60,7 +61,7 @@ class UserSettings(Base):
     )
 
     # Chat defaults
-    system_prompt: Mapped[str | None] = mapped_column(String(4096))
+    # system_prompt: removed — now file-backed (prompts/system_prompt.txt)
     temperature: Mapped[float | None] = mapped_column(
         Numeric(3, 2), default=0.7,
     )
@@ -85,6 +86,11 @@ class UserSettings(Base):
     max_tool_calls: Mapped[int | None] = mapped_column(default=10)
     max_retries: Mapped[int | None] = mapped_column(default=3)
     timeout_seconds: Mapped[int | None] = mapped_column(default=120)
+
+    # Tool scope overrides (UX-M10): JSON blob, user-keyed per scope name.
+    # Stored as TEXT (JSON-encoded) for SQLite/Postgres portability.
+    # None means "no overrides — use registry defaults".
+    scope_overrides: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(

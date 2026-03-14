@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from noa.api.deps import get_db_session
@@ -16,10 +15,6 @@ from noa.api.schemas.common import success_envelope
 from noa.auth.middleware import AuthUser, require_auth
 from noa.settings.repository import SettingsRepository
 from noa.settings.service import SettingsService
-
-# UX-H3: Path to the default system prompt file in the repo
-_PROMPTS_DIR = Path(__file__).parent.parent.parent.parent.parent / "prompts"
-_DEFAULT_SYSTEM_PROMPT_FILE = _PROMPTS_DIR / "system_prompt.txt"
 
 logger = logging.getLogger(__name__)
 
@@ -53,10 +48,10 @@ class UpdateSettingsRequest(BaseModel):
     ollama_base_url: str | None = None
     # UX-M2: Governance — human-in-the-loop approvals toggle
     approvals_enabled: bool | None = None
-    # UX-M4: Agent execution limits
-    max_tool_calls: int | None = None
-    max_retries: int | None = None
-    timeout_seconds: int | None = None
+    # UX-M4: Agent execution limits (W22-M2: validated ranges)
+    max_tool_calls: int | None = Field(default=None, ge=1, le=50)
+    max_retries: int | None = Field(default=None, ge=1, le=10)
+    timeout_seconds: int | None = Field(default=None, ge=10, le=600)
 
 
 def _reload_llm_pipeline_if_needed(
@@ -210,7 +205,10 @@ async def patch_settings(
     user_id = user.user_id
     # exclude_unset ensures only explicitly provided fields are applied
     updates = body.model_dump(exclude_unset=True)
-    data = await service.update_settings(user_id, updates)
+    try:
+        data = await service.update_settings(user_id, updates)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     await session.commit()
     # BE-H1: Reload ProviderRouter if LLM credential fields changed.
     # Pass full settings (data) so partial updates don't drop other credentials.
@@ -229,33 +227,21 @@ class SystemPromptBody(BaseModel):
     content: str
 
 
-def _load_default_system_prompt() -> str:
-    """Load the default system prompt from the prompts/ directory."""
-    try:
-        return _DEFAULT_SYSTEM_PROMPT_FILE.read_text(encoding="utf-8").strip()
-    except OSError:
-        return ""
-
-
 @router.get("/system-prompt")
 async def get_system_prompt(
     request: Request,
     user: AuthUser = Depends(require_auth),  # noqa: B008
-    session: AsyncSession = Depends(get_db_session),  # noqa: B008
 ) -> dict[str, Any]:
     """Get the current system prompt.
 
-    Returns the user's saved system_prompt from settings if set,
-    otherwise falls back to the default from prompts/system_prompt.txt.
+    Reads directly from prompts/system_prompt.txt — the single source
+    of truth. What this returns is what the UI shows and what the LLM runs.
     """
+    from noa.settings.service import read_system_prompt
+
     rid = trace_id_ctx.get("")
-    service = SettingsService(SettingsRepository(session))
-    data = await service.get_settings(user.user_id)
-    # User's stored system prompt takes precedence; file is the default
-    user_prompt = data.get("system_prompt")
-    content = user_prompt or _load_default_system_prompt()
     return success_envelope(
-        data={"content": content, "is_default": not user_prompt},
+        data={"content": read_system_prompt()},
         trace_id=rid,
     )
 
@@ -265,35 +251,22 @@ async def update_system_prompt(
     body: SystemPromptBody,
     request: Request,
     user: AuthUser = Depends(require_auth),  # noqa: B008
-    session: AsyncSession = Depends(get_db_session),  # noqa: B008
 ) -> dict[str, Any]:
-    """Save a custom system prompt for the user.
+    """Save the system prompt.
 
-    Stores the prompt in user settings so it persists across sessions.
-    To restore the default, PUT an empty string.
+    Writes directly to prompts/system_prompt.txt — the single source
+    of truth. The file, the UI, and the runner all see the same value.
     """
+    from noa.settings.service import read_system_prompt, write_system_prompt
+
     rid = trace_id_ctx.get("")
     if len(body.content) > 10_000:
         raise HTTPException(
             status_code=422,
             detail="System prompt exceeds 10,000 character limit",
         )
-    service = SettingsService(SettingsRepository(session))
-    content = body.content.strip() or None  # empty string -> reset to default
-    data = await service.update_settings(user.user_id, {"system_prompt": content})
-    await session.commit()
-    # Return what was saved (or default if reset)
-    saved_content = data.get("system_prompt") or _load_default_system_prompt()
+    write_system_prompt(body.content)
     return success_envelope(
-        data={"content": saved_content, "is_default": not data.get("system_prompt")},
+        data={"content": read_system_prompt()},
         trace_id=rid,
     )
-
-
-def load_default_system_prompt() -> str:
-    """Public helper: load default system prompt from prompts/ directory.
-
-    Used by the orchestrator to seed the system prompt when no user
-    override is present.
-    """
-    return _load_default_system_prompt()

@@ -2,11 +2,21 @@
 
 from __future__ import annotations
 
+import json
 import os
 import uuid
+from pathlib import Path
 from typing import Any
 
 from noa.settings.repository import SettingsRepository
+
+# Single source of truth for the system prompt (file on disk).
+# Read/written by both the API and the runner. No DB storage.
+_SYSTEM_PROMPT_FILE = (
+    Path(__file__).parent.parent.parent.parent
+    / "prompts"
+    / "system_prompt.txt"
+)
 
 # Fields that contain secrets and must be masked on read
 _SECRET_FIELDS = frozenset({
@@ -24,7 +34,6 @@ _ALL_FIELDS = frozenset({
     "default_privacy_mode",
     "budget_daily_usd",
     "budget_monthly_usd",
-    "system_prompt",
     "temperature",
     "max_tokens",
     "anthropic_api_key",
@@ -47,7 +56,6 @@ _DEFAULTS: dict[str, Any] = {
     "default_privacy_mode": "external",
     "budget_daily_usd": 10.0,
     "budget_monthly_usd": 200.0,
-    "system_prompt": None,
     "temperature": 0.7,
     "max_tokens": 4096,
     "anthropic_api_key": None,
@@ -63,6 +71,28 @@ _DEFAULTS: dict[str, Any] = {
     "max_retries": 3,
     "timeout_seconds": 120,
 }
+
+
+def read_system_prompt() -> str:
+    """Read the system prompt from the file on disk.
+
+    This is the single source of truth for the system prompt.
+    The same file is read by the settings API and the orchestrator runner.
+    """
+    try:
+        return _SYSTEM_PROMPT_FILE.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def write_system_prompt(content: str) -> None:
+    """Write the system prompt to the file on disk.
+
+    Called when the user edits the prompt in the UI. The file is the
+    canonical store — there is no DB column for system_prompt.
+    """
+    _SYSTEM_PROMPT_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _SYSTEM_PROMPT_FILE.write_text(content.strip() + "\n", encoding="utf-8")
 
 
 # Map from settings field name → env var name (for keychain override)
@@ -111,7 +141,12 @@ class SettingsService:
         return f"****{key[-4:]}"
 
     async def get_settings(self, user_id: uuid.UUID) -> dict[str, Any]:
-        """Get settings for a user, with API keys masked."""
+        """Get settings for a user, with API keys masked.
+
+        system_prompt is read from the file (prompts/system_prompt.txt),
+        not the DB. Single source of truth — file, UI, and runner all
+        see the same value.
+        """
         row = await self._repo.get_by_user_id(user_id)
         if row is None:
             # Return defaults with masked env-var keys
@@ -119,6 +154,7 @@ class SettingsService:
             for field in _SECRET_FIELDS:
                 env_val = self.get_effective_key(field, db_value=None)
                 defaults_result[field] = self.mask_key(env_val)
+            defaults_result["system_prompt"] = read_system_prompt()
             return defaults_result
 
         row_result: dict[str, Any] = {}
@@ -133,17 +169,62 @@ class SettingsService:
                 if hasattr(val, "as_integer_ratio"):
                     val = float(val)
                 row_result[field] = val
+        # Always from file, never DB
+        row_result["system_prompt"] = read_system_prompt()
         return row_result
+
+    async def get_scope_overrides(
+        self, user_id: uuid.UUID,
+    ) -> dict[str, list[str]]:
+        """Return persisted scope overrides for a user.
+
+        Returns an empty dict when no overrides have been set (caller should
+        fall back to registry defaults).
+        """
+        row = await self._repo.get_by_user_id(user_id)
+        if row is None or row.scope_overrides is None:
+            return {}
+        try:
+            parsed: dict[str, list[str]] = json.loads(row.scope_overrides)
+            return parsed
+        except (json.JSONDecodeError, TypeError):
+            return {}
+
+    async def set_scope_override(
+        self,
+        user_id: uuid.UUID,
+        scope_name: str,
+        tools: list[str],
+    ) -> dict[str, list[str]]:
+        """Persist a single scope override for a user.
+
+        Merges with any existing overrides (other scopes are untouched).
+        Returns the full updated overrides dict.
+        """
+        current = await self.get_scope_overrides(user_id)
+        current[scope_name] = tools
+        encoded = json.dumps(current)
+        await self._repo.upsert(user_id, {"scope_overrides": encoded})
+        return current
 
     async def update_settings(
         self, user_id: uuid.UUID, updates: dict[str, Any],
     ) -> dict[str, Any]:
         """Update settings. Only provided fields are changed.
 
+        system_prompt writes to the file on disk (single source of truth).
         Empty strings for secret fields are treated as None (clear).
         Returns the updated settings (masked).
         """
-        # Filter to allowed fields only, normalize empty strings
+        # Handle system_prompt separately — goes to file, not DB
+        if "system_prompt" in updates:
+            prompt_val = updates["system_prompt"] or ""
+            if len(prompt_val) > 10_000:
+                msg = "System prompt exceeds 10,000 character limit"
+                raise ValueError(msg)
+            write_system_prompt(prompt_val)
+
+        # Filter to DB-backed fields only, normalize empty strings
         filtered: dict[str, Any] = {}
         for key, value in updates.items():
             if key not in _ALL_FIELDS:
@@ -152,5 +233,6 @@ class SettingsService:
                 value = None
             filtered[key] = value
 
-        await self._repo.upsert(user_id, filtered)
+        if filtered:
+            await self._repo.upsert(user_id, filtered)
         return await self.get_settings(user_id)

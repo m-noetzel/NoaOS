@@ -9,6 +9,10 @@ After milestones (phase/wave completion, QA verdicts), update:
 - `Plan/PLAN.md` — status table row
 - MEMORY.md — project state summary
 
+## Transparency Principle
+
+What the UI shows is what the system runs. No hidden fallbacks, no silent overrides, no backend defaults invisible to the user. When a setting has a canonical file on disk (e.g. `prompts/system_prompt.txt`), that file IS the source of truth — the UI reads from it and writes to it. The DB is only for settings that don't have a file representation. If the backend appends operational context (e.g. tool availability), that is metadata — never a hidden replacement for user-controlled settings.
+
 ## Project Overview
 
 Noa is a governed personal AI agent with dual-domain architecture (private + external). Container-based domain isolation (Phase 1), scales to physical machine isolation (Phase 2). See SPEC.md for full spec.
