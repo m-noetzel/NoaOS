@@ -170,9 +170,9 @@
 | MVP-M2 | Medium | Queued chat path creates no Run/Conversation DB rows — when privacy_mode=private and private domain unavailable, the queue path skips `_make_run_service()`. No Run row, no Conversation row created. Queued requests are invisible on the Runs page. Phase 2 dispatch implementation will need to create these rows from the queue payload. | **Resolved** | MVP-fixes-2 |
 | MVP-L1 | Low | enable_tool endpoint accepts function-level capability keys — TOOL_CAPABILITIES now includes auto-generated keys like `memory__remember`. POST /tools/memory__remember/enable returns 200 with a no-op DB grant (tool_name='memory__remember' never matched by has_capability which checks tool_name='memory'). Confusing but not a security issue. | **Resolved** | MVP-fixes-2 |
 | MVP-L2 | Low | Queued SSE stream missing meta event — the normal chat path emits a `meta` event (with run_id, thread_id) as the first SSE frame. The queued path emits `queued` directly without a preceding `meta`. Clients relying on `meta` for run_id tracking may miss it. | **Resolved** | MVP-fixes-2 |
-| MVP-L3 | Low | QueueDrainWorker task stuck in "processing" on crash — DurableQueue.poll() only returns status="queued" tasks. If the API container crashes between the first session.commit() (status→"processing") and completion of _dispatch_task, the task is permanently stuck. Manual DB intervention required to recover. No timeout recovery exists for "processing" state. | Open | |
+| MVP-L3 | Low | QueueDrainWorker task stuck in "processing" on crash — DurableQueue.poll() only returns status="queued" tasks. If the API container crashes between the first session.commit() (status→"processing") and completion of _dispatch_task, the task is permanently stuck. Manual DB intervention required to recover. No timeout recovery exists for "processing" state. | **Resolved** | MVP-fixes-3 |
 
-**Open:** 3 | **Partially Resolved:** 0 | **Resolved:** 158 | **Total:** 161
+**Open:** 2 | **Partially Resolved:** 0 | **Resolved:** 159 | **Total:** 161
 
 ---
 

@@ -158,6 +158,18 @@ class DurableQueue:
         for task in timeout_result.scalars():
             task.status = "failed"
 
+        # Recover stale "processing" tasks (MVP-L3):
+        # If a task has been "processing" past its timeout_at, the
+        # worker likely crashed. Reset to "queued" for retry.
+        stale_stmt = select(TaskQueue).where(
+            TaskQueue.status == "processing",
+            TaskQueue.timeout_at <= now,
+        )
+        stale_result = await self._session.execute(stale_stmt)
+        for task in stale_result.scalars():
+            task.status = "queued"
+            task.retry_count = task.retry_count + 1
+
         # Find next ready task (ordered by queued_at for simplicity;
         # priority ordering can be added when scheduler integrates)
         ready_stmt = (

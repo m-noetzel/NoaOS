@@ -422,6 +422,82 @@ class TestPollOrdering:
 
 
 # ---------------------------------------------------------------------------
+# 9b. Stale "processing" recovery (MVP-L3)
+# ---------------------------------------------------------------------------
+
+
+class TestStaleProcessingRecovery:
+    """MVP-L3: Tasks stuck in 'processing' past timeout are recovered."""
+
+    @pytest.mark.asyncio
+    async def test_stale_processing_task_reset_to_queued(self):
+        """poll() resets stale 'processing' tasks to 'queued'."""
+        from noa.queue.durable import DurableQueue
+
+        stale_task = MagicMock()
+        stale_task.status = "processing"
+        stale_task.retry_count = 0
+
+        mock_session = AsyncMock()
+
+        # 1st execute: timeout check (no timed-out queued tasks)
+        timeout_result = MagicMock()
+        timeout_result.scalars.return_value = iter([])
+
+        # 2nd execute: stale processing check (returns our stale task)
+        stale_result = MagicMock()
+        stale_result.scalars.return_value = iter([stale_task])
+
+        # 3rd execute: ready task query (returns None)
+        ready_result = MagicMock()
+        ready_scalars = MagicMock()
+        ready_scalars.first.return_value = None
+        ready_result.scalars.return_value = ready_scalars
+
+        mock_session.execute = AsyncMock(
+            side_effect=[timeout_result, stale_result, ready_result],
+        )
+
+        queue = DurableQueue(session=mock_session)
+        await queue.poll()
+
+        assert stale_task.status == "queued"
+        assert stale_task.retry_count == 1
+
+    @pytest.mark.asyncio
+    async def test_stale_recovery_increments_retry_count(self):
+        """Each stale recovery increments retry_count."""
+        from noa.queue.durable import DurableQueue
+
+        stale_task = MagicMock()
+        stale_task.status = "processing"
+        stale_task.retry_count = 2
+
+        mock_session = AsyncMock()
+
+        timeout_result = MagicMock()
+        timeout_result.scalars.return_value = iter([])
+
+        stale_result = MagicMock()
+        stale_result.scalars.return_value = iter([stale_task])
+
+        ready_result = MagicMock()
+        ready_scalars = MagicMock()
+        ready_scalars.first.return_value = None
+        ready_result.scalars.return_value = ready_scalars
+
+        mock_session.execute = AsyncMock(
+            side_effect=[timeout_result, stale_result, ready_result],
+        )
+
+        queue = DurableQueue(session=mock_session)
+        await queue.poll()
+
+        assert stale_task.status == "queued"
+        assert stale_task.retry_count == 3
+
+
+# ---------------------------------------------------------------------------
 # 10. Notification on queue state changes (§17.3)
 # ---------------------------------------------------------------------------
 
