@@ -45,9 +45,9 @@ Maintained by the `ci` agent. Proposals require human approval before applicatio
 | CI-039 | Integration Test Delete/Cascade Coverage Rule | P2 | DEFERRED | CLAUDE.md | 2026-03-12 | — | — |
 | CI-040 | Dev Container TEST_DATABASE_URL Setup | P3 | DEFERRED | docker-compose.dev.yml | 2026-03-12 | — | — |
 | CI-041 | Nightly Mutation Test CI Job (jwt.py) | P3 | DEFERRED | .github/workflows/ci.yml | 2026-03-12 | — | — |
-| CI-042 | Broaden Dead-End Store Detection to DB-Persisted Fields (M7) | P1 | PROPOSED | Plan/QA_CHECKLIST.md | 2026-03-14 | — | — |
-| CI-043 | Add tsc --noEmit to Verify Gate | P2 | PROPOSED | CLAUDE.md | 2026-03-14 | — | — |
-| CI-044 | Signal Log Completeness Enforcement | P3 | PROPOSED | CLAUDE.md | 2026-03-14 | — | — |
+| CI-042 | Broaden Dead-End Store Detection to DB-Persisted Fields (M7) | P1 | RESOLVED | Plan/QA_CHECKLIST.md | 2026-03-14 | 2026-03-14 | Dead-end stores (W22-H1/H2) fixed; settings now wired into orchestrator/policy engine |
+| CI-043 | Add tsc --noEmit to Verify Gate | P2 | DEFERRED | CLAUDE.md | 2026-03-14 | — | Nice-to-have; frontend build already catches type errors |
+| CI-044 | Signal Log Completeness Enforcement | P3 | DEFERRED | CLAUDE.md | 2026-03-14 | — | Process improvement; not blocking MVP |
 
 ---
 

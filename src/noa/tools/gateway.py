@@ -128,7 +128,11 @@ class ToolGateway:
     # -- dispatch -----------------------------------------------------------
 
     async def dispatch(
-        self, request: ToolRequest, *, dry_run: bool = False
+        self,
+        request: ToolRequest,
+        *,
+        dry_run: bool = False,
+        approvals_enabled: bool = True,
     ) -> ToolResponse:
         tool = request.tool
 
@@ -170,7 +174,8 @@ class ToolGateway:
                 return resp
 
         # 1c. Approval + step-up auth check (M7 / §21)
-        if self.policy_engine is not None:
+        # W22-H2: When approvals_enabled=False, skip policy approval check entirely.
+        if self.policy_engine is not None and approvals_enabled:
             risk_tier = self.policy_engine.classify(request.function, request.args)
 
             # Medium/high risk: require approval unless pre-approved

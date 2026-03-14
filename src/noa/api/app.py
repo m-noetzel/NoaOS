@@ -345,7 +345,29 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception:  # noqa: BLE001
         logger.warning("Failed to start RetentionScheduler")
 
+    # MVP-H3: Start queue drain worker (drains private tasks when domain recovers)
+    drain_worker = None
+    try:
+        from noa.api.app_state import get_runner as _get_runner
+        from noa.api.app_state import get_session_factory as _gsf
+        from noa.queue.drain import QueueDrainWorker
+
+        _drain_sf = _gsf()
+        if _drain_sf is not None:
+            drain_worker = QueueDrainWorker(
+                session_factory=_drain_sf,
+                health_checker=checker,
+                runner=_get_runner(),
+            )
+            await drain_worker.start()
+    except Exception:  # noqa: BLE001
+        logger.warning("Failed to start QueueDrainWorker")
+
     yield
+
+    # Shutdown: stop queue drain worker
+    if drain_worker is not None:
+        await drain_worker.stop()
 
     # Shutdown: close APNs HTTP client
     if apns_http_client is not None:

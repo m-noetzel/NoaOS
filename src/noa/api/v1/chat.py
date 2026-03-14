@@ -61,6 +61,13 @@ def _get_session_factory() -> Any:
 get_session_factory = _get_session_factory
 
 
+def get_health_checker() -> Any:
+    """Get the HealthChecker from app state."""
+    from noa.api.app_state import get_health_checker as _ghc
+
+    return _ghc()
+
+
 @router.post("/chat", response_model=None)
 async def submit_chat(
     body: ChatRequest,
@@ -115,6 +122,37 @@ async def submit_chat(
             _active_idempotency_keys.pop(k, None)
 
     runner = get_runner()
+
+    # MVP-H3: Check private domain availability from HealthChecker
+    _checker = get_health_checker()
+    private_available: bool = _checker.is_available() if _checker is not None else True
+
+    # MVP-H3: If private domain is requested but unavailable, enqueue the task
+    if privacy_mode == "private" and not private_available:
+        # MVP-M2: Create Run + Conversation rows so queued request appears on Runs page.
+        # Use initial_status="queued" directly — avoids a state machine transition.
+        await _make_run_service(
+            user_id, thread_id, run_id, privacy_mode, body.message,
+            initial_status="queued",
+        )
+        queue_id = await _enqueue_private_chat(
+            run_id=run_id,
+            thread_id=thread_id,
+            user_id=user_id,
+            body=body,
+        )
+        return StreamingResponse(
+            _queued_event_stream(run_id=run_id, thread_id=thread_id, queue_id=queue_id),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Trace-ID": rid,
+            },
+        )
+
+    # W22-H1/H2: Load user settings for agent limits and approvals toggle
+    user_settings = await _load_user_settings(user.user_id)
 
     # BE-C3: Verify existing thread belongs to the correct domain
     if body.thread_id is not None:
@@ -183,6 +221,11 @@ async def submit_chat(
                         user_id=user_id,
                         trace_id=rid,
                         history=history,
+                        max_tool_calls=user_settings.get("max_tool_calls", 10),
+                        max_retries=user_settings.get("max_retries", 3),
+                        timeout_seconds=user_settings.get("timeout_seconds", 120),
+                        approvals_enabled=user_settings.get("approvals_enabled", True),
+                        private_available=private_available,
                     ):
                         await event_queue.put(event)
                 finally:
@@ -267,6 +310,48 @@ async def submit_chat(
     )
 
 
+async def _load_user_settings(user_id: Any) -> dict[str, Any]:
+    """Load user settings for agent limits and governance toggles (best-effort).
+
+    Returns a dict with agent limit fields. Falls back to safe defaults
+    if DB is unavailable so the chat pipeline always has valid values.
+    W22-H1, W22-H2: Provides max_tool_calls, max_retries, timeout_seconds,
+    approvals_enabled to the orchestrator runner.
+    """
+    defaults: dict[str, Any] = {
+        "max_tool_calls": 10,
+        "max_retries": 3,
+        "timeout_seconds": 120,
+        "approvals_enabled": True,
+    }
+    factory = _get_session_factory()
+    if factory is None:
+        return defaults
+
+    try:
+        from noa.settings.repository import SettingsRepository
+        from noa.settings.service import SettingsService
+
+        async with factory() as session:
+            service = SettingsService(SettingsRepository(session))
+            data = await service.get_settings(user_id)
+            return {
+                "max_tool_calls": (
+                    data.get("max_tool_calls") or defaults["max_tool_calls"]
+                ),
+                "max_retries": (
+                    data.get("max_retries") or defaults["max_retries"]
+                ),
+                "timeout_seconds": (
+                    data.get("timeout_seconds") or defaults["timeout_seconds"]
+                ),
+                "approvals_enabled": data.get("approvals_enabled", True),
+            }
+    except Exception:  # noqa: BLE001
+        logger.warning("Failed to load user settings for agent limits")
+        return defaults
+
+
 async def _check_thread_domain(
     thread_id: str,
     user_id: str,
@@ -326,6 +411,8 @@ async def _make_run_service(
     run_id: str,
     privacy_mode: str,
     user_message: str,
+    *,
+    initial_status: str = "running",
 ) -> Any:
     """Create Conversation + Run rows in DB, return a no-op service for the runner.
 
@@ -333,6 +420,9 @@ async def _make_run_service(
     can't work with AsyncSession.  We create the rows here with
     proper async operations and let the runner use a no-op service.
     Run status updates happen after stream completion.
+
+    MVP-M2: Accepts optional initial_status to support "queued" runs that are
+    created before the private domain is available.
     """
     factory = _get_session_factory()
     if factory is not None:
@@ -361,7 +451,7 @@ async def _make_run_service(
                     id=uuid.UUID(run_id),
                     user_id=uid,
                     thread_id=tid,
-                    status="running",
+                    status=initial_status,
                     risk_tier="low",
                     privacy_mode=privacy_mode,
                 ))
@@ -641,3 +731,89 @@ async def _create_approval(
     except Exception:  # noqa: BLE001
         logger.warning("Failed to create approval for run %s", run_id, exc_info=True)
         return None
+
+
+# ---------------------------------------------------------------------------
+# MVP-H3: Queue helpers — private domain unavailable path
+# ---------------------------------------------------------------------------
+
+
+async def _enqueue_private_chat(
+    *,
+    run_id: str,
+    thread_id: str,
+    user_id: str,
+    body: ChatRequest,
+) -> str | None:
+    """Enqueue a private chat task when the private domain is unavailable.
+
+    Returns the queue_id string on success, or None if enqueueing failed.
+    """
+    factory = _get_session_factory()
+    if factory is None:
+        logger.warning("Cannot enqueue: no session factory configured")
+        return None
+
+    try:
+        from noa.queue.durable import DurableQueue
+
+        async with factory() as session:
+            queue = DurableQueue(session)
+            queue_id = await queue.enqueue(
+                task_type="private.chat",
+                payload={
+                    "user_id": user_id,
+                    "run_id": run_id,
+                    "thread_id": thread_id,
+                    "message": body.message,
+                    "model": body.model,
+                    "provider": body.provider,
+                },
+                idempotency_key=uuid.UUID(run_id),
+                timeout=120,
+            )
+            await session.commit()
+            logger.info("Enqueued private.chat task %s for run %s", queue_id, run_id)
+            return str(queue_id)
+    except Exception:  # noqa: BLE001
+        logger.warning("Failed to enqueue private.chat task for run %s", run_id)
+        return None
+
+
+async def _queued_event_stream(
+    *,
+    run_id: str,
+    thread_id: str,
+    queue_id: str | None,
+) -> Any:
+    """Yield a minimal SSE stream telling the client the task was queued.
+
+    MVP-L2: Emits a meta event first so clients can track run_id/thread_id,
+    matching the contract of the normal streaming path.
+    """
+    # MVP-L2: meta event first — clients rely on this for run_id/thread_id tracking
+    meta_event = {
+        "event_type": "meta",
+        "run_id": run_id,
+        "thread_id": thread_id,
+    }
+    yield f"data: {json.dumps(meta_event)}\n\n"
+
+    queued_event = {
+        "event_type": "queued",
+        "payload": {
+            "queue_id": queue_id,
+            "message": (
+                "Private domain is currently unavailable. Your request has been"
+                " queued and will be processed when the private worker comes"
+                " back online."
+            ),
+        },
+    }
+    yield f"data: {json.dumps(queued_event)}\n\n"
+
+    done_event = {
+        "event_type": "done",
+        "payload": {"run_id": run_id},
+    }
+    yield f"data: {json.dumps(done_event)}\n\n"

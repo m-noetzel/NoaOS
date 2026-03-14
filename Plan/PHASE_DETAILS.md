@@ -4758,3 +4758,174 @@ docker exec noa-dev python -m pytest tests/unit/test_qe5_traceability.py -v
 docker exec noa-dev python -m pytest tests/unit/ --cov=src/noa --cov-fail-under=70 --tb=short
 docker exec noa-dev python -m pytest tests/unit/test_qe6_quality.py -v
 ```
+
+---
+
+## MS1: Microsoft Outlook Mail + Calendar (OAuth2 + Graph API)
+
+**Spec refs:** SPEC §11 (OAuth2 / credential management), §8.3 (tool integration), §36 (build order)
+
+**Goal:** Add Microsoft Outlook as a mail and calendar provider alongside the existing Google integration. Full OAuth2 flow (Azure AD v2.0), encrypted token storage, HTTP clients for Microsoft Graph API, tool registration, Web UI "Connect Microsoft" section, iOS OAuth via ASWebAuthenticationSession.
+
+**Architecture:** Clone the proven Google OAuth pattern (GO1/GO2/GO3 + GT1/GT2). Same gateway, same encryption, same 401-retry pattern. Microsoft-specific differences handled in dedicated clients.
+
+### Microsoft Graph API Reference
+
+**OAuth2 Endpoints (Azure AD v2.0):**
+- Authorize: `https://login.microsoftonline.com/common/oauth2/v2.0/authorize`
+- Token: `https://login.microsoftonline.com/common/oauth2/v2.0/token`
+- Scopes: `Mail.ReadWrite Mail.Send Calendars.ReadWrite offline_access` (simple strings, NOT full URLs like Google)
+
+**Graph API Base:** `https://graph.microsoft.com/v1.0`
+
+**Mail endpoints:**
+- `GET /me/messages` — list messages (`$select`, `$top`, `$skip`, `$search`, `$orderby`)
+- `GET /me/messages/{id}` — get full message with body
+- `POST /me/sendMail` — send email (returns 202 Accepted, no body)
+- `POST /me/mailFolders('drafts')/messages` — create draft
+
+**Calendar endpoints:**
+- `GET /me/calendar/calendarView?startDateTime=...&endDateTime=...` — list events in range (handles recurrence)
+- `POST /me/calendar/events` — create event
+- `PATCH /me/calendar/events/{id}` — update event
+- `DELETE /me/calendar/events/{id}` — delete event (204 No Content)
+
+**Key differences from Google:**
+| Aspect | Google | Microsoft |
+|--------|--------|-----------|
+| Scopes | Full URLs (`https://www.googleapis.com/auth/...`) | Simple strings (`Mail.ReadWrite`) |
+| Offline access | `access_type=offline` param | `offline_access` scope |
+| Refresh token rotation | Rotates on use | Does NOT rotate (90-day inactivity expiry) |
+| Pagination | `nextPageToken` param | `@odata.nextLink` URL in response |
+| Calendar date range | `timeMin`/`timeMax` params | `startDateTime`/`endDateTime` params |
+| Date format | ISO 8601 string | `{"dateTime": "...", "timeZone": "UTC"}` object |
+| Token exchange | `application/x-www-form-urlencoded` | Same (form-encoded) |
+| API calls | Mixed encoding | Always JSON body for POST/PATCH |
+| Error response | `{error, error_description}` | `{error, error_description, error_codes[], timestamp, trace_id}` |
+
+### Scope
+
+**1. Backend: OAuth2 flow (clone GO1 pattern)**
+- `src/noa/tools/microsoft_auth.py` — `MicrosoftAuthClient` (authorize URL, code exchange, token refresh)
+  - `get_auth_url(scopes)` → authorization URL with CSRF state
+  - `exchange_code(code)` → POST to Azure AD token endpoint
+  - `refresh_access_token()` → refresh grant (no rotation — check `if "refresh_token" in response`)
+  - `on_token_change` callback for DB persistence
+- `src/noa/api/v1/auth.py` — 4 new routes:
+  - `GET /api/v1/auth/microsoft/authorize` — generate auth URL, CSRF state (10-min TTL)
+  - `GET /api/v1/auth/microsoft/callback` — exchange code, encrypt & persist tokens, redirect (iOS: `noaapp://oauth/callback?microsoft=connected`, web: `/settings?microsoft=connected`)
+  - `GET /api/v1/auth/microsoft/status` — `{"connected": bool}`
+  - `DELETE /api/v1/auth/microsoft/disconnect` — delete credential row, clear live client
+
+**2. Backend: DB model + migration**
+- `src/noa/db/models/microsoft_credential.py` — `MicrosoftCredential` (user_id FK, access_token_enc, refresh_token_enc, updated_at)
+- `alembic/versions/018_microsoft_credentials.py` — create `microsoft_credentials` table
+- Reuse `_token_crypto.py` (Fernet encryption, same `SECRET_KEY`)
+
+**3. Backend: HTTP clients (clone GT2 pattern)**
+- `src/noa/tools/outlook_client.py` — `OutlookClient`
+  - `list_messages(max_results=50)` — GET `/me/messages` with `$select`, `$top`, `$orderby`
+  - `get_message(message_id)` — GET `/me/messages/{id}` (full body)
+  - `send_email(to, subject, body, cc=None)` — POST `/me/sendMail`
+  - `draft_email(to, subject, body)` — POST `/me/mailFolders('drafts')/messages`
+  - `search_emails(query, max_results=50)` — GET `/me/messages?$search="{query}"`
+  - 401 auto-retry with `refresh_access_token()`
+- `src/noa/tools/outlook_calendar_client.py` — `OutlookCalendarClient`
+  - `list_events(start_date, end_date)` — GET `/me/calendar/calendarView`
+  - `create_event(title, start, end, description="", attendees=None)` — POST `/me/calendar/events`
+  - `update_event(event_id, **changes)` — PATCH `/me/calendar/events/{id}`
+  - `delete_event(event_id)` — DELETE `/me/calendar/events/{id}`
+  - 401 auto-retry with `refresh_access_token()`
+
+**4. Backend: Tool wrappers + registration**
+- `src/noa/tools/outlook_mail.py` — `OutlookMailTool(ToolInterface)` (list_emails, read_email, send_email, draft_email, search_emails)
+- `src/noa/tools/outlook_calendar.py` — `OutlookCalendarTool(ToolInterface)` (list_events, create_event, update_event, delete_event)
+- `src/noa/tools/registration.py` — `_register_microsoft_tools()`:
+  - Check `MICROSOFT_CLIENT_ID` + `MICROSOFT_CLIENT_SECRET` env vars
+  - Create `MicrosoftAuthClient` with `on_token_change` callback
+  - Load tokens from DB (fire-and-forget async), fallback to `MICROSOFT_REFRESH_TOKEN` env
+  - Register `outlook_mail` and `outlook_calendar` tools in gateway
+  - Store `app.state.microsoft_auth_client` for live token updates
+
+**5. Web UI: Connect Microsoft (clone GO2 pattern)**
+- `web/src/pages/Settings.tsx` — `MicrosoftAuthSection` component:
+  - Query `/api/v1/auth/microsoft/status` on mount
+  - "Connect Microsoft" / "Disconnect" button
+  - Handle `?microsoft=connected` query param
+- `web/src/pages/MicrosoftCallback.tsx` — redirect handler page
+- Route: `/auth/microsoft/callback`
+
+**6. iOS: OAuth via ASWebAuthenticationSession (clone GO3 pattern)**
+- `Noa/Services/MicrosoftAuthService.swift` — actor with `WebAuthSessionProviding` protocol
+  - `connect()` → open ASWebAuthenticationSession to `/auth/microsoft/authorize`
+  - `disconnect()` → DELETE `/auth/microsoft/disconnect`
+  - `checkStatus()` → GET `/auth/microsoft/status`
+- `Noa/ViewModels/SettingsViewModel.swift` — add `microsoftConnected`, `connectMicrosoft()`, `disconnectMicrosoft()`
+- `Noa/Views/SettingsView.swift` — Microsoft section (connect/disconnect/status)
+
+**7. Environment variables:**
+- `MICROSOFT_CLIENT_ID` — Azure AD app registration client ID
+- `MICROSOFT_CLIENT_SECRET` — Azure AD client secret
+- `MICROSOFT_REDIRECT_URI` — default `http://localhost:8000/api/v1/auth/microsoft/callback`
+
+**Files created:**
+- `src/noa/tools/microsoft_auth.py`
+- `src/noa/tools/outlook_client.py`
+- `src/noa/tools/outlook_calendar_client.py`
+- `src/noa/tools/outlook_mail.py`
+- `src/noa/tools/outlook_calendar.py`
+- `src/noa/db/models/microsoft_credential.py`
+- `alembic/versions/018_microsoft_credentials.py`
+- `web/src/pages/MicrosoftCallback.tsx`
+- `Noa/Services/MicrosoftAuthService.swift`
+- `tests/unit/test_ms1_microsoft_oauth.py`
+- `tests/unit/test_ms1_outlook_clients.py`
+- `tests/unit/test_ms1_outlook_tools.py`
+
+**Files modified:**
+- `src/noa/api/v1/auth.py` (add 4 Microsoft routes)
+- `src/noa/tools/registration.py` (add `_register_microsoft_tools()`)
+- `src/noa/db/models/__init__.py` (export MicrosoftCredential)
+- `web/src/pages/Settings.tsx` (add MicrosoftAuthSection)
+- `web/src/App.tsx` (add `/auth/microsoft/callback` route)
+- `Noa/ViewModels/SettingsViewModel.swift` (add Microsoft state/actions)
+- `Noa/Views/SettingsView.swift` (add Microsoft section)
+
+**Tests (~30):**
+- OAuth2 code exchange sends correct POST params to Azure AD token endpoint
+- Token refresh sends `grant_type=refresh_token`, does NOT expect rotation
+- Auth URL contains correct scopes (simple strings, not URLs)
+- CSRF state validation (valid, expired, missing)
+- Encrypted token persistence to `microsoft_credentials` table
+- Token decryption and live client update on callback
+- Disconnect deletes DB row and clears live client
+- Status endpoint returns `{"connected": true/false}`
+- OutlookClient: list_messages returns parsed messages
+- OutlookClient: send_email sends correct JSON body, expects 202
+- OutlookClient: 401 triggers refresh and retry
+- OutlookCalendarClient: list_events with date range (`calendarView`)
+- OutlookCalendarClient: create_event with attendees
+- OutlookCalendarClient: update_event via PATCH
+- OutlookCalendarClient: delete_event expects 204
+- OutlookCalendarClient: date format uses `{"dateTime", "timeZone"}` object
+- Pagination follows `@odata.nextLink` (not `nextPageToken`)
+- Tool registration skipped when env vars missing
+- Tool functions have correct capabilities/risk_tier
+- Frontend: MicrosoftAuthSection renders status, connect/disconnect
+- iOS: MicrosoftAuthService connect/disconnect/checkStatus
+- Token values never appear in logs (SPEC §11.2)
+
+**Estimate:** ~3-4 hours (mostly cloning existing Google patterns with Microsoft-specific adjustments)
+
+**Test gate:**
+```bash
+docker exec noa-dev python -m pytest tests/unit/test_ms1_microsoft_oauth.py tests/unit/test_ms1_outlook_clients.py tests/unit/test_ms1_outlook_tools.py -v
+cd web && npm test -- --watchAll=false
+```
+
+**Azure AD setup prerequisite (one-time, manual):**
+1. Go to portal.azure.com → App registrations → New registration
+2. Add redirect URIs: `http://localhost:8000/api/v1/auth/microsoft/callback` (dev), production URL (prod)
+3. Certificates & secrets → New client secret
+4. API permissions → Add: `Mail.ReadWrite`, `Mail.Send`, `Calendars.ReadWrite`, `offline_access`
+5. Copy Client ID + Client Secret → set as env vars

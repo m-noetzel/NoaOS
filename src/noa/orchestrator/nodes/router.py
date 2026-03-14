@@ -37,7 +37,8 @@ def router_node(state: AgentState) -> dict[str, Any]:
         classify_state["requested_tools"] = state["requested_tools"]
     if "user_privacy_override" in state:
         classify_state["privacy_mode"] = state["user_privacy_override"]
-    result = _classifier.classify(classify_state)
+    private_available = state.get("private_available", True)
+    result = _classifier.classify(classify_state, private_available=private_available)
     privacy_mode = result.domain
 
     # Respect user's explicit model/provider choice if provided.

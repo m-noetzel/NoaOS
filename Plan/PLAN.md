@@ -183,6 +183,7 @@ The plan is organized into **waves** — groups of related phases that deliver a
 - Query performance audit (EXPLAIN ANALYZE on hot paths)
 
 ### Wave 24: Polish & Extended Capabilities
+- **MS1**: Microsoft Outlook Mail + Calendar (OAuth2 + Graph API)
 - Frontend bundle optimization (tree-shaking, lazy routes audit)
 - Advanced tool integrations (new MCP servers, custom workflows)
 - Voice UX refinement (streaming transcription, inline playback)

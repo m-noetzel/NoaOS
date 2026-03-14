@@ -286,7 +286,9 @@ class TestToolCapabilityDefaultDeny:
         mock_session = AsyncMock()
         # execute() is awaited, returns a sync result object
         mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = None
+        mock_scalars = MagicMock()
+        mock_scalars.first.return_value = None
+        mock_result.scalars.return_value = mock_scalars
         mock_session.execute.return_value = mock_result
 
         checker = DbCapabilityChecker(session=mock_session)

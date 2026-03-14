@@ -250,6 +250,8 @@ class TestToolEndpoints:
 
     def test_enable_grants_capability(self) -> None:
         """POST /api/v1/tools/{name}/enable returns success on grant."""
+        from unittest.mock import MagicMock
+
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
@@ -265,6 +267,12 @@ class TestToolEndpoints:
         mock_session = AsyncMock()
         mock_session.add = lambda x: None
         mock_session.commit = AsyncMock()
+        # grant() calls execute() to check for existing grant
+        mock_scalars = MagicMock()
+        mock_scalars.first.return_value = None
+        mock_exec_result = MagicMock()
+        mock_exec_result.scalars.return_value = mock_scalars
+        mock_session.execute.return_value = mock_exec_result
 
         async def fake_db():
             yield mock_session

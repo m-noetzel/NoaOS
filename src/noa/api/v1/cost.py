@@ -55,9 +55,14 @@ def _extract_user_id(user: Any) -> uuid.UUID:
 async def cost_summary(
     request: Request,
     period: str = Query("monthly", pattern="^(daily|monthly)$"),
+    privacy_mode: str | None = Query(default=None, pattern="^(private|external)$"),
     user: Any = Depends(require_auth),  # noqa: B008
 ) -> dict[str, Any]:
-    """Return cost summary aggregated by period."""
+    """Return cost summary aggregated by period.
+
+    When ``privacy_mode`` is specified, only costs from runs in that domain
+    are included. When omitted, all domains are included (backwards compatible).
+    """
     rid = trace_id_ctx.get("")
     factory = _get_session_factory()
     if factory is None:
@@ -69,6 +74,7 @@ async def cost_summary(
         async with factory() as session:
             from sqlalchemy import func, select
 
+            from noa.db.models.run import Run
             from noa.db.models.usage import UsageStats
             from noa.settings.repository import SettingsRepository
 
@@ -108,6 +114,11 @@ async def cost_summary(
                     UsageStats.user_id == uid,
                     UsageStats.timestamp >= since,
                 )
+                if privacy_mode is not None:
+                    # Join through runs to filter by domain
+                    stmt = stmt.join(Run, UsageStats.run_id == Run.id).where(
+                        Run.privacy_mode == privacy_mode,
+                    )
                 result = await session.execute(stmt)
                 row = result.one()
                 budget_limit = budget_daily if p == "daily" else budget_monthly
@@ -130,9 +141,15 @@ async def cost_records(
     request: Request,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    privacy_mode: str | None = Query(default=None, pattern="^(private|external)$"),
     user: Any = Depends(require_auth),  # noqa: B008
 ) -> dict[str, Any]:
-    """Return recent cost records."""
+    """Return recent cost records.
+
+    When ``privacy_mode`` is specified, only records linked to runs in that
+    domain are returned. When omitted, all domains are included (backwards
+    compatible). Records without a run_id are excluded when filtering.
+    """
     rid = trace_id_ctx.get("")
     factory = _get_session_factory()
     if factory is None:
@@ -143,6 +160,7 @@ async def cost_records(
     try:
         from sqlalchemy import select
 
+        from noa.db.models.run import Run
         from noa.db.models.usage import UsageStats
 
         async with factory() as session:
@@ -153,6 +171,12 @@ async def cost_records(
                 .limit(limit)
                 .offset(offset)
             )
+            if privacy_mode is not None:
+                # Join through runs to filter by domain.
+                # Records without run_id are excluded when a filter is applied.
+                stmt = stmt.join(Run, UsageStats.run_id == Run.id).where(
+                    Run.privacy_mode == privacy_mode,
+                )
             result = await session.execute(stmt)
             rows = result.scalars().all()
 

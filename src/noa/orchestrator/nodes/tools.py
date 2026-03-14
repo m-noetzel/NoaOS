@@ -85,6 +85,8 @@ async def tool_node(state: AgentState) -> dict[str, Any]:
     """
     tool_calls: list[dict[str, Any]] = state.get("tool_calls", [])
     current_rounds: int = state.get("tool_rounds", 0)
+    # W22-H2: Read approvals_enabled from state (default True = enforce approvals)
+    approvals_enabled: bool = state.get("approvals_enabled", True)  # type: ignore[assignment]
 
     if not tool_calls:
         return {"tool_results": []}
@@ -99,7 +101,9 @@ async def tool_node(state: AgentState) -> dict[str, Any]:
             args = call.get("args", {})
 
             if _gateway is not None:
-                result = await _dispatch_gateway(tool_name, function, args)
+                result = await _dispatch_gateway(
+                    tool_name, function, args, approvals_enabled=approvals_enabled,
+                )
             else:
                 result = await _dispatch_registry(tool_name, function, args)
             results.append({"name": f"{tool_name}.{function}", **result})
@@ -116,6 +120,7 @@ async def tool_node(state: AgentState) -> dict[str, Any]:
             if parsed_tool != name and _gateway is not None:
                 result = await _dispatch_gateway(
                     parsed_tool, parsed_func, arguments,
+                    approvals_enabled=approvals_enabled,
                 )
                 results.append({"name": name, **result})
                 continue
@@ -194,13 +199,17 @@ async def _dispatch_registry_legacy(
 
 
 async def _dispatch_gateway(
-    tool_name: str, function: str, args: dict[str, Any]
+    tool_name: str,
+    function: str,
+    args: dict[str, Any],
+    *,
+    approvals_enabled: bool = True,
 ) -> dict[str, Any]:
     """Dispatch through the ToolGateway."""
     assert _gateway is not None  # noqa: S101
     req = ToolRequest(tool=tool_name, function=function, args=args)
     try:
-        resp = await _gateway.dispatch(req)
+        resp = await _gateway.dispatch(req, approvals_enabled=approvals_enabled)
         return _gateway_response_to_dict(resp)
     except Exception as exc:  # noqa: BLE001
         return {"error": str(exc)}

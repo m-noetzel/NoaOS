@@ -41,10 +41,12 @@ def route_after_agent(state: dict[str, Any]) -> str:
 def route_after_tools(state: dict[str, Any]) -> str:
     """Decide next node after tools: agent (for follow-up) or responder (if done).
 
-    Caps at MAX_TOOL_ROUNDS to enforce bounded autonomy (S2.2).
+    Caps at max_retries from state (user-configured) or MAX_TOOL_ROUNDS as
+    fallback, to enforce bounded autonomy (S2.2).
     """
     tool_rounds: int = state.get("tool_rounds", 0)
-    if tool_rounds >= MAX_TOOL_ROUNDS:
+    max_retries: int = state.get("max_retries") or MAX_TOOL_ROUNDS
+    if tool_rounds >= max_retries:
         return "responder"
     return "agent"
 

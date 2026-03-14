@@ -541,6 +541,7 @@ class TestM7StepUpAuth:
             function="delete_data",  # classified as "high" by PolicyEngine
             args={},
             user_id=_uuid(),
+            approved=True,  # Pass approval gate to test step-up auth
         )
         # No step_up_verified on the request
 
@@ -568,6 +569,7 @@ class TestM7StepUpAuth:
             args={},
             user_id=_uuid(),
             step_up_verified=True,
+            approved=True,
         )
 
         resp = await gw.dispatch(req)

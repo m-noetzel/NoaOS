@@ -24,6 +24,8 @@ TOOL_CAPABILITIES: dict[str, str] = {
     "calendar": "calendar.write",
     "gmail": "gmail.send",
     "notion": "notion.read",
+    "memory": "memory.remember",
+    "external_memory": "external_memory.remember",
 }
 
 # TM2: Add function-level capability keys (tool__function -> capability).

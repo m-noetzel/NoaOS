@@ -556,8 +556,7 @@ class TestToolScopes:
                 assert research["is_custom"] is True
         finally:
             tools_mod.require_auth = tools_mod._SELF_REF  # type: ignore[assignment]
-            # Clean up scope override for this user
-            tools_mod._scope_overrides.pop(str(user_id), None)
+            # Note: _scope_overrides dict removed in FR6-L1 — overrides now DB-backed.
 
         await engine.dispose()
 

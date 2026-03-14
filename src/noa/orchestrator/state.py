@@ -20,6 +20,10 @@ class AgentState(TypedDict):
         response: Final formatted response string.
         total_cost: Cumulative cost tracker (USD estimate).
         tool_rounds: Number of tool-execution rounds completed (MR9 loop cap).
+        max_tool_calls: Max tool calls per agent step (W22-H1).
+        max_retries: Max tool-execution rounds (W22-H1).
+        timeout_seconds: Orchestrator timeout in seconds (W22-H1).
+        approvals_enabled: Whether human-in-the-loop approvals are enforced (W22-H2).
     """
 
     messages: list[dict[str, Any]]
@@ -37,3 +41,11 @@ class AgentState(TypedDict):
     tool_rounds: int
     llm_usage: list[dict[str, Any]]
     available_tools: list[dict[str, Any]]
+    # UX-M4: Agent execution limits (W22-H1)
+    max_tool_calls: int
+    max_retries: int
+    timeout_seconds: int
+    # UX-M2: Human-in-the-loop approvals toggle (W22-H2)
+    approvals_enabled: bool
+    # MVP-H3: Private domain availability flag (passed from health checker)
+    private_available: bool

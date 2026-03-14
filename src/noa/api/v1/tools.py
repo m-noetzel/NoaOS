@@ -7,7 +7,7 @@ import logging
 import os
 import sys
 import uuid
-from typing import Any, Literal
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -168,14 +168,15 @@ def _tool_is_visible_in_domain(tool_schema: dict[str, Any], privacy_mode: str) -
 
 @router.get("")
 async def list_tools(
-    privacy_mode: Literal["private", "external"] = Query(default="external"),  # noqa: B008
+    privacy_mode: str | None = Query(default=None),  # noqa: B008
     payload: Any = Depends(require_auth),  # noqa: B008
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
 ) -> dict[str, Any]:
     """List tools with per-function metadata and capabilities.
 
-    BE-H8: Filters out tools that don't belong to the requested domain.
-    Memory tool (private-domain) is hidden when privacy_mode=external.
+    When privacy_mode is None (default), all tools from all domains are returned.
+    When privacy_mode is specified, only tools matching that domain are returned.
+    BE-H8: Explicit privacy_mode filters out tools that don't belong to the domain.
     """
     rid = trace_id_ctx.get("")
     user_id = (
@@ -189,8 +190,11 @@ async def list_tools(
         capability = TOOL_CAPABILITIES.get(name, name)
         tool_schema = TOOL_SCHEMAS[name]
 
-        # BE-H8: Skip tools that don't belong to the requested domain
-        if not _tool_is_visible_in_domain(tool_schema, privacy_mode):
+        # When privacy_mode is specified, apply domain filter.
+        # When privacy_mode is None, show all tools regardless of domain.
+        if privacy_mode is not None and not _tool_is_visible_in_domain(
+            tool_schema, privacy_mode
+        ):
             continue
 
         # Credential status: check if secrets are configured
@@ -275,7 +279,7 @@ async def enable_tool(
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
 ) -> dict[str, Any]:
     """Grant the calling user the capability for the named tool."""
-    if name not in TOOL_CAPABILITIES:
+    if name not in TOOL_SCHEMAS:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Unknown tool: {name}",
@@ -696,27 +700,45 @@ async def get_credentials(
 # UX-M10: Tool scope settings endpoints
 # ---------------------------------------------------------------------------
 
-# In-memory per-user scope overrides: maps user_id -> {scope: [tool__func, ...]}
-# Default (no override) falls through to the ToolScopeRegistry predefined list.
-_scope_overrides: dict[str, dict[str, list[str]]] = {}
+
+async def _get_settings_service(session: AsyncSession) -> Any:
+    """Construct a SettingsService from an active session."""
+    from noa.settings.repository import SettingsRepository
+    from noa.settings.service import SettingsService
+
+    repo = SettingsRepository(session)
+    return SettingsService(repo)
 
 
 @router.get("/scopes")
 async def list_tool_scopes(
     payload: Any = Depends(require_auth),  # noqa: B008
+    session: AsyncSession = Depends(get_db_session),  # noqa: B008
 ) -> dict[str, Any]:
     """List all defined tool scopes with per-scope tool lists.
 
     Returns predefined scopes (email_draft, research, scheduling) plus any
     user-defined overrides. Each scope entry shows which tool functions are
     enabled for that context.
+
+    UX-M10 / FR6-L1: Overrides are persisted in DB (scope_overrides column
+    on user_settings) so they survive server restarts.
     """
     from noa.tools.scopes import ToolScopeRegistry
 
     rid = trace_id_ctx.get("")
     uid = _extract_user_id(payload)
     registry = ToolScopeRegistry()
-    user_overrides = _scope_overrides.get(uid, {})
+
+    svc = await _get_settings_service(session)
+    try:
+        user_id = (
+            payload.user_id if hasattr(payload, "user_id") else uuid.UUID(uid)
+        )
+        user_overrides = await svc.get_scope_overrides(user_id)
+    except Exception:  # noqa: BLE001
+        logger.warning("Failed to load scope overrides from DB [%s]", rid)
+        user_overrides = {}
 
     scopes = []
     for scope_name in registry.list_scopes():
@@ -742,10 +764,11 @@ async def update_tool_scope(
     scope_name: str,
     body: ScopeUpdateRequest,
     payload: Any = Depends(require_auth),  # noqa: B008
+    session: AsyncSession = Depends(get_db_session),  # noqa: B008
 ) -> dict[str, Any]:
     """Update a scope's tool allowlist for this user.
 
-    UX-M10: Lets the user control which tools are allowed per scope.
+    UX-M10 / FR6-L1: Persists overrides to DB so they survive server restarts.
     The tools list should contain tool__function identifiers
     (e.g. "gmail__read_email", "notion__read_page").
     """
@@ -761,9 +784,12 @@ async def update_tool_scope(
             detail=f"Unknown scope: {scope_name}",
         )
 
-    if uid not in _scope_overrides:
-        _scope_overrides[uid] = {}
-    _scope_overrides[uid][scope_name] = list(body.tools)
+    svc = await _get_settings_service(session)
+    user_id = (
+        payload.user_id if hasattr(payload, "user_id") else uuid.UUID(uid)
+    )
+    await svc.set_scope_override(user_id, scope_name, list(body.tools))
+    await session.commit()
 
     return success_envelope(
         data={"scope": scope_name, "tools": body.tools, "status": "updated"},

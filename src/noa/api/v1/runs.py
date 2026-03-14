@@ -27,17 +27,25 @@ async def list_runs(
     db: Any = Depends(get_db_session),  # noqa: B008
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    privacy_mode: str | None = Query(default=None, pattern="^(private|external)$"),
 ) -> dict[str, Any]:
-    """List runs for the authenticated user."""
+    """List runs for the authenticated user.
+
+    When ``privacy_mode`` is specified, only runs from that domain are returned.
+    When omitted, runs from all domains are returned (backwards compatible).
+    """
     rid = trace_id_ctx.get("")
     # Fetch runs
-    run_result = await db.execute(
+    stmt = (
         select(Run)
         .where(Run.user_id == user.user_id)
         .order_by(Run.created_at.desc())
         .limit(limit)
         .offset(offset)
     )
+    if privacy_mode is not None:
+        stmt = stmt.where(Run.privacy_mode == privacy_mode)
+    run_result = await db.execute(stmt)
     runs = run_result.scalars().all()
 
     # Aggregate usage stats per run (outer join — many runs have no stats)
