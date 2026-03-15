@@ -11,9 +11,18 @@ from __future__ import annotations
 
 from typing import Any
 
+import json as _json
+import logging
+
 from noa.orchestrator.state import AgentState
 from noa.tools.gateway import ToolGateway, ToolRequest
 from noa.tools.interface import ToolRegistry
+from noa.validation.content_filter import scan_output_recursive
+
+logger = logging.getLogger(__name__)
+
+# Max tool output size (1 MB) — matches validation pipeline default.
+_MAX_TOOL_OUTPUT_BYTES = 1 * 1024 * 1024
 
 # Module-level registry reference, set at startup via set_registry().
 _registry: ToolRegistry | None = None
@@ -141,11 +150,17 @@ async def tool_node(state: AgentState) -> dict[str, Any]:
                 result = execute_tool(name, arguments)
                 results.append({"name": name, **result})
 
-    # Append tool results as messages so the LLM sees them
-    import json as _json
+    # Validate and append tool results as messages so the LLM sees them
     msgs = list(state.get("messages", []))
     for idx, res in enumerate(results):
         tool_call = tool_calls[idx] if idx < len(tool_calls) else {}
+        tool_name = res.get("name", "")
+
+        # Skip validation for error responses (nothing to filter)
+        if not res.get("error"):
+            res = _validate_tool_output(res, tool_name)
+            results[idx] = res
+
         content = res.get("error") or _json.dumps(
             {k: v for k, v in res.items() if k != "name"},
             default=str,
@@ -153,7 +168,7 @@ async def tool_node(state: AgentState) -> dict[str, Any]:
         msgs.append({
             "role": "tool",
             "tool_call_id": tool_call.get("id", ""),
-            "name": res.get("name", ""),
+            "name": tool_name,
             "content": content,
         })
 
@@ -162,6 +177,43 @@ async def tool_node(state: AgentState) -> dict[str, Any]:
         "tool_rounds": current_rounds + 1,
         "messages": msgs,
     }
+
+
+def _validate_tool_output(
+    result: dict[str, Any], tool_name: str,
+) -> dict[str, Any]:
+    """Validate tool output for size and malicious content.
+
+    Returns the original result if clean, or an error dict if blocked.
+    """
+    # Size check
+    try:
+        size = len(_json.dumps(result, default=str))
+    except (TypeError, ValueError):
+        size = 0
+    if size > _MAX_TOOL_OUTPUT_BYTES:
+        logger.warning(
+            "Tool %s output blocked: %d bytes exceeds %d limit",
+            tool_name, size, _MAX_TOOL_OUTPUT_BYTES,
+        )
+        return {
+            "name": result.get("name", tool_name),
+            "error": f"Tool output too large ({size} bytes). Limit is {_MAX_TOOL_OUTPUT_BYTES}.",
+        }
+
+    # Content filter — prompt injection, exfiltration URLs, system prompt leaks
+    filter_result = scan_output_recursive(result)
+    if not filter_result.passed:
+        issues = "; ".join(filter_result.issues)
+        logger.warning(
+            "Tool %s output blocked by content filter: %s", tool_name, issues,
+        )
+        return {
+            "name": result.get("name", tool_name),
+            "error": f"Tool output blocked by content filter: {issues}",
+        }
+
+    return result
 
 
 async def _dispatch_registry(
