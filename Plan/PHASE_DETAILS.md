@@ -4929,3 +4929,75 @@ cd web && npm test -- --watchAll=false
 3. Certificates & secrets → New client secret
 4. API permissions → Add: `Mail.ReadWrite`, `Mail.Send`, `Calendars.ReadWrite`, `offline_access`
 5. Copy Client ID + Client Secret → set as env vars
+
+---
+
+## Phase AU1 — Auth Stability: Login That Just Works
+
+**Goal:** Permanently fix the daily "Login failed - Session expired" cycle for a single-user personal system. Four concrete changes: remove login rate limiting, make tokens long-lived, fix error propagation from the login endpoint, add a startup session check. After this phase, you log in once and it works for 7 days with no lockouts and no misleading error messages.
+
+**Findings addressed:** AUTH-H1, AUTH-H2, AUTH-M1, AUTH-M2
+
+**Root cause summary (why it keeps happening):**
+
+1. **Rate limiting locks you out.** 5 wrong password attempts → 30-minute lockout. Single user on a private network — this protects nobody and punishes you.
+2. **Tokens expire too quickly.** Access token: 15 minutes. Every 15 minutes the refresh dance fires. If refresh fails for any reason (expired refresh token, container restart invalidated session, network blip) → "Session expired."
+3. **Wrong error on login failure.** `apiRequest`'s 401-retry handler fires even for the login endpoint. Wrong password → 401 → retry-refresh → refresh fails → throws "Session expired." The real error ("Invalid email or password") is discarded.
+4. **localStorage flag desyncs from cookies.** App loads, localStorage says authenticated, cookies are actually expired → first API call fails → "Session expired" redirect before you've done anything. No startup check verifies the session is real.
+
+**Deliverables:**
+
+1. **Remove login rate limiting** — delete `_check_rate_limit()`, `_record_failed_attempt()`, `_failed_attempts`, `_lockout_until`, and the `AccountLockedError` import from `src/noa/auth/service.py`. Remove the `AccountLockedError` handler from the login endpoint in `auth.py`. Single-user personal system — no lockout needed.
+
+2. **Extend token lifetimes** — in `src/noa/config.py`: change `access_token_expire_minutes` default from `30` to `10080` (7 days). Change `refresh_token_expire_days` default from `7` to `90`. Also update `max_age` in `_set_auth_cookies()` in `auth.py` to match: access cookie `max_age=7*24*3600`, refresh cookie `max_age=90*24*3600`. You now log in once, it works for 7 days minimum.
+
+3. **`GET /api/v1/auth/me` endpoint** — thin authenticated endpoint returning `{"user_id": "...", "email": "..."}`. Returns 200 if session cookies are valid, 401 if not. Uses existing `require_auth` dep.
+
+4. **`AuthProvider` startup session check** — on mount, call `GET /api/v1/auth/me` directly via `fetch` (not `apiRequest` — avoids circular retry logic). If 200: `setIsAuthenticated(true)`. If anything else: clear localStorage flag, `setIsAuthenticated(false)`. Hold `isLoading = true` until the check resolves.
+
+5. **`AuthGuard` loading state** — while `isLoading === true`, render a neutral spinner. Prevents the flash of "authenticated" content before the check completes.
+
+6. **Exempt auth endpoints from the 401-retry in `apiRequest`** — add `skipAuthRetry?: boolean` to `apiRequest` options. When true, a 401 is treated as a normal error: read `detail` from the response body and throw it directly. Pass `skipAuthRetry: true` from `AuthContext.login()` and `ForgotPassword`. Wrong password now shows "Invalid email or password." Expired reset token shows "Invalid or expired reset token."
+
+7. **Remove the localStorage `noa_authenticated` flag** — once the `/auth/me` startup check is the source of truth, the flag is redundant and the source of the desync. Delete it. `tokens.ts` becomes a stub file (or is removed with callers updated). Auth state lives in React state only.
+
+**Files to modify:**
+- `src/noa/auth/service.py` — remove rate limiting (deliverable 1)
+- `src/noa/auth/service.py` — remove `AccountLockedError`
+- `src/noa/config.py` — extend token lifetimes (deliverable 2)
+- `src/noa/api/v1/auth.py` — update cookie `max_age`, add `/me` endpoint, remove `AccountLockedError` handler
+- `web/src/auth/AuthContext.tsx` — startup `/auth/me` check + `isLoading` state (deliverable 4)
+- `web/src/auth/AuthGuard.tsx` — spinner while `isLoading` (deliverable 5)
+- `web/src/auth/tokens.ts` — remove localStorage flag (deliverable 7)
+- `web/src/api/client.ts` — `skipAuthRetry` option (deliverable 6)
+- `web/src/pages/ForgotPassword.tsx` — pass `skipAuthRetry: true`
+
+**Files NOT to modify:**
+- `src/noa/auth/jwt.py` — token structure unchanged
+- `src/noa/auth/password.py` — bcrypt unchanged
+- `src/noa/auth/middleware.py` — cookie reading unchanged
+
+**Tests:**
+- Login with wrong password → shows "Invalid email or password" (not "Session expired")
+- Login with correct password → `isAuthenticated = true`
+- Login after N wrong attempts → still works immediately (no lockout)
+- `GET /api/v1/auth/me` with valid session → 200 + user info
+- `GET /api/v1/auth/me` without cookies → 401
+- App load with stale localStorage + no cookies → clean redirect to `/login`, no error toast
+- App load with valid session → stays authenticated
+- Logout → next `/auth/me` → 401 → `isAuthenticated = false`
+- Access token cookie max_age is 7 days (604800s)
+- Refresh token cookie max_age is 90 days
+
+**Test gate:**
+```bash
+docker exec noa-dev python -m pytest tests/unit/test_au1_auth_stability.py -v
+cd web && npm test -- --testPathPattern="au1|auth|AuthContext|AuthGuard|client" --watchAll=false
+```
+
+**Estimate:** ~60 min
+
+**Non-goals (explicitly out of scope):**
+- iOS auth changes (iOS Keychain + AuthViewModel handles its own session)
+- DB-backed rate limiting (removed entirely for single-user)
+- Multi-user considerations

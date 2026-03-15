@@ -171,8 +171,12 @@
 | MVP-L1 | Low | enable_tool endpoint accepts function-level capability keys — TOOL_CAPABILITIES now includes auto-generated keys like `memory__remember`. POST /tools/memory__remember/enable returns 200 with a no-op DB grant (tool_name='memory__remember' never matched by has_capability which checks tool_name='memory'). Confusing but not a security issue. | **Resolved** | MVP-fixes-2 |
 | MVP-L2 | Low | Queued SSE stream missing meta event — the normal chat path emits a `meta` event (with run_id, thread_id) as the first SSE frame. The queued path emits `queued` directly without a preceding `meta`. Clients relying on `meta` for run_id tracking may miss it. | **Resolved** | MVP-fixes-2 |
 | MVP-L3 | Low | QueueDrainWorker task stuck in "processing" on crash — DurableQueue.poll() only returns status="queued" tasks. If the API container crashes between the first session.commit() (status→"processing") and completion of _dispatch_task, the task is permanently stuck. Manual DB intervention required to recover. No timeout recovery exists for "processing" state. | **Resolved** | MVP-fixes-3 |
+| AUTH-H1 | High | `apiRequest` 401-handler fires on login endpoint — credential failures shown as "Session expired" | Open | — |
+| AUTH-H2 | High | Auth state split between httpOnly cookies and localStorage flag can desync — startup shows "Session expired" without user action | Open | — |
+| AUTH-M1 | Medium | In-memory auth rate limiting (H8) marked resolved in QC8 but never actually migrated — class-level dict still in `service.py` | Open | — |
+| AUTH-M2 | Medium | No session validity check on app startup — `isAuthenticated` initialised from localStorage flag without verifying cookies are live | Open | — |
 
-**Open:** 2 | **Partially Resolved:** 0 | **Resolved:** 159 | **Total:** 161
+**Open:** 6 | **Partially Resolved:** 0 | **Resolved:** 159 | **Total:** 165
 
 ---
 
@@ -1093,7 +1097,102 @@ Multiple high-risk approvals can be denied with a single tap, no confirmation or
 
 ---
 
-## 8. Resolved Pipeline Issues
+## 8. Auth Stability Findings (AUTH-H1, AUTH-H2, AUTH-M1, AUTH-M2)
+
+Root-cause analysis of the recurring "Login failed - Session expired" UX failure discovered 2026-03-15. These findings explain why the issue persisted across multiple waves that touched auth (QC2, QC8, FR2, PR2, PR3) without resolving it. To be fixed by phase AU1.
+
+---
+
+### AUTH-H1 — `apiRequest` 401-handler fires on login endpoint
+
+**Severity:** High
+**File:** `web/src/api/client.ts:122-132`
+**Introduced:** QC2 (when the generic retry-on-401 path was added alongside the httpOnly cookie migration)
+**Status:** Open — to be fixed by AU1
+
+**Description:**
+
+`apiRequest` is a generic request wrapper that handles any 401 response by attempting token refresh and retrying. It is used for **all** API calls, including `POST /api/v1/auth/login`. When login fails (wrong password, user not found, account locked), the backend returns 401. `apiRequest` intercepts this 401, attempts to call `/api/v1/auth/refresh`, which also fails because there are no valid session cookies (the user is not logged in). The refresh path then calls `clearTokens()`, `redirectToLogin()`, and throws `new Error("Session expired")`.
+
+The result: every login failure — regardless of cause — surfaces to the user as "Login failed - Session expired." The real error message from the backend ("Invalid email or password") is discarded. Users cannot distinguish between wrong credentials, a non-existent account, and a genuine session expiry.
+
+This also means: if the user is on a slow connection and the login POST times out (AbortController fires after 30s), they also see "Session expired." If the backend is down and returns 503, `apiRequest` tries refresh, refresh also fails, "Session expired" appears again.
+
+**Why it wasn't caught earlier:** QC2 introduced the 401 retry logic for the correct reason (auto-refresh expired tokens for authenticated requests). But it was applied as a blanket wrapper over all endpoints without exempting the login path. Subsequent auth waves (QC8, FR2, PR2) fixed auth edge cases without auditing `apiRequest`'s error propagation.
+
+**Fix:** Auth endpoints (`/api/v1/auth/login`, `/api/v1/auth/register`, `/api/v1/auth/forgot-password`, `/api/v1/auth/reset-password`) must not trigger the 401-refresh path. Options: (a) a `skipAuthRetry` option on `apiRequest`, or (b) a separate `authFetch` function for auth endpoints that propagates backend error messages directly. Either way, a 401 from the login endpoint must surface the `detail` field from the backend response, not "Session expired."
+
+---
+
+### AUTH-H2 — Auth state desync between httpOnly cookies and localStorage flag
+
+**Severity:** High
+**File:** `web/src/auth/tokens.ts`, `web/src/auth/AuthContext.tsx:21`
+**Introduced:** QC2 (as a side-effect of the localStorage → httpOnly cookie migration)
+**Status:** Open — to be fixed by AU1
+
+**Description:**
+
+QC2 correctly moved tokens from localStorage to httpOnly cookies to prevent XSS token theft. However, because httpOnly cookies are not readable by JavaScript, a secondary `noa_authenticated` flag was added to localStorage as a proxy. `AuthContext` initialises `isAuthenticated` from `hasTokens()` which reads this flag.
+
+These two stores can desync:
+
+- **Scenario 1 (daily occurrence):** Access token cookie expires after 15 minutes. Refresh token cookie expires after 7 days. If the user closes the browser tab and reopens after the access token has expired but before the refresh token has expired — normal case, the refresh flow handles this. But if the refresh token has also expired (or the `AuthSession` row was invalidated in the DB), the localStorage flag still says `true`. The app loads, `isAuthenticated = true`, any data fetch returns 401, refresh fails, "Session expired" fires.
+- **Scenario 2 (after container restart):** If `AuthSession.is_active` rows are not cleaned up, or if the `SECRET_KEY` changes (which would invalidate all existing JWTs), the existing cookies become invalid while localStorage still holds the flag. Same outcome.
+- **Scenario 3 (after logout on another tab/device):** Logout clears cookies on the server. But localStorage on a different tab still says authenticated.
+
+**Why it wasn't caught earlier:** FR2 fixed BE-H12 (cookie deletion attributes on logout were mismatched, causing the browser to silently ignore the deletion). That was a real fix. But the startup desync — "localStorage says yes, cookies are invalid" — was never addressed by any wave because it requires a startup validation call that was never built.
+
+**Fix:** On `AuthProvider` mount, call `GET /api/v1/auth/me`. If it returns 200, the session is live — set `isAuthenticated = true`. If it returns 401, clear the localStorage flag and set `isAuthenticated = false`. Show a loading state in `AuthGuard` until this check completes (prevents the flash of authenticated content before the check resolves). Once this is in place, the localStorage flag is redundant and should be removed; auth state should live only in React state, sourced from the `/auth/me` check.
+
+---
+
+### AUTH-M1 — In-memory auth rate limiting not migrated despite H8 being marked resolved
+
+**Severity:** Medium
+**File:** `src/noa/auth/service.py:37-39`
+**Introduced:** Foundation (F4 — initial auth implementation)
+**Incorrectly marked resolved:** QC8
+**Status:** Open — to be fixed by AU1 (or accepted as a known limitation)
+
+**Description:**
+
+Finding H8 ("Rate Limiting Is Process-Local") was filed and marked "Resolved (QC8 + hardening)". QC8 did implement per-user DB-backed rate limiting for the tool gateway (`src/noa/tools/rate_limiter.py`). However, the **auth login rate limiting** — `AuthService._failed_attempts` and `AuthService._lockout_until` — was never migrated. These are class-level in-memory dicts:
+
+```python
+# src/noa/auth/service.py lines 37-39
+_failed_attempts: dict[str, list[datetime]] = {}  # class-level, not instance
+_lockout_until: dict[str, datetime] = {}           # class-level, not instance
+```
+
+On every container restart, these are cleared. The practical effect: a user who has triggered a 30-minute lockout (5 failed attempts within 10 minutes) can bypass it by restarting the Docker stack. More importantly for daily UX: if a user enters the wrong password 5 times, gets locked out, restarts the container, and tries again — the lockout is gone but the password is still wrong, and they continue seeing "Session expired" (AUTH-H1) with no indication they were ever locked out or that their password is incorrect.
+
+**Why it wasn't caught earlier:** QC8's scope was broad (10 deliverables). The H8 resolution in FINDINGS.md was written based on the tool-gateway rate limiting fix, without verifying that the auth-specific rate limiting was also addressed.
+
+**Fix (for AU1):** For a single-user personal system, in-memory rate limiting is an acceptable trade-off — it provides protection within a session and Docker restarts are infrequent. The correct fix is to update the FINDINGS.md resolution note to accurately describe what was and wasn't fixed, and document the known limitation. Full DB-backed auth rate limiting can be a future hardening item if the system ever becomes multi-user.
+
+---
+
+### AUTH-M2 — No session validity check on app startup
+
+**Severity:** Medium
+**File:** `web/src/auth/AuthContext.tsx:21`, `web/src/api/v1/auth.py` (missing endpoint)
+**Introduced:** QC2 (localStorage flag approach)
+**Status:** Open — to be fixed by AU1
+
+**Description:**
+
+There is no `GET /api/v1/auth/me` endpoint (or equivalent). On app startup, `isAuthenticated` is initialised as `hasTokens()` — a synchronous read of the localStorage flag. This is an approximation, not a verification. The app cannot tell whether the httpOnly cookies backing that flag are still valid until the first API call fails.
+
+This is the mechanism that turns a straightforward "your session has expired, please log in" into a confusing multi-step failure: the app loads, renders the main layout, fires several data fetches, one returns 401, the 401 handler fires the session-expired redirect, and the user sees a jarring redirect with an error toast rather than a clean login prompt.
+
+The absence of this endpoint was a design gap, not a regression. No wave planned or implemented a `/auth/me` check because the localStorage flag was treated as sufficient for the single-user case.
+
+**Fix:** Add `GET /api/v1/auth/me` — a thin authenticated endpoint returning `{user_id, email}`. In `AuthProvider`, replace `useState(() => hasTokens())` with `useState(false)` + `isLoading: true`, call `/auth/me` on mount, and resolve `isAuthenticated` from the response. `AuthGuard` shows a loading spinner until resolved. This eliminates the startup desync (AUTH-H2) and gives the user a clean login prompt instead of a "Session expired" redirect.
+
+---
+
+## 9. Resolved Pipeline Issues
 
 Historical issues encountered during pipeline execution (formerly `Plan/ISSUES.md`). All resolved.
 

@@ -175,6 +175,8 @@ The plan is organized into **waves** — groups of related phases that deliver a
 | **FR5** | Cost, Runs & Dashboard UX | **Complete** | 12 Python + 11 Web | main | ~60 min | ~60 min | QA PASS_WITH_NOTES 2026-03-13: UX-H7/H8/H11/M1/M7/H4/M5/M6 resolved. |
 | **FR6** | Tools, Settings & Polish | **Complete** | 19 Python + 18 Web + 8 Swift | main | ~60 min | ~90 min | QA PASS_WITH_NOTES 2026-03-14: UX-H6/M2/M3/M4/M8/M9/M10/L1 + L10 + iOS-H5 resolved. Settings governance/agent-limits, thread rename PATCH, scope endpoints, Notion auto-grant. |
 | — | — **WAVE 22 BOUNDARY** — | **Complete** | — | — | — | — | System audit 7.2/10. Retro done. CI analysis done (CI-042 P1). 3 new findings: W22-H1/H2 (dead-end stores), W22-M1 (runs/cost not domain-filtered). HUMAN GATE: approve CI-042 + Wave 23 plan. |
+| — | — **AUTH STABILITY (pre-Wave 23)** — | — | — | — | — | — | — |
+| **AU1** | Auth Stability — Session Validation & Error Clarity | **Planned** | — | — | ~60 min | — | Fixes AUTH-H1/H2/M1/M2: `/auth/me` startup check, exempt auth endpoints from 401-retry, remove localStorage desync |
 
 ### Wave 23: Observability & Ops
 - Lightweight monitoring (health dashboard, error rate tracking)
