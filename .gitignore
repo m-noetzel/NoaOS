@@ -22,3 +22,8 @@ htmlcov/
 .mutmut-cache/
 .coverage
 .coverage.*
+
+# Xcode / iOS — IDE-generated state, not project source
+xcuserdata/
+*.xcuserstate
+xcschememanagement.plist
