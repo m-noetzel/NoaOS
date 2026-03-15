@@ -85,7 +85,6 @@ class TestQueuePersistence:
             task_type="private.llm",
             payload={"prompt": "hello"},
             idempotency_key=uuid.uuid4(),
-            timeout=60,
         )
 
         assert isinstance(queue_id, uuid.UUID)
@@ -124,8 +123,7 @@ class TestIdempotency:
                 task_type="private.llm",
                 payload={},
                 idempotency_key=idem_key,
-                timeout=60,
-            )
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -134,26 +132,33 @@ class TestIdempotency:
 
 
 class TestTimeout:
-    """Tasks that exceed timeout are marked failed."""
+    """Queued tasks live forever; only stale 'processing' tasks are recovered."""
 
     @pytest.mark.asyncio
-    async def test_timed_out_task_marked_failed(self):
-        """poll() skips timed-out tasks and marks them failed."""
+    async def test_queued_tasks_do_not_expire(self):
+        """poll() never marks queued tasks as failed — they live indefinitely."""
         from noa.queue.durable import DurableQueue
 
         mock_session = AsyncMock()
 
-        # Simulate no ready tasks (all timed out handled internally)
-        mock_result = MagicMock()
-        mock_result.first.return_value = None
-        mock_scalars = MagicMock(return_value=mock_result)
-        mock_execute_result = MagicMock()
-        mock_execute_result.scalars = mock_scalars
-        mock_session.execute = AsyncMock(return_value=mock_execute_result)
+        # poll() now only runs stale recovery + ready query (2 calls)
+        stale_result = MagicMock()
+        stale_result.scalars.return_value = iter([])
+
+        ready_result = MagicMock()
+        ready_scalars = MagicMock()
+        ready_scalars.first.return_value = None
+        ready_result.scalars.return_value = ready_scalars
+
+        mock_session.execute = AsyncMock(
+            side_effect=[stale_result, ready_result],
+        )
 
         queue = DurableQueue(session=mock_session)
         task = await queue.poll()
         assert task is None
+        # Only 2 queries: stale recovery + ready (no timeout expiry query)
+        assert mock_session.execute.call_count == 2
 
 
 # ---------------------------------------------------------------------------
@@ -220,8 +225,7 @@ class TestMaxQueueDepth:
                 task_type="private.llm",
                 payload={},
                 idempotency_key=uuid.uuid4(),
-                timeout=60,
-            )
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -391,8 +395,7 @@ class TestNeverFallback:
                 task_type="external.search",
                 payload={},
                 idempotency_key=uuid.uuid4(),
-                timeout=60,
-            )
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -440,22 +443,18 @@ class TestStaleProcessingRecovery:
 
         mock_session = AsyncMock()
 
-        # 1st execute: timeout check (no timed-out queued tasks)
-        timeout_result = MagicMock()
-        timeout_result.scalars.return_value = iter([])
-
-        # 2nd execute: stale processing check (returns our stale task)
+        # 1st execute: stale processing check (returns our stale task)
         stale_result = MagicMock()
         stale_result.scalars.return_value = iter([stale_task])
 
-        # 3rd execute: ready task query (returns None)
+        # 2nd execute: ready task query (returns None)
         ready_result = MagicMock()
         ready_scalars = MagicMock()
         ready_scalars.first.return_value = None
         ready_result.scalars.return_value = ready_scalars
 
         mock_session.execute = AsyncMock(
-            side_effect=[timeout_result, stale_result, ready_result],
+            side_effect=[stale_result, ready_result],
         )
 
         queue = DurableQueue(session=mock_session)
@@ -475,9 +474,6 @@ class TestStaleProcessingRecovery:
 
         mock_session = AsyncMock()
 
-        timeout_result = MagicMock()
-        timeout_result.scalars.return_value = iter([])
-
         stale_result = MagicMock()
         stale_result.scalars.return_value = iter([stale_task])
 
@@ -487,7 +483,7 @@ class TestStaleProcessingRecovery:
         ready_result.scalars.return_value = ready_scalars
 
         mock_session.execute = AsyncMock(
-            side_effect=[timeout_result, stale_result, ready_result],
+            side_effect=[stale_result, ready_result],
         )
 
         queue = DurableQueue(session=mock_session)

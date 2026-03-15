@@ -78,15 +78,18 @@ class DurableQueue:
         task_type: str,
         payload: dict[str, Any],
         idempotency_key: uuid.UUID,
-        timeout: int,
     ) -> uuid.UUID:
         """Add a task to the durable queue.
+
+        Tasks stay queued indefinitely until completed, cancelled, or
+        manually deleted. There is no queue-level expiry — only the
+        per-dispatch-attempt timeout (set by the drain worker when it
+        marks a task as "processing").
 
         Args:
             task_type: Must start with 'private.' (domain enforcement).
             payload: Arbitrary JSON payload for the task.
             idempotency_key: Unique key; duplicates within 24h rejected.
-            timeout: Seconds before the task is considered timed out.
 
         Returns:
             The UUID of the newly queued task.
@@ -122,16 +125,15 @@ class DurableQueue:
             msg = f"Queue full: {MAX_QUEUE_DEPTH} tasks queued"
             raise QueueFullError(msg)
 
-        # Create task row
-        now = datetime.now(UTC)
+        # Create task row — no timeout_at; tasks live until resolved
         task = TaskQueue(
             id=uuid.uuid4(),
             request_id=uuid.uuid4(),
             idempotency_key=idempotency_key,
             task_type=task_type,
             payload=payload,
-            queued_at=now,
-            timeout_at=now + timedelta(seconds=timeout),
+            queued_at=datetime.now(UTC),
+            timeout_at=None,
             status="queued",
             retry_count=0,
             max_retries=3,
@@ -148,15 +150,6 @@ class DurableQueue:
         Timed-out tasks are marked as 'failed' and skipped.
         """
         now = datetime.now(UTC)
-
-        # Mark timed-out tasks
-        timeout_stmt = select(TaskQueue).where(
-            TaskQueue.status.in_(["queued", "retrying"]),
-            TaskQueue.timeout_at <= now,
-        )
-        timeout_result = await self._session.execute(timeout_stmt)
-        for task in timeout_result.scalars():
-            task.status = "failed"
 
         # Recover stale "processing" tasks (MVP-L3):
         # If a task has been "processing" past its timeout_at, the

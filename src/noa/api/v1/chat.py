@@ -123,6 +123,9 @@ async def submit_chat(
 
     runner = get_runner()
 
+    # W22-H1/H2: Load user settings for agent limits and approvals toggle
+    user_settings = await _load_user_settings(user.user_id)
+
     # MVP-H3: Check private domain availability from HealthChecker
     _checker = get_health_checker()
     private_available: bool = _checker.is_available() if _checker is not None else True
@@ -140,6 +143,7 @@ async def submit_chat(
             thread_id=thread_id,
             user_id=user_id,
             body=body,
+            timeout_seconds=user_settings.get("timeout_seconds", 120),
         )
         return StreamingResponse(
             _queued_event_stream(run_id=run_id, thread_id=thread_id, queue_id=queue_id),
@@ -150,9 +154,6 @@ async def submit_chat(
                 "X-Trace-ID": rid,
             },
         )
-
-    # W22-H1/H2: Load user settings for agent limits and approvals toggle
-    user_settings = await _load_user_settings(user.user_id)
 
     # BE-C3: Verify existing thread belongs to the correct domain
     if body.thread_id is not None:
@@ -744,6 +745,7 @@ async def _enqueue_private_chat(
     thread_id: str,
     user_id: str,
     body: ChatRequest,
+    timeout_seconds: int = 120,
 ) -> str | None:
     """Enqueue a private chat task when the private domain is unavailable.
 
@@ -768,9 +770,9 @@ async def _enqueue_private_chat(
                     "message": body.message,
                     "model": body.model,
                     "provider": body.provider,
+                    "timeout_seconds": timeout_seconds,
                 },
                 idempotency_key=uuid.UUID(run_id),
-                timeout=120,
             )
             await session.commit()
             logger.info("Enqueued private.chat task %s for run %s", queue_id, run_id)

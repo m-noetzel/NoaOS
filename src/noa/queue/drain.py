@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from noa.queue.durable import DurableQueue
@@ -90,8 +91,17 @@ class QueueDrainWorker:
                     task.task_type,
                 )
 
-                # Mark as processing before dispatch
+                # Mark as processing with a dispatch timeout.
+                # If we crash before completing, poll() will recover
+                # the task after timeout_at (MVP-L3).
+                dispatch_timeout = (
+                    task.payload or {}
+                ).get("timeout_seconds", 120)
                 task.status = "processing"
+                task.timeout_at = (
+                    datetime.now(UTC)
+                    + timedelta(seconds=dispatch_timeout)
+                )
                 await session.commit()
 
                 if self._runner is None:

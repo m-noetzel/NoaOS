@@ -280,6 +280,7 @@ class TestQueueDrainWorker:
         mock_task.id = uuid.uuid4()
         mock_task.task_type = "private.chat"
         mock_task.status = "queued"
+        mock_task.payload = {"timeout_seconds": 120}
 
         mock_session = AsyncMock()
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
