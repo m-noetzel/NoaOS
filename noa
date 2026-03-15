@@ -50,6 +50,7 @@ usage() {
     echo "  noa reset-password <email> [pw]  Reset a user's password"
     echo "  noa db migrate       Run database migrations"
     echo "  noa db console       Open psql console"
+    echo "  noa migrate-volume [dev|prod]  Migrate data from old postgres volume"
     echo
 }
 
@@ -226,6 +227,13 @@ cmd_up() {
 
     sync_postgres_password
 
+    # Ensure the named postgres volume exists (survives 'down -v')
+    if ! docker volume inspect noa-pgdata &>/dev/null; then
+        log "Creating persistent postgres volume..."
+        docker volume create noa-pgdata
+        ok "Volume noa-pgdata created"
+    fi
+
     log "Starting Noa..."
     docker compose up -d
     echo
@@ -257,6 +265,19 @@ cmd_up() {
 }
 
 cmd_down() {
+    # Guard against accidental volume deletion (destroys all user data)
+    for arg in "$@"; do
+        if [[ "$arg" == "-v" || "$arg" == "--volumes" ]]; then
+            warn "The -v/--volumes flag will DELETE ALL DATA (users, settings, conversations)."
+            echo -n "Are you sure? [y/N] "
+            read -r confirm
+            if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+                log "Aborted."
+                return 0
+            fi
+            break
+        fi
+    done
     log "Stopping Noa..."
     docker compose down "$@"
     ok "All services stopped"
@@ -551,6 +572,13 @@ cmd_dev_full() {
             fi
             echo
 
+            # Ensure the named postgres volume exists (survives 'down -v')
+            if ! docker volume inspect noa-dev-pgdata &>/dev/null; then
+                log "Creating persistent postgres volume..."
+                docker volume create noa-dev-pgdata
+                ok "Volume noa-dev-pgdata created"
+            fi
+
             if [[ "$subcmd" == "workers" ]]; then
                 log "Including private-worker + external-worker"
                 $compose --profile workers up -d
@@ -615,6 +643,77 @@ cmd_keys() {
     done
 }
 
+cmd_db_migrate_volume() {
+    # One-time migration: copy data from old auto-named postgres volume to the
+    # new explicitly-named volume (noa-dev-pgdata / noa-pgdata).
+    local mode="${1:-dev}"
+    local new_vol old_vol
+
+    if [[ "$mode" == "prod" ]]; then
+        new_vol="noa-pgdata"
+    else
+        new_vol="noa-dev-pgdata"
+    fi
+
+    # Find old volume(s) containing postgres data
+    log "Searching for old postgres volumes..."
+    local candidates
+    candidates=$(docker volume ls -q | grep -i postgres | grep -v "^${new_vol}$" || true)
+
+    if [[ -z "$candidates" ]]; then
+        err "No old postgres volumes found. Nothing to migrate."
+        echo "Existing volumes:"
+        docker volume ls -q | grep -i postgres || echo "  (none)"
+        return 1
+    fi
+
+    echo "Found candidate volumes:"
+    local i=0
+    local vols=()
+    while IFS= read -r vol; do
+        i=$((i + 1))
+        vols+=("$vol")
+        # Show creation time and size
+        local info
+        info=$(docker volume inspect "$vol" --format '{{.CreatedAt}}' 2>/dev/null || echo "unknown")
+        echo "  ${i}) ${vol}  (created: ${info})"
+    done <<< "$candidates"
+
+    if [[ ${#vols[@]} -eq 1 ]]; then
+        old_vol="${vols[0]}"
+        log "Using: ${old_vol}"
+    else
+        echo -n "Which volume to migrate from? [1-${#vols[@]}] "
+        read -r choice
+        if [[ -z "$choice" || "$choice" -lt 1 || "$choice" -gt ${#vols[@]} ]] 2>/dev/null; then
+            err "Invalid choice"; return 1
+        fi
+        old_vol="${vols[$((choice - 1))]}"
+    fi
+
+    # Ensure new volume exists
+    docker volume create "$new_vol" &>/dev/null
+
+    # Ensure no containers are using either volume
+    log "Stopping any running containers..."
+    docker compose -f docker-compose.dev-full.yml --profile workers down &>/dev/null || true
+
+    # Copy data using a temporary container
+    log "Copying data from ${old_vol} → ${new_vol}..."
+    if docker run --rm \
+        -v "${old_vol}:/from:ro" \
+        -v "${new_vol}:/to" \
+        alpine sh -c "cp -a /from/. /to/"; then
+        ok "Data migrated successfully"
+        echo
+        warn "Old volume '${old_vol}' still exists. Remove it manually after verifying:"
+        echo "  docker volume rm ${old_vol}"
+    else
+        err "Migration failed"
+        return 1
+    fi
+}
+
 cmd_set() {
     local key="${1:-}"
     local value="${2:-}"
@@ -648,6 +747,7 @@ case "$cmd" in
     shell|exec)     cmd_shell "$@" ;;
     claude)         cmd_claude "$@" ;;
     db)             cmd_db "$@" ;;
+    migrate-volume) cmd_db_migrate_volume "$@" ;;
     help|-h|--help) usage ;;
     *)
         err "Unknown command: ${cmd}"

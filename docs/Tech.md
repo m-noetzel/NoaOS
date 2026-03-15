@@ -615,6 +615,24 @@ Tests follow a strict red-green cycle:
 2. Write code to make them **pass** (green phase)
 3. Never merge if tests don't pass
 
+### Test Coverage Breakdown
+
+| Test Area | Files | Tests | Covers |
+|-----------|-------|-------|--------|
+| Auth & sessions | 8 | ~120 | JWT, login, register, OAuth, refresh, lockout |
+| Orchestrator | 12 | ~200 | Graph execution, state machine, conditional edges, tool dispatch |
+| Tools & governance | 15 | ~250 | Each tool independently, gateway, capabilities, rate limiting |
+| Privacy & domain isolation | 6 | ~80 | Router, classifier, DLP, cross-domain checks |
+| Cost tracking | 4 | ~60 | Pricing, budget limits, usage aggregation |
+| API endpoints | 20 | ~350 | All 17 routers, contract tests, error handling |
+| Database & models | 10 | ~130 | ORM models, relationships, migrations, integrity, Postgres integration |
+| Queue & resilience | 4 | ~50 | Durable queue, backoff, idempotency, drain worker |
+| Audit | 3 | ~40 | Hash chain, retention, queryability |
+| Frontend (Vitest) | 11 | ~175 | Pages, components, API client, auth context |
+| E2E (Playwright) | 5 | ~40 | Login, chat, settings, tools, approvals |
+| iOS (XCTest) | 15 | ~224 | Models, services, view models, integration flows |
+| **Total** | **~120** | **~2,400+** | |
+
 ### Test Markers
 
 Tests are tagged by implementation phase so you can run just the tests for what you're working on:
@@ -698,31 +716,26 @@ Copy `.env.example` to `.env` and adjust values for your setup.
 
 ## What's Built & What's Next
 
-### Completed (Waves 1-3)
+### Completed (Waves 1-22, 130 phases)
 
-```
-Wave 1: Foundation          Wave 2: Orchestration       Wave 3: Domain Workers
-+---------------------+    +---------------------+     +---------------------+
-| [x] Project scaffold|    | [x] LangGraph graph |     | [x] Private worker  |
-| [x] Postgres schema |    | [x] Run/Event model |     | [x] External worker |
-| [x] FastAPI skeleton|    | [x] Audit logging   |     | [x] Network isolation|
-| [x] JWT auth        |    | [x] Policy engine   |     | [x] Privacy router  |
-+---------------------+    +---------------------+     +---------------------+
-```
+- **Foundation**: Project scaffold, Postgres schema, FastAPI, JWT auth
+- **Orchestration**: LangGraph state machine, runs/events, audit logging, policy engine
+- **Domain Workers**: Private worker (Ollama), external worker, network isolation, privacy router
+- **Tools**: Memory, Calendar, Gmail, Notion, Web Search, tool governance, MCP connector
+- **Advanced Backend**: Cost control, output validation, scheduling, durable queue
+- **Web Client**: 10 React pages (Chat, Runs, Approvals, Tools, Settings, Cost, Memory, Queue, Artifacts)
+- **iOS Client**: SwiftUI app (Chat, Settings, Approvals), push notifications, voice recording, offline queue, certificate pinning
+- **LLM Providers**: Anthropic, OpenAI, Google AI, Ollama — all wired with real HTTP clients
+- **Google OAuth2**: Full OAuth flow (backend + web + iOS)
+- **Quality**: 2,400+ tests, 84% coverage, CI/CD pipelines, Playwright E2E, mutation testing
+- **Operations**: Backup infrastructure, log rotation, health checks, TLS, Docker hardening
 
 ### Coming Up
 
-```
-Wave 4: Tools               Wave 5: Advanced Backend    Wave 6: Web Client
-+---------------------+    +---------------------+     +---------------------+
-| [ ] Memory tool     |    | [ ] Cost control    |     | [ ] React chat UI   |
-| [ ] Calendar tool   |    | [ ] Output validation|    | [ ] Run timeline    |
-| [ ] Gmail tool      |    | [ ] Scheduling      |     | [ ] Approval UI     |
-| [ ] Notion tool     |    | [ ] Durable queue   |     | [ ] Task queue viz  |
-| [ ] Web search      |    | [ ] Coding sandbox  |     | [ ] Memory audit UI |
-| [ ] Tool governance |    |                     |     |                     |
-+---------------------+    +---------------------+     +---------------------+
-```
+- **Wave 23**: Observability (health dashboard, error rate tracking, alerting)
+- **Wave 23B**: Postgres Row-Level Security for domain isolation
+- **Wave 24**: Microsoft Outlook, bundle optimization, voice UX, iOS widgets
+- **Phase 2**: Physical machine isolation (dedicated Mac, mTLS, air-gapped network)
 
 ---
 

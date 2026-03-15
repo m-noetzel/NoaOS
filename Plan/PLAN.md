@@ -166,7 +166,6 @@ The plan is organized into **waves** — groups of related phases that deliver a
 | **QE4** | Postgres Integration Tests | **Complete** | 30 | main | ~90 min | 90 min | QA PASS_WITH_NOTES: testcontainers + TEST_DATABASE_URL fallback; 30 integration tests across 6 suites; 2 schema drift migrations (010, 011) caught by tests |
 | **QE5** | Requirements Traceability Matrix | **Complete** | 30 | main | ~45 min | ~17 min | QA PASS_WITH_NOTES: traceability.py, TRACEABILITY.md (97/128 covered, 9 Phase-2 deferred orphans), CI step with continue-on-error |
 | **QE6** | Test Quality Infrastructure (Coverage, Mutation, Flaky Detection) | **Complete** | 16 | main | ~60 min | ~7 min | QA PASS_WITH_NOTES: pytest-cov (84% baseline, 70% threshold), mutmut config (auth/router/gateway), pytest-repeat nightly CI job |
-
 | — | — **WAVE 22: FINDINGS FIXES & UX** — | — | — | — | — | — | — |
 | **FR1** | Domain Isolation & Privacy Enforcement | **Complete** | 30 | main | ~45 min | ~60 min | QA PASS_WITH_NOTES 2026-03-13 (cycle 2): BE-C3 domain column + thread scoping, BE-H8 tool visibility by domain, BE-H11 provider filtering by privacy_mode, migration 014 |
 | **FR2** | Memory & Session Fixes | **Complete** | 27 | main | ~60 min | ~60 min | BE-H6 (/data volume mount), BE-H7 (_handle_memory_approval), BE-H9 (external MemoryStore), BE-H10 (memory health), BE-H12 (logout cookie). 27 tests. |

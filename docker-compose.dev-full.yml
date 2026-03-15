@@ -232,6 +232,7 @@ networks:
 volumes:
   dev-npm-cache:
   dev-postgres-data:
+    name: noa-dev-pgdata
   dev-private-data:
   vscode-server-data:
   vite-node-modules:

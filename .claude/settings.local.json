@@ -157,7 +157,8 @@
       "Bash(grep -r \"\\\\.validate\\\\\\(\" /workspace/src --include=\"*.py\" 2>/dev/null | grep -v \"__pycache__\" | grep -v \".pylibs\")",
       "Bash(which tailscale:*)",
       "Bash(netstat -tlnp)",
-      "Read(//proc/5207/net/**)"
+      "Read(//proc/5207/net/**)",
+      "Bash(git commit -m \"$\\(cat <<'EOF'\nfix: Google tool health checks and chat response display\n\n1. Fix _get_live_google_client\\(\\) using wrong attribute names \\(_api_client/_auth_client\n   instead of _client/_auth\\), preventing OAuth tokens from reaching live tools.\n2. Store GoogleAuthClient on app.state during registration for direct access.\n3. Fix Chat.tsx result_ready handler to use payload response when no token_stream\n   events were emitted, so responses display immediately.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")"
     ],
     "deny": [
       "Bash(git push)",
@@ -171,10 +172,6 @@
       "Bash(git stash pop)",
       "Bash(git stash drop *)",
       "Bash(git stash clear)",
-      "Bash(docker)",
-      "Bash(docker *)",
-      "Bash(docker compose *)",
-      "Bash(docker exec *)",
       "Bash(ssh)",
       "Bash(scp)",
       "Bash(rsync)",

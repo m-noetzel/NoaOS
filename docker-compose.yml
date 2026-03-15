@@ -265,6 +265,7 @@ networks:
 
 volumes:
   postgres-data:
+    name: noa-pgdata
   private-data:
   coding-workspace:
   backups:

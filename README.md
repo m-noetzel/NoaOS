@@ -1,53 +1,54 @@
 # Noa
 
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![TypeScript](https://img.shields.io/badge/typescript-5.x-blue.svg)](https://www.typescriptlang.org/)
+[![Swift 6](https://img.shields.io/badge/swift-6-orange.svg)](https://swift.org/)
+[![Tests](https://img.shields.io/badge/tests-2%2C400%2B-brightgreen.svg)](#run-tests)
+[![Coverage](https://img.shields.io/badge/coverage-84%25-brightgreen.svg)](#run-tests)
+[![PostgreSQL 16](https://img.shields.io/badge/postgres-16-336791.svg)](https://www.postgresql.org/)
+
 **A governed personal AI agent with dual-domain architecture.**
 
 Run an AI agent on your own hardware that enforces privacy boundaries, governs every action through risk-tiered approvals, tracks costs, and integrates with Google Calendar, Gmail, Notion, and web search — with a React web UI and native iOS app.
 
-Built as a portfolio project demonstrating applied agent engineering: LangGraph state machine orchestration, container-based domain isolation, function-level tool governance, immutable audit logging, multi-provider LLM routing, and production-grade infrastructure with 2,200+ tests.
+Built as a portfolio project demonstrating applied agent engineering: LangGraph state machine orchestration, container-based domain isolation, function-level tool governance, immutable audit logging, multi-provider LLM routing, and production-grade infrastructure with 2,400+ tests.
+
+<!-- TODO: Add demo GIF / screenshots here -->
+
+## Quick Start
+
+```bash
+git clone <this-repo> && cd Noa
+docker-compose up -d
+docker-compose exec noa-api alembic upgrade head
+# Frontend: cd web && npm install && npm run dev → http://localhost:5173
+```
+
+> See [docs/SETUP.md](docs/SETUP.md) for full setup including secret management and Ollama configuration.
 
 ---
 
 ## Table of Contents
 
-- [Project Assumptions](#0-project-assumptions)
-- [Problem Statement](#1-problem-statement)
-- [What It Does](#2-what-it-does)
-- [Architecture](#3-architecture)
-- [Agent & Prompt Engineering](#4-agent--prompt-engineering)
-- [Tech Stack](#5-tech-stack)
-- [How to Run and Test](#6-how-to-run-and-test)
-- [What to Review](#7-what-to-review)
-- [Key Design Decisions](#8-key-design-decisions)
-- [Known Risks and Limitations](#9-known-risks-and-limitations)
-- [Questions for the Reviewer](#10-questions-for-the-reviewer)
-- [Roadmap](#11-roadmap)
+- [Problem Statement](#problem-statement)
+- [What It Does](#what-it-does)
+- [Architecture](#architecture)
+- [Agent & Prompt Engineering](#agent--prompt-engineering)
+- [Tech Stack](#tech-stack)
+- [How to Run and Test](#how-to-run-and-test)
+- [What to Review](#what-to-review)
+- [Key Design Decisions](#key-design-decisions)
+- [Known Risks and Limitations](#known-risks-and-limitations)
+- [Questions for the Reviewer](#questions-for-the-reviewer)
+- [Roadmap](#roadmap)
 
 ---
 
-## 0. Project Assumptions
+## Problem Statement
 
-These assumptions define the project scope. All architecture and design decisions build on them.
+Existing AI assistants operate as black boxes — they route all data through cloud servers, offer no governance over what actions the agent takes, provide no cost transparency, and give users no control over privacy boundaries.
 
-- Single-user system running on personal hardware — no multi-tenant authentication
-- Privacy enforcement is at the network level (container isolation), not row-level filtering
-- Phase 1 uses Docker containers for domain isolation; Phase 2 targets physical machine isolation
-- Secrets are managed via macOS Keychain at runtime — no `.env` files in production
-- Local models (Ollama) handle private data; cloud APIs (Anthropic, OpenAI) handle external tasks
-- All data stays on the user's machine (PostgreSQL on local Docker, no cloud persistence)
-
----
-
-## 1. Problem Statement
-
-Existing AI assistants operate as black boxes — they route all data through cloud servers, offer no governance over what actions the agent takes, provide no cost transparency, and give users no control over privacy boundaries. For power users who want an AI agent integrated into their daily workflow, this creates real problems:
-
-- **Privacy**: Journal entries, personal notes, and financial data shouldn't leave the local machine
-- **Governance**: Sending emails, creating calendar events, and modifying documents should require explicit approval, graduated by risk
-- **Cost control**: Unbounded API calls to GPT-4 or Claude can generate surprising bills
-- **Auditability**: No way to know what the agent did, when, and why
-
-Noa addresses all four by enforcing:
+Noa addresses this by enforcing:
 
 - **Domain isolation** — private data processed by local models in a network-isolated container with no internet access
 - **Risk-tiered approvals** — low-risk actions auto-approve, medium-risk show a preview, high-risk require biometric step-up authentication
@@ -56,7 +57,7 @@ Noa addresses all four by enforcing:
 
 ---
 
-## 2. What It Does
+## What It Does
 
 1. User sends a message in the **Chat** interface (web or iOS)
 2. The **privacy router** classifies the request as private or external based on content analysis, tool dependencies, and user overrides
@@ -65,21 +66,6 @@ Noa addresses all four by enforcing:
 5. **Tool calls** are dispatched through the governed gateway — rate-limited, idempotent, audited, risk-classified
 6. Results stream back via **SSE** in real time with tool call visibility
 7. The **cost tracker** records token usage and checks budget limits at every step
-
-### Pages at a Glance
-
-| Page | Purpose |
-|------|---------|
-| **Chat** | Main interface — send messages, stream responses, see tool calls in real time |
-| **Runs** | History of all agent executions with token usage and cost per run |
-| **Run Detail** | Deep-dive into a single run — full event stream (router, agent, tools, response) |
-| **Approvals** | Pending human-in-the-loop decisions for medium/high-risk actions |
-| **Tools** | Tool registry — health checks, capability toggles, custom tool registration |
-| **Settings** | Model/provider selection, privacy mode, governance limits, Google OAuth |
-| **Cost** | Token usage dashboard — breakdown by provider/model, daily/monthly trends |
-| **Memory** | Long-term fact store — view, search, and manage remembered facts |
-| **Queue** | Private domain task queue — tasks waiting when private worker is unavailable |
-| **Artifacts** | Generated content — summaries, exports, draft documents |
 
 ### Dual-Domain Architecture
 
@@ -97,122 +83,15 @@ Noa addresses all four by enforcing:
 | **Medium** | Send email, create event, write Notion | Preview + confirm | No |
 | **High** | Delete data, system changes | Preview + confirm | Biometric (iOS) |
 
+### Pages
+
+Chat, Runs, Run Detail, Approvals, Tools, Settings, Cost, Memory, Queue, Artifacts — 10 pages across web and iOS.
+
 ---
 
-## 3. Architecture
-
-### System Overview
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              USER DEVICES                                   │
-│                                                                             │
-│    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐                │
-│    │   React Web  │    │   iOS App    │    │   iOS App    │                │
-│    │   (Vite)     │    │  (SwiftUI)   │    │  (Offline)   │                │
-│    └──────┬───────┘    └──────┬───────┘    └──────┬───────┘                │
-│           │                   │                   │                         │
-│           └───────────────────┼───────────────────┘                         │
-│                               │ HTTPS / SSE                                 │
-└───────────────────────────────┼─────────────────────────────────────────────┘
-                                │
-┌───────────────────────────────┼─────────────────────────────────────────────┐
-│                          DOCKER HOST                                        │
-│                               │                                             │
-│    ┌──────────────────────────▼──────────────────────────────────┐          │
-│    │                    Caddy (Reverse Proxy)                     │          │
-│    │              TLS termination, CORS, CSP headers              │          │
-│    └──────────────────────────┬──────────────────────────────────┘          │
-│                               │                                             │
-│    ┌──────────────────────────▼──────────────────────────────────┐          │
-│    │                      API Gateway                             │          │
-│    │                   FastAPI (port 8000)                         │          │
-│    │                                                              │          │
-│    │  ┌─────────┐  ┌──────────┐  ┌─────────┐  ┌──────────────┐  │          │
-│    │  │  Auth   │  │   Chat   │  │  Runs   │  │   Settings   │  │          │
-│    │  │ (JWT)   │  │  (SSE)   │  │  Cost   │  │   Tools      │  │          │
-│    │  └─────────┘  └────┬─────┘  └─────────┘  └──────────────┘  │          │
-│    │                    │                                         │          │
-│    │         ┌──────────▼──────────┐                             │          │
-│    │         │   Orchestrator      │                             │          │
-│    │         │  (LangGraph FSM)    │                             │          │
-│    │         │                     │                             │          │
-│    │         │  Router → Agent ──→ Tools ──→ Responder          │          │
-│    │         │            ↑          │                            │          │
-│    │         │            └──────────┘ (max 3 rounds)            │          │
-│    │         └──────────┬──────────┘                             │          │
-│    │                    │                                         │          │
-│    │         ┌──────────▼──────────┐                             │          │
-│    │         │   Privacy Router    │                             │          │
-│    │         │   "private" or      │                             │          │
-│    │         │   "external"?       │                             │          │
-│    │         └────┬───────────┬────┘                             │          │
-│    │              │           │                                   │          │
-│    └──────────────┼───────────┼───────────────────────────────────┘          │
-│                   │           │                                              │
-│    ╔══════════════╧═══╗  ╔═══╧══════════════╗                              │
-│    ║  noa-internal    ║  ║  noa-external    ║   ← Docker networks          │
-│    ║  (NO INTERNET)   ║  ║  (HTTPS only)    ║                              │
-│    ║                  ║  ║                  ║                              │
-│    ║ ┌──────────────┐ ║  ║ ┌──────────────┐ ║                              │
-│    ║ │   Private    │ ║  ║ │   External   │ ║                              │
-│    ║ │   Worker     │ ║  ║ │   Worker     │ ║                              │
-│    ║ │  (port 8001) │ ║  ║ │  (port 8002) │ ║                              │
-│    ║ │              │ ║  ║ │              │ ║                              │
-│    ║ │  ┌────────┐  │ ║  ║ │  ┌────────┐  │ ║                              │
-│    ║ │  │ Ollama │  │ ║  ║ │  │Anthropic│  │ ║                              │
-│    ║ │  │ (local)│  │ ║  ║ │  │ OpenAI  │  │ ║                              │
-│    ║ │  └────────┘  │ ║  ║ │  │Google AI│  │ ║                              │
-│    ║ │              │ ║  ║ │  └────────┘  │ ║                              │
-│    ║ │  ┌────────┐  │ ║  ║ │              │ ║                              │
-│    ║ │  │ Memory │  │ ║  ║ │  ┌────────┐  │ ║                              │
-│    ║ │  │(private│  │ ║  ║ │  │ Memory │  │ ║                              │
-│    ║ │  │ store) │  │ ║  ║ │  │(external│  │ ║                              │
-│    ║ │  └────────┘  │ ║  ║ │  │ store) │  │ ║                              │
-│    ║ └──────────────┘ ║  ║ │  └────────┘  │ ║                              │
-│    ║                  ║  ║ │              │ ║                              │
-│    ╚══════════════════╝  ║ │  ┌────────┐  │ ║                              │
-│                          ║ │  │Calendar│  │ ║                              │
-│                          ║ │  │ Gmail  │  │ ║                              │
-│                          ║ │  │ Notion │  │ ║                              │
-│                          ║ │  │Tavily  │  │ ║                              │
-│                          ║ │  └────────┘  │ ║                              │
-│                          ║ └──────────────┘ ║                              │
-│                          ╚══════════════════╝                              │
-│                                                                             │
-│    ┌────────────────────────────────────────────┐                           │
-│    │              PostgreSQL 16                  │                           │
-│    │    Shared DB, domain-scoped queries          │                           │
-│    │    (Phase 2: separate DBs per domain)        │                           │
-│    │                                              │                           │
-│    │  threads.domain = 'private' | 'external'    │                           │
-│    │  All queries filtered by domain column       │                           │
-│    └────────────────────────────────────────────┘                           │
-│                                                                             │
-│    ┌────────────────────────────────────────────┐                           │
-│    │           Tool Gateway                      │                           │
-│    │  Rate limit → Idempotency → Risk classify   │                           │
-│    │  → Approval gate → Execute → Audit log      │                           │
-│    │  → Cost track → Output validation            │                           │
-│    └────────────────────────────────────────────┘                           │
-│                                                                             │
-│    ┌────────────────────────────────────────────┐                           │
-│    │           Durable Queue                     │                           │
-│    │  When private worker is down:               │                           │
-│    │  Chat → Queue → Drain when available        │                           │
-│    │  Tasks live until completed or cancelled     │                           │
-│    └────────────────────────────────────────────┘                           │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-**Key isolation guarantee:** The `noa-internal` Docker network has no internet route. Even if the private worker code had a bug that tried to phone home, the network layer blocks it. Private data (journals, personal notes, passwords) physically cannot leave the machine.
-
-**Phase 2 upgrade path:** The shared PostgreSQL instance is a pragmatic Phase 1 choice. Phase 2 moves to physically separate databases per domain with Postgres Row-Level Security (RLS) as an intermediate hardening step.
+## Architecture
 
 ### Orchestrator (LangGraph State Machine)
-
-The orchestrator uses a fixed-topology LangGraph graph with conditional edges for bounded autonomy:
 
 ```
 __start__ → ROUTER → AGENT ──(has tool_calls)──→ TOOLS ──(rounds < max)──→ AGENT
@@ -222,25 +101,7 @@ __start__ → ROUTER → AGENT ──(has tool_calls)──→ TOOLS ──(roun
                                               __end__
 ```
 
-**Bounded autonomy:**
-- Max 10 tool calls per agent step
-- Max 3 tool-execution rounds (configurable per user)
-- 120-second timeout (configurable per user)
-- Cost tracking at every iteration
-
-### Multi-Agent System
-
-| Component | File | Role |
-|-----------|------|------|
-| **Router Node** | `orchestrator/nodes/router.py` | Privacy classification, model selection, tool filtering |
-| **Agent Node** | `orchestrator/nodes/agent.py` | LLM invocation with function-calling |
-| **Tool Node** | `orchestrator/nodes/tools.py` | Tool dispatch through governed gateway |
-| **Responder Node** | `orchestrator/nodes/responder.py` | Final response formatting |
-| **Tool Gateway** | `tools/gateway.py` | Rate limiting, idempotency, audit, cost tracking |
-| **Privacy Classifier** | `privacy/classifier.py` | Content analysis + keyword detection for domain routing |
-| **Policy Engine** | `policy/engine.py` | Risk tier classification and approval routing |
-| **Private Worker** | `private_worker/app.py` | Ollama RPC server — memory, embeddings (no internet) |
-| **External Worker** | `external_worker/app.py` | Cloud LLM dispatch — Anthropic, OpenAI, Google AI |
+**Bounded autonomy:** Max 10 tool calls per step, max 3 rounds (configurable), 120-second timeout, cost tracking at every iteration.
 
 ### Data Flow
 
@@ -262,65 +123,19 @@ SSE event stream: meta → tool_calls → tool_results → response → done
 RunService persists Run + Events + UsageStats to PostgreSQL
 ```
 
-### Project Structure
+**Key isolation guarantee:** The `noa-internal` Docker network has no internet route. Even if the private worker code had a bug that tried to phone home, the network layer blocks it. Private data physically cannot leave the machine.
 
-```
-src/noa/
-├── api/                  FastAPI routes (17 routers: auth, chat, runs, tools, settings, cost, etc.)
-├── orchestrator/         LangGraph state machine (graph, runner, nodes)
-├── tools/                Tool system (gateway, definitions, capabilities, adapters)
-├── auth/                 JWT + OAuth (bcrypt, refresh rotation, session management)
-├── policy/               Approval engine (risk tiers, step-up auth)
-├── privacy/              Domain classifier (content analysis, keyword detection)
-├── cost/                 Token tracking + budget enforcement (pricing tables, limits)
-├── audit/                Immutable hash-chain audit log
-├── memory/               Long-term fact persistence (semantic recall)
-├── queue/                Durable task queue (offline resilience, exponential backoff)
-├── settings/             User preferences persistence
-├── db/                   SQLAlchemy async ORM (18+ models)
-├── external_worker/      Cloud LLM dispatch (Anthropic, OpenAI, Google AI)
-├── private_worker/       Local worker (Ollama, memory store, DLP)
-└── validation/           Output validation — content filter (prompt injection, exfil URLs), size limits
-
-web/src/
-├── pages/                15 React pages (Chat, Runs, Approvals, Tools, Settings, Cost, etc.)
-├── components/           Shared UI (chat bubbles, layout, Radix primitives)
-├── api/                  HTTP client + SSE handler + types
-├── auth/                 Auth context + token storage
-└── hooks/                Custom React hooks
-
-ios/Noa/
-├── Services/             Async actors (APIClient, SSEClient, AuthService, OfflineQueue)
-├── Views/                SwiftUI views (Chat, Settings, Approvals)
-├── ViewModels/           MVVM view models
-├── Models/               Codable API models
-└── Configuration/        Environment, service factory, certificate pinning
-
-tests/
-├── unit/                 105 test files (~1,931 tests)
-└── integration/          10 test files (~56 tests)
-
-alembic/versions/         17 database migrations
-docker/                   Per-service Dockerfiles + Caddyfile
-```
+> For the full system diagram, component table, and project structure, see [docs/Tech.md](docs/Tech.md).
 
 ---
 
-## 4. Agent & Prompt Engineering
+## Agent & Prompt Engineering
 
-### 4a. System Prompt Design
+### System Prompt
 
-The system prompt (`prompts/system_prompt.txt`) is the single source of truth — the UI reads from and writes to this file directly (no hidden backend overrides). Key design choices:
+The system prompt (`prompts/system_prompt.txt`) is the single source of truth — the UI reads from and writes to this file directly (no hidden backend overrides). It enforces bounded autonomy, approval awareness, privacy transparency, and proactive memory.
 
-- **Bounded autonomy**: Explicitly states the tool-round and tool-call limits so the LLM self-governs
-- **Approval awareness**: Instructions to explain and wait for confirmation before risky actions
-- **Privacy transparency**: The agent knows private requests go to a local model
-- **Error handling**: Instructions to report failures clearly rather than retry silently
-- **Proactive memory**: Instructed to store user preferences and facts without being asked
-
-### 4b. Privacy Classification
-
-The router classifies each request into private or external domain:
+### Privacy Classification
 
 | Signal | Priority | Example |
 |--------|----------|---------|
@@ -329,9 +144,9 @@ The router classifies each request into private or external domain:
 | Content analysis | Medium | Keywords like "journal", "diary", "password" → private |
 | Fail-safe default | Lowest | Low confidence → defaults to private (safer) |
 
-### 4c. Function Calling & Tool Governance
+### Tool Governance
 
-Tools are defined as JSON Schema specifications and dispatched through a governed gateway:
+Tools are dispatched through a governed gateway with 8-step enforcement per call: capability check → rate limit → idempotency → risk classification → execution → output validation → audit → cost tracking.
 
 | Tool | Functions | Risk Tier | Domain |
 |------|-----------|-----------|--------|
@@ -341,35 +156,20 @@ Tools are defined as JSON Schema specifications and dispatched through a governe
 | **Notion** | `search_pages()`, `read_page()`, `create_page()` | Low / Medium | External |
 | **Memory** | `remember()`, `recall()` | Medium | Private |
 
-**Gateway enforcement per call:**
-1. Capability check — is this user allowed this function?
-2. Rate limit — token-bucket per user per tool
-3. Idempotency — deduplication via request hash (5-minute TTL)
-4. Risk classification — route to approval if medium/high
-5. Execution — dispatch to adapter
-6. Output validation — size limit (1 MB) + content filter (prompt injection, exfiltration URL, system prompt leak detection); blocked results never reach the LLM
-7. Audit — log tool name, args, result, cost, latency
-8. Cost tracking — record tokens and USD cost
-
-### 4d. Multi-Model Routing
-
-The agent supports multiple LLM providers with cost-aware selection:
+### Multi-Model Routing
 
 | Provider | Models | Input / Output (per 1M tokens) | Use Case |
 |----------|--------|---------------------------------|----------|
-| **Anthropic** | Claude Sonnet | $3.00 / $15.00 | Default external |
-| **Anthropic** | Claude Haiku | $0.25 / $1.25 | Fast/cheap tasks |
-| **Anthropic** | Claude Opus | $15.00 / $75.00 | Complex reasoning |
+| **Anthropic** | Claude Sonnet 4 | $3.00 / $15.00 | Default external |
+| **Anthropic** | Claude Haiku 4.5 | $0.25 / $1.25 | Fast/cheap tasks |
+| **Anthropic** | Claude Opus 4 | $15.00 / $75.00 | Complex reasoning |
 | **OpenAI** | GPT-4o | $2.50 / $10.00 | Alternative external |
 | **OpenAI** | GPT-4o-mini | $0.15 / $0.60 | Budget-conscious |
 | **OpenAI** | GPT-4.1 | $2.00 / $8.00 | Latest generation |
+| **OpenAI** | GPT-4.1-mini | $0.40 / $1.60 | Lightweight latest gen |
 | **Ollama** | Any local model | Free | Private domain |
 
-Users can override model and provider per-chat in the Settings page.
-
-### 4e. Tool Chaining
-
-The agent can chain tools across multiple rounds. Example:
+### Tool Chaining Example
 
 ```
 User: "Find the latest news about AI regulation and email me a summary"
@@ -379,11 +179,9 @@ Round 2: send_email(to: user, subject: "AI Regulation Summary", body: <synthesiz
          → Triggers Medium-risk approval gate → User approves → Email sent
 ```
 
-The orchestrator loops back from tools → agent for up to 3 rounds (configurable), enabling multi-step task completion.
-
 ---
 
-## 5. Tech Stack
+## Tech Stack
 
 | Category | Technology |
 |----------|------------|
@@ -405,7 +203,7 @@ The orchestrator loops back from tools → agent for up to 3 rounds (configurabl
 
 ---
 
-## 6. How to Run and Test
+## How to Run and Test
 
 ### Prerequisites
 
@@ -419,9 +217,11 @@ The orchestrator loops back from tools → agent for up to 3 rounds (configurabl
 ```bash
 git clone <this-repo> && cd Noa
 
-# Store secrets in macOS Keychain (never in .env)
+# Store secrets (macOS Keychain or environment variables)
+# macOS:
 ./tools/keychain_store.sh set ANTHROPIC_API_KEY "sk-ant-..."
 ./tools/keychain_store.sh set OPENAI_API_KEY "sk-..."
+# Linux/CI: export ANTHROPIC_API_KEY=... and OPENAI_API_KEY=...
 
 # Start all services
 docker-compose up -d
@@ -445,71 +245,34 @@ ollama pull qwen2.5:14b
 ollama pull llama3.3:70b
 ```
 
-### Environment Variables
-
-All secrets are injected via Keychain at runtime. Container configuration uses:
-
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `NOA_DOMAIN` | `localhost` | Domain for Caddy TLS |
-| `NOA_ACME_EMAIL` | `noa@localhost` | Let's Encrypt email |
-| `DATABASE_URL` | (compose-provided) | PostgreSQL connection string |
-| `ANTHROPIC_API_KEY` | (Keychain) | Anthropic API access |
-| `OPENAI_API_KEY` | (Keychain) | OpenAI API access |
-
 ### Run Tests
 
 ```bash
-# Backend — unit tests (fast, no external calls)
-pytest tests/unit/ -v
-
-# Backend — integration tests (requires running Postgres)
-pytest tests/integration/ -v
-
-# Backend — full suite with coverage
-pytest tests/ --cov=src/noa --cov-report=html
+# Backend tests
+pytest tests/unit/ -v                         # Unit tests (fast)
+pytest tests/integration/ -v                  # Integration (requires Postgres)
+pytest tests/ --cov=src/noa --cov-report=html # Full suite + coverage
 
 # Static analysis
-ruff check src/
-mypy src/
+ruff check src/ && mypy src/
 
-# Frontend — unit tests
-cd web && npm run test
+# Frontend tests
+cd web && npm run test                        # Vitest
+cd web && npm run test:e2e                    # Playwright E2E
 
-# Frontend — E2E tests (Playwright)
-cd web && npm run test:e2e
-
-# Mutation testing (critical paths only)
+# Mutation testing (critical paths)
 mutmut run
 ```
 
-Expected: **2,200+ tests passing**, 84% coverage, 0 mypy errors, 0 ruff violations.
+Expected: **2,400+ tests passing**, 84% coverage, 0 mypy errors, 0 ruff violations.
 
-### Test Coverage
-
-| Test Area | Files | Tests | Covers |
-|-----------|-------|-------|--------|
-| Auth & sessions | 8 | ~120 | JWT, login, register, OAuth, refresh, lockout |
-| Orchestrator | 12 | ~200 | Graph execution, state machine, conditional edges, tool dispatch |
-| Tools & governance | 15 | ~250 | Each tool independently, gateway, capabilities, rate limiting |
-| Privacy & domain isolation | 6 | ~80 | Router, classifier, DLP, cross-domain checks |
-| Cost tracking | 4 | ~60 | Pricing, budget limits, usage aggregation |
-| API endpoints | 20 | ~300 | All 17 routers, contract tests, error handling |
-| Database & models | 8 | ~100 | ORM models, relationships, migrations, integrity |
-| Queue & resilience | 4 | ~50 | Durable queue, backoff, idempotency, drain worker |
-| Audit | 3 | ~40 | Hash chain, retention, queryability |
-| Frontend (Vitest) | 11 | ~200 | Pages, components, API client, auth context |
-| E2E (Playwright) | 5 | ~30 | Login, chat, settings, tools, approvals |
-| iOS (XCTest) | 15 | ~240 | Models, services, view models, integration flows |
-| **Total** | **~120** | **~2,200+** | |
+> For the full test coverage breakdown by area, see [docs/Tech.md](docs/Tech.md#testing).
 
 ---
 
-## 7. What to Review
+## What to Review
 
-### Start Here
-
-These 6 files cover the core architecture end-to-end:
+### Start Here (6 files)
 
 | File | Description |
 |------|-------------|
@@ -520,24 +283,6 @@ These 6 files cover the core architecture end-to-end:
 | `src/noa/policy/engine.py` | Approval framework — risk tiers, step-up auth |
 | `src/noa/api/v1/chat.py` | Chat endpoint — SSE streaming, orchestrator invocation |
 
-### Additional Files
-
-| File | Description |
-|------|-------------|
-| `src/noa/api/app.py` | FastAPI factory — lifespan, middleware, CORS, CSP headers |
-| `src/noa/tools/definitions.py` | JSON Schema tool specs — 14 tools, risk tiers, domain metadata |
-| `src/noa/tools/capabilities.py` | Capability checker — function-level grants, DB-backed |
-| `src/noa/cost/pricing.py` | Provider pricing tables — per-model cost estimation |
-| `src/noa/auth/service.py` | Auth service — JWT, refresh rotation, lockout |
-| `src/noa/audit/service.py` | Audit service — hash-chain integrity, retention scheduling |
-| `src/noa/queue/durable.py` | Durable queue — exponential backoff, idempotency window |
-| `src/noa/privacy/classifier.py` | Privacy classifier — keyword detection, domain routing |
-| `src/noa/settings/service.py` | Settings service — user preferences, governance limits |
-| `prompts/system_prompt.txt` | Agent system prompt — single source of truth for agent personality |
-| `web/src/pages/Chat.tsx` | Main chat UI — SSE streaming, tool call visualization |
-| `web/src/api/sse.ts` | SSE client — event parsing, auto-reconnect |
-| `docker-compose.yml` | Production deployment — 5 services, 2 isolated networks |
-
 ### Architectural Decisions to Validate
 
 - Dual-domain isolation via Docker networks (not row-level filtering or encryption)
@@ -547,13 +292,13 @@ These 6 files cover the core architecture end-to-end:
 - Function-level tool capabilities (not just tool-level on/off)
 - Hash-chain audit log for tamper detection
 - Idempotency at the gateway level (not relying on LLM deduplication)
-- PostgresCheckpointer for run state persistence and resumability
 - JWT with httpOnly cookies (not localStorage) for session management
-- macOS Keychain for secrets (not environment variables)
+
+> For the full file list (13 additional files), see [docs/Tech.md](docs/Tech.md#key-components-deep-dive).
 
 ---
 
-## 8. Key Design Decisions
+## Key Design Decisions
 
 | Decision | Rationale |
 |----------|-----------|
@@ -565,19 +310,15 @@ These 6 files cover the core architecture end-to-end:
 | **Immutable hash-chain audit** | Each entry references the prior entry's hash — tampering is detectable without a separate integrity service |
 | **File-based system prompt** | `prompts/system_prompt.txt` is the single source of truth — the UI reads and writes it directly, no hidden backend overrides |
 | **SSE streaming with keepalive** | 15-second keepalive pings prevent proxy timeouts during long tool calls; clients see real-time tool execution |
-| **Durable queue for resilience** | When the private domain is unavailable, tasks queue with exponential backoff rather than failing |
 | **Multi-provider LLM routing** | Users pick the right model for each task — cheap and fast (Haiku/GPT-4o-mini) or powerful (Opus/GPT-4o) |
 | **iOS native with certificate pinning** | SPKI-based pinning in release builds prevents MITM; offline queue handles network interruptions |
 
 ---
 
-## 9. Known Risks and Limitations
+## Known Risks and Limitations
 
 | Risk | Status | Mitigation |
 |------|--------|------------|
-| Agent execution limits (max_tool_calls, max_retries) stored but not enforced in orchestrator | Open (W22-H1) | Values are persisted and UI-configurable; enforcement wiring is next priority |
-| Approvals toggle stored but not checked by orchestrator | Open (W22-H2) | Toggle exists in UI and DB; orchestrator always enforces approvals currently |
-| Runs/Cost endpoints not domain-filtered | Open (W22-M1) | Thread isolation is complete; run/cost filtering scheduled for next wave |
 | Local model quality varies by hardware (70b needs significant VRAM) | By design | 3-tier model policy: 8b fast, 14b default, 70b judge — users select based on hardware |
 | No multi-user authentication | By design | Single-user system running on personal hardware; profile isolation not user isolation |
 | Single-machine container isolation (not physical) | Phase 1 | Phase 2 targets dedicated hardware for private domain with mTLS between machines |
@@ -587,7 +328,7 @@ These 6 files cover the core architecture end-to-end:
 
 ---
 
-## 10. Questions for the Reviewer
+## Questions for the Reviewer
 
 1. **Domain isolation** — Is container-level network isolation sufficient for Phase 1, or should we add encryption at rest for the private domain before moving to physical isolation?
 2. **Approval model** — Are the 3 risk tiers (Low/Medium/High) well-calibrated? Should there be a 4th tier for irreversible actions (e.g., "delete all emails matching...")?
@@ -598,36 +339,34 @@ These 6 files cover the core architecture end-to-end:
 
 ---
 
-## 11. Roadmap
+## Roadmap
 
-| Phase | Name | Scope | Status |
-|-------|------|-------|--------|
-| **Wave 22** | Stabilization | Wire agent limits, resolve dead-end stores, domain-filter runs/cost | In Progress |
-| **Wave 23** | Observability | Lightweight monitoring, alerting, structured log aggregation | Planned |
-| **Wave 24** | iOS Distribution | TestFlight beta, offline-first enhancements | Planned |
-| **Phase 2** | Physical Isolation | Dedicated Mac for private domain, mTLS, air-gapped network | Planned |
-| **Future** | MCP Server | Expose Noa as an MCP server for Claude Desktop integration | Planned |
-
-See `Plan/PLAN.md` for detailed phase definitions and wave tracking (22 waves, 115+ phases).
+| Phase | Scope | Status |
+|-------|-------|--------|
+| **Waves 1-22** | Core platform: backend, iOS, web, tools, governance, domain isolation, quality infra (130 phases) | Complete |
+| **Auth Stability** | Session validation, error clarity, 7-day tokens, startup check | Complete |
+| **Wave 23** | Observability: health dashboard, error rate tracking, alerting, structured log aggregation | Planned |
+| **Wave 23B** | DB Security: Postgres Row-Level Security (RLS) for domain isolation | Planned |
+| **Wave 24** | Polish: Microsoft Outlook, bundle optimization, voice UX, iOS widgets | Planned |
+| **Phase 2** | Physical isolation: dedicated Mac for private domain, mTLS, air-gapped network | Planned |
+| **Future** | MCP Server: expose Noa as an MCP server for Claude Desktop integration | Planned |
 
 ---
 
 ## References
 
+- [docs/Tech.md](docs/Tech.md) — Technical deep-dive (architecture diagrams, component tables, project structure, test coverage)
+- [docs/SETUP.md](docs/SETUP.md) — Full system setup guide
+- [docs/RUNBOOK.md](docs/RUNBOOK.md) — Operations and troubleshooting
+- [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) — Quick start for developers
 - `SPEC.md` — Authoritative product specification (97KB, 150+ sections)
-- `docs/Tech.md` — Technical deep-dive (architecture, security, request flow)
-- `docs/SETUP.md` — Full system setup guide
-- `docs/RUNBOOK.md` — Operations and troubleshooting
-- `docs/GETTING_STARTED.md` — Quick start for developers
-- `Plan/PLAN.md` — Full wave and phase status tracking
-- `Plan/FINDINGS.md` — Audit findings (156 total, 148 resolved)
+- `Plan/PLAN.md` — Full wave and phase status tracking (22 waves, 130 phases)
 - `Plan/TRACEABILITY.md` — Spec coverage matrix
-- `CLAUDE.md` — Guidance for AI assistants working on this codebase
 
 ---
 
 ## License
 
-Copyright (c) 2024–2026 Martin Noetzel. All rights reserved.
+Copyright (c) 2024-2026 Martin Noetzel. All rights reserved.
 
 This software and its source code are proprietary. No part of this project may be copied, modified, distributed, or used without explicit written permission from the author.
