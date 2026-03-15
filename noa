@@ -442,9 +442,17 @@ cmd_reset_password() {
 
     log "Resetting password for ${email}..."
 
+    # Detect which stack is running: dev-full (noa-api-dev) or production (noa-api)
+    local docker_exec_cmd
+    if docker inspect noa-api-dev &>/dev/null 2>&1; then
+        docker_exec_cmd="docker exec -i noa-api-dev"
+    else
+        docker_exec_cmd="docker compose exec -T noa-api"
+    fi
+
     # Hash password and update DB via the API container's Python
     local result
-    result=$(docker compose exec -T noa-api python3 -c "
+    result=$($docker_exec_cmd python3 -c "
 import asyncio, os
 from noa.auth.password import hash_password
 from sqlalchemy import text
