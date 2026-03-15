@@ -80,6 +80,20 @@ try await withThrowingTaskGroup(of: T.self) { group in
 ### Vitest module mocks for components with sub-dependencies
 For components that import other components unavailable in jsdom, use `vi.doMock` in `beforeEach` (not `vi.mock` at module level) to avoid hoisting issues. Use named exports consistently.
 
+### apiRequest skipAuthRetry pattern (AU1)
+When extending `apiRequest` options with custom properties that must not be forwarded to `fetch`, destructure them before the closure:
+```ts
+const { skipAuthRetry, ...fetchOptions } = options;
+const makeRequest = async () => { /* uses fetchOptions, not options */ };
+```
+This prevents custom options from leaking into fetch's RequestInit.
+
+### Auth startup session check pattern (AU1)
+For startup session verification that must not trigger the 401-refresh retry loop, use raw `fetch` (not `apiRequest`) in a React effect with `isLoading=true` until resolved.
+
+### Linux arm64 web test environment
+The workspace Linux arm64 environment is missing `@rollup/rollup-linux-arm64-gnu` and `@swc/core-linux-arm64-gnu` native binaries. Web tests (vitest) cannot run on this Linux host — only on the macOS host (darwin-arm64). Frontend test verification requires the macOS host or the noa-dev Docker container.
+
 ## Recurring Pitfalls (confirmed across multiple phases)
 
 ### 1. Dead-end stores
@@ -103,6 +117,9 @@ iOS `APIClient` expects specific JSON shapes. When modifying backend responses, 
 - No bare `except:` — ruff E722 enforces
 - No blind `except Exception:` without logging — ruff BLE001 enforces
 - Use `# noqa: BLE001` sparingly and always add a log call
+
+### 7. AuthUser dataclass — no email field
+`AuthUser` (middleware.py — cannot modify) only has `user_id` and `session_id`. To return email from an endpoint, query the DB directly.
 
 ## Test Patterns That Work
 

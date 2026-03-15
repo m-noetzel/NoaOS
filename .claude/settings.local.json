@@ -155,7 +155,9 @@
       "Bash(git -C /workspace status --short | grep \"^??\" | wc -l)",
       "Bash(git -C /workspace status --short)",
       "Bash(grep -r \"\\\\.validate\\\\\\(\" /workspace/src --include=\"*.py\" 2>/dev/null | grep -v \"__pycache__\" | grep -v \".pylibs\")",
-      "Bash(which tailscale:*)"
+      "Bash(which tailscale:*)",
+      "Bash(netstat -tlnp)",
+      "Read(//proc/5207/net/**)"
     ],
     "deny": [
       "Bash(git push)",

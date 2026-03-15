@@ -169,17 +169,16 @@ describe("Token Storage", () => {
     localStorage.clear();
   });
 
-  it("setTokens sets auth flag; getters return null (httpOnly cookies)", () => {
+  it("setTokens is a no-op (AU1: tokens live in httpOnly cookies)", () => {
     setTokens("access_abc", "refresh_xyz");
 
-    // C6: tokens are in httpOnly cookies, not readable by JS
+    // AU1: tokens.ts is a no-op stub — auth state comes from /auth/me startup check
     expect(getAccessToken()).toBeNull();
     expect(getRefreshToken()).toBeNull();
-    // Auth flag is set for UI state tracking
-    expect(hasTokens()).toBe(true);
+    expect(hasTokens()).toBe(false);
   });
 
-  it("clearTokens removes both tokens", () => {
+  it("clearTokens is a no-op (AU1: no localStorage flag to clear)", () => {
     setTokens("access_abc", "refresh_xyz");
     clearTokens();
 
@@ -187,14 +186,14 @@ describe("Token Storage", () => {
     expect(getRefreshToken()).toBeNull();
   });
 
-  it("hasTokens returns true when both tokens are present", () => {
+  it("hasTokens always returns false (AU1: no localStorage auth flag)", () => {
     expect(hasTokens()).toBe(false);
 
     setTokens("access_abc", "refresh_xyz");
-    expect(hasTokens()).toBe(true);
+    expect(hasTokens()).toBe(false);
   });
 
-  it("hasTokens returns false when only one token is present", () => {
+  it("hasTokens returns false regardless of localStorage contents (AU1)", () => {
     localStorage.setItem("noa_access_token", "access_abc");
     expect(hasTokens()).toBe(false);
   });

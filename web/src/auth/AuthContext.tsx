@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { apiRequest, registerSessionExpiredHandler, WEB_DEVICE_ID } from "@/api/client";
+import { apiRequest, BASE_URL, registerSessionExpiredHandler, WEB_DEVICE_ID } from "@/api/client";
 import type { LoginRequest, RegisterRequest } from "@/api/types";
 import { clearTokens, setTokens } from "./tokens";
 
@@ -43,7 +43,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
     const checkSession = async () => {
       try {
-        const res = await fetch("/api/v1/auth/me", {
+        const res = await fetch(`${BASE_URL}/api/v1/auth/me`, {
           method: "GET",
           credentials: "include",
         });

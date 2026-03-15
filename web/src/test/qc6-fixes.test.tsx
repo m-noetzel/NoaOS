@@ -286,9 +286,9 @@ describe("UI-C3: Logout clears React Query cache", () => {
     const { AuthProvider, useAuth } = await import("@/auth/AuthContext");
     const tokens = await import("@/auth/tokens");
 
-    // Set auth flag
+    // AU1: tokens.ts is a no-op stub — hasTokens() always returns false
     tokens.setTokens("", "");
-    expect(tokens.hasTokens()).toBe(true);
+    expect(tokens.hasTokens()).toBe(false);
 
     function LogoutTester() {
       const { logout } = useAuth();
@@ -307,7 +307,7 @@ describe("UI-C3: Logout clears React Query cache", () => {
 
     fireEvent.click(screen.getByText("Logout"));
 
-    // clearTokens must still be called (auth flag removed)
+    // AU1: hasTokens() always returns false (no-op stub)
     await waitFor(() => {
       expect(tokens.hasTokens()).toBe(false);
     });
