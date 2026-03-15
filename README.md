@@ -101,6 +101,115 @@ Noa addresses all four by enforcing:
 
 ## 3. Architecture
 
+### System Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              USER DEVICES                                   │
+│                                                                             │
+│    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐                │
+│    │   React Web  │    │   iOS App    │    │   iOS App    │                │
+│    │   (Vite)     │    │  (SwiftUI)   │    │  (Offline)   │                │
+│    └──────┬───────┘    └──────┬───────┘    └──────┬───────┘                │
+│           │                   │                   │                         │
+│           └───────────────────┼───────────────────┘                         │
+│                               │ HTTPS / SSE                                 │
+└───────────────────────────────┼─────────────────────────────────────────────┘
+                                │
+┌───────────────────────────────┼─────────────────────────────────────────────┐
+│                          DOCKER HOST                                        │
+│                               │                                             │
+│    ┌──────────────────────────▼──────────────────────────────────┐          │
+│    │                    Caddy (Reverse Proxy)                     │          │
+│    │              TLS termination, CORS, CSP headers              │          │
+│    └──────────────────────────┬──────────────────────────────────┘          │
+│                               │                                             │
+│    ┌──────────────────────────▼──────────────────────────────────┐          │
+│    │                      API Gateway                             │          │
+│    │                   FastAPI (port 8000)                         │          │
+│    │                                                              │          │
+│    │  ┌─────────┐  ┌──────────┐  ┌─────────┐  ┌──────────────┐  │          │
+│    │  │  Auth   │  │   Chat   │  │  Runs   │  │   Settings   │  │          │
+│    │  │ (JWT)   │  │  (SSE)   │  │  Cost   │  │   Tools      │  │          │
+│    │  └─────────┘  └────┬─────┘  └─────────┘  └──────────────┘  │          │
+│    │                    │                                         │          │
+│    │         ┌──────────▼──────────┐                             │          │
+│    │         │   Orchestrator      │                             │          │
+│    │         │  (LangGraph FSM)    │                             │          │
+│    │         │                     │                             │          │
+│    │         │  Router → Agent ──→ Tools ──→ Responder          │          │
+│    │         │            ↑          │                            │          │
+│    │         │            └──────────┘ (max 3 rounds)            │          │
+│    │         └──────────┬──────────┘                             │          │
+│    │                    │                                         │          │
+│    │         ┌──────────▼──────────┐                             │          │
+│    │         │   Privacy Router    │                             │          │
+│    │         │   "private" or      │                             │          │
+│    │         │   "external"?       │                             │          │
+│    │         └────┬───────────┬────┘                             │          │
+│    │              │           │                                   │          │
+│    └──────────────┼───────────┼───────────────────────────────────┘          │
+│                   │           │                                              │
+│    ╔══════════════╧═══╗  ╔═══╧══════════════╗                              │
+│    ║  noa-internal    ║  ║  noa-external    ║   ← Docker networks          │
+│    ║  (NO INTERNET)   ║  ║  (HTTPS only)    ║                              │
+│    ║                  ║  ║                  ║                              │
+│    ║ ┌──────────────┐ ║  ║ ┌──────────────┐ ║                              │
+│    ║ │   Private    │ ║  ║ │   External   │ ║                              │
+│    ║ │   Worker     │ ║  ║ │   Worker     │ ║                              │
+│    ║ │  (port 8001) │ ║  ║ │  (port 8002) │ ║                              │
+│    ║ │              │ ║  ║ │              │ ║                              │
+│    ║ │  ┌────────┐  │ ║  ║ │  ┌────────┐  │ ║                              │
+│    ║ │  │ Ollama │  │ ║  ║ │  │Anthropic│  │ ║                              │
+│    ║ │  │ (local)│  │ ║  ║ │  │ OpenAI  │  │ ║                              │
+│    ║ │  └────────┘  │ ║  ║ │  │Google AI│  │ ║                              │
+│    ║ │              │ ║  ║ │  └────────┘  │ ║                              │
+│    ║ │  ┌────────┐  │ ║  ║ │              │ ║                              │
+│    ║ │  │ Memory │  │ ║  ║ │  ┌────────┐  │ ║                              │
+│    ║ │  │(private│  │ ║  ║ │  │ Memory │  │ ║                              │
+│    ║ │  │ store) │  │ ║  ║ │  │(external│  │ ║                              │
+│    ║ │  └────────┘  │ ║  ║ │  │ store) │  │ ║                              │
+│    ║ └──────────────┘ ║  ║ │  └────────┘  │ ║                              │
+│    ║                  ║  ║ │              │ ║                              │
+│    ╚══════════════════╝  ║ │  ┌────────┐  │ ║                              │
+│                          ║ │  │Calendar│  │ ║                              │
+│                          ║ │  │ Gmail  │  │ ║                              │
+│                          ║ │  │ Notion │  │ ║                              │
+│                          ║ │  │Tavily  │  │ ║                              │
+│                          ║ │  └────────┘  │ ║                              │
+│                          ║ └──────────────┘ ║                              │
+│                          ╚══════════════════╝                              │
+│                                                                             │
+│    ┌────────────────────────────────────────────┐                           │
+│    │              PostgreSQL 16                  │                           │
+│    │    Shared DB, domain-scoped queries          │                           │
+│    │    (Phase 2: separate DBs per domain)        │                           │
+│    │                                              │                           │
+│    │  threads.domain = 'private' | 'external'    │                           │
+│    │  All queries filtered by domain column       │                           │
+│    └────────────────────────────────────────────┘                           │
+│                                                                             │
+│    ┌────────────────────────────────────────────┐                           │
+│    │           Tool Gateway                      │                           │
+│    │  Rate limit → Idempotency → Risk classify   │                           │
+│    │  → Approval gate → Execute → Audit log      │                           │
+│    │  → Cost track → Output validation            │                           │
+│    └────────────────────────────────────────────┘                           │
+│                                                                             │
+│    ┌────────────────────────────────────────────┐                           │
+│    │           Durable Queue                     │                           │
+│    │  When private worker is down:               │                           │
+│    │  Chat → Queue → Drain when available        │                           │
+│    │  Tasks live until completed or cancelled     │                           │
+│    └────────────────────────────────────────────┘                           │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Key isolation guarantee:** The `noa-internal` Docker network has no internet route. Even if the private worker code had a bug that tried to phone home, the network layer blocks it. Private data (journals, personal notes, passwords) physically cannot leave the machine.
+
+**Phase 2 upgrade path:** The shared PostgreSQL instance is a pragmatic Phase 1 choice. Phase 2 moves to physically separate databases per domain with Postgres Row-Level Security (RLS) as an intermediate hardening step.
+
 ### Orchestrator (LangGraph State Machine)
 
 The orchestrator uses a fixed-topology LangGraph graph with conditional edges for bounded autonomy:
@@ -171,7 +280,7 @@ src/noa/
 ├── db/                   SQLAlchemy async ORM (18+ models)
 ├── external_worker/      Cloud LLM dispatch (Anthropic, OpenAI, Google AI)
 ├── private_worker/       Local worker (Ollama, memory store, DLP)
-└── validation/           Input validation + prompt guard
+└── validation/           Output validation — content filter (prompt injection, exfil URLs), size limits
 
 web/src/
 ├── pages/                15 React pages (Chat, Runs, Approvals, Tools, Settings, Cost, etc.)
@@ -238,8 +347,9 @@ Tools are defined as JSON Schema specifications and dispatched through a governe
 3. Idempotency — deduplication via request hash (5-minute TTL)
 4. Risk classification — route to approval if medium/high
 5. Execution — dispatch to adapter
-6. Audit — log tool name, args, result, cost, latency
-7. Cost tracking — record tokens and USD cost
+6. Output validation — size limit (1 MB) + content filter (prompt injection, exfiltration URL, system prompt leak detection); blocked results never reach the LLM
+7. Audit — log tool name, args, result, cost, latency
+8. Cost tracking — record tokens and USD cost
 
 ### 4d. Multi-Model Routing
 

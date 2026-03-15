@@ -182,6 +182,18 @@ The plan is organized into **waves** — groups of related phases that deliver a
 - Structured log aggregation and retention
 - Query performance audit (EXPLAIN ANALYZE on hot paths)
 
+### Wave 23B: Database Security Hardening
+- **RLS1**: Postgres Row-Level Security (RLS) for domain isolation
+  - Add `domain` column to all domain-sensitive tables (runs, messages, memory_facts, tool_call_log, usage_stats)
+  - Create Postgres roles: `noa_private` and `noa_external` with row-level policies
+  - RLS policies enforce `WHERE domain = current_setting('app.domain')` on SELECT/INSERT/UPDATE/DELETE
+  - Application sets `SET app.domain = 'private'` per-connection based on request context
+  - Eliminates reliance on application-level WHERE clauses for domain isolation
+  - **Why**: Current shared-DB architecture uses query-level filtering (`WHERE domain='private'`). A single missed filter or new query without the clause could leak data across domains. RLS makes the database itself enforce isolation — even a buggy query cannot see cross-domain rows.
+  - **Intermediate step** before Phase 2 physical database separation (separate Postgres instances per domain)
+  - Migration: add RLS policies without breaking existing queries (policies are additive)
+  - Tests: verify cross-domain SELECT/INSERT blocked at DB level, not just application level
+
 ### Wave 24: Polish & Extended Capabilities
 - **MS1**: Microsoft Outlook Mail + Calendar (OAuth2 + Graph API)
 - Frontend bundle optimization (tree-shaking, lazy routes audit)
