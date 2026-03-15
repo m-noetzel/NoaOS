@@ -137,6 +137,16 @@ def _register_google_tools(gateway: ToolGateway) -> None:
         on_token_change=_persist_google_tokens,
     )
 
+    # Store the auth client on app.state for direct access by OAuth callback
+    # and health checks — avoids fragile gateway adapter traversal.
+    try:
+        from noa.api.app_state import get_app
+        app = get_app()
+        if app is not None:
+            app.state.google_auth_client = auth
+    except Exception:  # noqa: BLE001
+        logger.debug("Could not store GoogleAuthClient on app.state")
+
     # Load tokens from DB first (GO1), falling back to env var
     _load_google_tokens_at_startup(auth)
 

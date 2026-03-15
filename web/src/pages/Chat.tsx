@@ -250,14 +250,17 @@ export default function Chat() {
         setStreamingContent((prev) => prev + (event.data.token as string));
         break;
       case "result_ready":
-        // UI-M4: Optimistically append assistant message before clearing streaming
+        // UI-M4: Optimistically append assistant message before clearing streaming.
+        // Use accumulated streaming content if available, otherwise fall back to
+        // the response payload (runner may not emit token_stream events).
         setStreamingContent((prev) => {
-          if (prev) {
+          const content = prev || (event.data.response as string) || "";
+          if (content) {
             setOptimisticMessage({
               id: `optimistic-${Date.now()}`,
               thread_id: activeThreadRef.current || "",
               role: "assistant",
-              content: prev,
+              content,
               created_at: new Date().toISOString(),
             });
           }

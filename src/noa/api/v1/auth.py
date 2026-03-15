@@ -399,14 +399,16 @@ def _get_live_google_client() -> Any:
             adapter = gateway._adapters.get(name)
             if adapter is not None and hasattr(adapter, "_tool"):
                 tool = adapter._tool
-                if hasattr(tool, "_api_client") and hasattr(
-                    tool._api_client, "_auth_client"
-                ):
-                    client = tool._api_client._auth_client
-                    # Cache for next call
-                    if app is not None:
-                        app.state.google_auth_client = client
-                    return client
+                # CalendarTool/GmailTool store api_client as _client,
+                # GoogleCalendarClient/GmailClient store auth as _auth
+                api_client = getattr(tool, "_client", None) or getattr(tool, "_api_client", None)
+                if api_client is not None:
+                    auth_client = getattr(api_client, "_auth", None) or getattr(api_client, "_auth_client", None)
+                    if auth_client is not None:
+                        # Cache for next call
+                        if app is not None:
+                            app.state.google_auth_client = auth_client
+                        return auth_client
     return None
 
 
