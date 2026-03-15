@@ -23,8 +23,7 @@ services:
     working_dir: /workspace
     user: "1000:1000"
     ports:
-      - "127.0.0.1:5173:5173" # Vite dev server (Playwright connects here)
-      - "127.0.0.1:4173:4173" # Vite preview
+      - "127.0.0.1:4173:4173" # Vite preview (E2E tests via vite-dev service on 5173)
     volumes:
       - ./:/workspace:rw
       - ./artifacts_out:/artifacts:rw
@@ -63,6 +62,8 @@ services:
         condition: service_completed_successfully
       noa-api-dev:
         condition: service_healthy
+      vite-dev:
+        condition: service_healthy
     stdin_open: true
     tty: true
 
@@ -94,6 +95,9 @@ services:
     command: [ "alembic", "upgrade", "head" ]
     environment:
       - DATABASE_URL=postgresql+asyncpg://noa:dev-pg-password@postgres-dev:5432/noa_test
+    volumes:
+      - ./alembic:/app/alembic:ro
+      - ./src:/app/src:ro
     networks:
       - noa-dev-internal
     depends_on:
@@ -191,6 +195,34 @@ services:
     tmpfs:
       - /tmp:size=256m
 
+  # ── Vite dev server (hot reload frontend) ───────────────────────────
+  vite-dev:
+    image: node:20-alpine
+    container_name: noa-vite-dev
+    working_dir: /app
+    command: sh -c "npm install --prefer-offline && npm run dev -- --host"
+    ports:
+      - "127.0.0.1:5173:5173"
+    volumes:
+      - ./web:/app:rw
+      - vite-node-modules:/app/node_modules
+    environment:
+      - API_PROXY_TARGET=http://noa-api-dev:8000
+    networks:
+      - noa-dev-internal
+      - noa-dev-net
+    depends_on:
+      noa-api-dev:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "wget", "-qO-", "http://localhost:5173" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    tmpfs:
+      - /tmp:size=128m
+
 networks:
   noa-dev-net:
     driver: bridge
@@ -202,3 +234,4 @@ volumes:
   dev-postgres-data:
   dev-private-data:
   vscode-server-data:
+  vite-node-modules:
