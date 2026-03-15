@@ -27,7 +27,7 @@ from noa.api.middleware import trace_id_ctx
 from noa.api.schemas.common import success_envelope
 from noa.auth.jwt import TokenError
 from noa.auth.middleware import AuthUser, require_auth
-from noa.auth.service import AccountLockedError, AuthError, AuthService
+from noa.auth.service import AuthError, AuthService
 from noa.config import Environment, Settings
 
 logger = logging.getLogger(__name__)
@@ -102,7 +102,7 @@ def _set_auth_cookies(
         httponly=True,
         secure=is_secure,
         samesite="lax" if not is_secure else "strict",
-        max_age=900,  # 15 minutes
+        max_age=7 * 24 * 3600,  # 7 days (AU1)
         path="/",
     )
     response.set_cookie(
@@ -111,7 +111,7 @@ def _set_auth_cookies(
         httponly=True,
         secure=is_secure,
         samesite="lax" if not is_secure else "strict",
-        max_age=7 * 24 * 3600,  # 7 days
+        max_age=90 * 24 * 3600,  # 90 days (AU1)
         path="/api/v1/auth",  # Only sent to auth endpoints
     )
 
@@ -147,17 +147,6 @@ async def login(
             password=body.password,
             device_id=did,
         )
-    except AccountLockedError as exc:
-        # Extract minutes from message for Retry-After header
-        import re
-
-        match = re.search(r"(\d+) minute", str(exc))
-        retry_after = int(match.group(1)) * 60 if match else 1800
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=str(exc),
-            headers={"Retry-After": str(retry_after)},
-        ) from exc
     except AuthError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -278,6 +267,32 @@ async def logout(
         samesite=samesite,
     )
     return success_envelope(data={"status": "logged_out"}, trace_id=rid)
+
+
+@router.get("/me")
+async def me(
+    auth_user: AuthUser = Depends(require_auth),  # noqa: B008
+    session: AsyncSession = Depends(get_db_session),  # noqa: B008
+) -> dict[str, Any]:
+    """Return the current authenticated user's identity.
+
+    AU1: Used by the frontend startup session check to verify session cookies
+    are valid before rendering protected content. Returns 401 (via require_auth)
+    if not authenticated.
+    """
+    from sqlalchemy import select as sa_select
+
+    from noa.db.models.user import User
+
+    rid = trace_id_ctx.get("")
+    stmt = sa_select(User).where(User.id == auth_user.user_id)
+    result = await session.execute(stmt)
+    user = result.scalar_one_or_none()
+    email = user.email if user is not None else ""
+    return success_envelope(
+        data={"user_id": str(auth_user.user_id), "email": email},
+        trace_id=rid,
+    )
 
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)

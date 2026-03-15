@@ -23,9 +23,11 @@ export default function ForgotPassword() {
     e.preventDefault();
     setIsLoading(true);
     try {
+      // AU1: skipAuthRetry=true — expired reset token shows server's error detail
+      // directly instead of triggering a refresh cycle.
       const res = await apiRequest<{ status: string; reset_token?: string }>(
         "/api/v1/auth/forgot-password",
-        { method: "POST", body: JSON.stringify({ email }) },
+        { method: "POST", body: JSON.stringify({ email }), skipAuthRetry: true },
       );
       setSubmitted(true);
       // Self-hosted: token is returned directly in the response
@@ -55,6 +57,7 @@ export default function ForgotPassword() {
       await apiRequest("/api/v1/auth/reset-password", {
         method: "POST",
         body: JSON.stringify({ token: resetToken, new_password: newPassword }),
+        skipAuthRetry: true,
       });
       setResetDone(true);
       toast({ title: "Password reset successfully" });

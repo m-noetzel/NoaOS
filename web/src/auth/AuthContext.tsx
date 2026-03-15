@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { apiRequest, registerSessionExpiredHandler, WEB_DEVICE_ID } from "@/api/client";
 import type { LoginRequest, RegisterRequest } from "@/api/types";
-import { setTokens, clearTokens, hasTokens } from "./tokens";
+import { clearTokens, setTokens } from "./tokens";
 
 interface AuthState {
   isAuthenticated: boolean;
@@ -18,8 +18,9 @@ const AuthContext = createContext<AuthState | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const [isAuthenticated, setIsAuthenticated] = useState(() => hasTokens());
-  const [isLoading, setIsLoading] = useState(false);
+  // AU1: Start unauthenticated + loading — /auth/me check on mount is the source of truth.
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   // FE-M2: Register a React Router navigate handler so that session expiry
   // uses navigate("/login") instead of window.location.href, keeping React
@@ -36,24 +37,54 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => { registerSessionExpiredHandler(() => {}); };
   }, [navigate, queryClient]);
 
+  // AU1: Startup session check — call /auth/me directly via fetch (not apiRequest)
+  // to avoid circular 401-retry logic. Sets auth state from real session cookies.
   useEffect(() => {
-    setIsAuthenticated(hasTokens());
+    let cancelled = false;
+    const checkSession = async () => {
+      try {
+        const res = await fetch("/api/v1/auth/me", {
+          method: "GET",
+          credentials: "include",
+        });
+        if (!cancelled) {
+          if (res.ok) {
+            setIsAuthenticated(true);
+          } else {
+            setIsAuthenticated(false);
+          }
+        }
+      } catch {
+        if (!cancelled) {
+          setIsAuthenticated(false);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    };
+    void checkSession();
+    return () => { cancelled = true; };
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
     setIsLoading(true);
     try {
       const body: LoginRequest = { email, password, device_id: WEB_DEVICE_ID };
+      // AU1: skipAuthRetry=true — wrong password shows "Invalid email or password",
+      // not "Session expired" from the refresh-retry cycle.
       const res = await apiRequest<{ authenticated: boolean }>("/api/v1/auth/login", {
         method: "POST",
         body: JSON.stringify(body),
+        skipAuthRetry: true,
       });
 
       if (!res.ok || res.error) {
         throw new Error(res.error?.message || "Login failed");
       }
 
-      // C6: Tokens are in httpOnly cookies; just track auth state
+      // C6: Tokens are in httpOnly cookies; just track auth state in React state
       setTokens("", "");
       setIsAuthenticated(true);
     } finally {

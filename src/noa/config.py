@@ -58,8 +58,9 @@ class Settings(BaseSettings):
     log_level: LogLevel = LogLevel.INFO
 
     # Token settings (SPEC.md §5.2)
-    access_token_expire_minutes: int = 30
-    refresh_token_expire_days: int = 7
+    # AU1: Long-lived tokens for single-user personal system.
+    access_token_expire_minutes: int = 10080  # 7 days
+    refresh_token_expire_days: int = 90  # 90 days
 
     # API keys — injected from keychain via env vars (SPEC.md §11.1)
     anthropic_api_key: str | None = None

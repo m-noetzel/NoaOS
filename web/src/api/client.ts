@@ -80,23 +80,31 @@ async function handleTokenRefresh(): Promise<boolean> {
   return refreshPromise;
 }
 
+export interface ApiRequestOptions extends RequestInit {
+  /** When true, a 401 response skips the refresh retry and throws the server's
+   *  error detail directly. Use for auth endpoints (login, forgot-password) so
+   *  "Invalid email or password" is shown instead of "Session expired". AU1 */
+  skipAuthRetry?: boolean;
+}
+
 export async function apiRequest<T>(
   path: string,
-  options: RequestInit = {}
+  options: ApiRequestOptions = {}
 ): Promise<ApiResponse<T>> {
   if (USE_MOCKS) {
     const { handleMockRequest } = await import("./mock/handlers");
     return handleMockRequest<T>(path, options);
   }
 
-  const method = (options.method || "GET").toUpperCase();
+  const { skipAuthRetry, ...fetchOptions } = options;
+  const method = (fetchOptions.method || "GET").toUpperCase();
   const isWrite = method === "POST" || method === "PUT" || method === "DELETE" || method === "PATCH";
 
   const makeRequest = async (): Promise<Response> => {
     const token = getAccessToken();
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
-      ...(options.headers as Record<string, string>),
+      ...(fetchOptions.headers as Record<string, string>),
     };
 
     if (token) {
@@ -111,7 +119,7 @@ export async function apiRequest<T>(
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 30_000);
     try {
-      return await fetch(`${BASE_URL}${path}`, { ...options, headers, credentials: "include", signal: controller.signal });
+      return await fetch(`${BASE_URL}${path}`, { ...fetchOptions, headers, credentials: "include", signal: controller.signal });
     } finally {
       clearTimeout(timeoutId);
     }
@@ -119,8 +127,17 @@ export async function apiRequest<T>(
 
   let response = await makeRequest();
 
-  // 401 → try refresh → retry once
+  // 401 handling
   if (response.status === 401) {
+    if (skipAuthRetry) {
+      // AU1: Auth endpoints — read server's error detail, throw directly.
+      // No refresh retry: wrong password should show "Invalid email or password",
+      // not trigger a refresh cycle that ends with "Session expired".
+      const body = await response.json().catch(() => null);
+      const detail = body?.detail || "Authentication failed";
+      throw new Error(detail);
+    }
+    // Regular endpoints — try refresh → retry once
     const refreshed = await handleTokenRefresh();
     if (refreshed) {
       response = await makeRequest();

@@ -23,23 +23,11 @@ class AuthError(Exception):
     """Raised for authentication failures."""
 
 
-class AccountLockedError(AuthError):
-    """Raised when an account is locked due to too many failed attempts."""
-
-
 class AuthService:
     """Handles login, refresh, and logout operations.
 
     Requires an async SQLAlchemy session and application settings.
     """
-
-    # Rate limiting: track failed attempts per email (in-memory for now)
-    _failed_attempts: dict[str, list[datetime]] = {}  # noqa: RUF012
-    # Timestamp when a lockout was triggered per email
-    _lockout_until: dict[str, datetime] = {}  # noqa: RUF012
-    _MAX_ATTEMPTS = 5
-    _LOCKOUT_WINDOW_MINUTES = 10
-    _LOCKOUT_DURATION_MINUTES = 30
 
     def __init__(self, session: Any, settings: Settings) -> None:
         self._session = session
@@ -59,24 +47,15 @@ class AuthService:
         """Authenticate user, create session, return token pair.
 
         Raises AuthError on invalid credentials.
-        Raises AccountLockedError after 5 failed attempts within 10 minutes.
         """
-        # Check rate limiting BEFORE credential verification
-        self._check_rate_limit(email)
-
         user = await self._get_user_by_email(email)
         if user is None or not verify_password(password, user.password_hash):
-            self._record_failed_attempt(email)
             msg = "Invalid email or password"
             raise AuthError(msg)
 
         if not user.is_active:
             msg = "Account is disabled"
             raise AuthError(msg)
-
-        # Clear failed attempts and any lockout on successful login
-        self._failed_attempts.pop(email, None)
-        self._lockout_until.pop(email, None)
 
         # Create session ID upfront so we can embed it in the access token
         session_id = uuid.uuid4()
@@ -301,48 +280,3 @@ class AuthService:
         """SHA-256 hash of a token for storage."""
         return hashlib.sha256(token.encode()).hexdigest()
 
-    def _check_rate_limit(self, email: str) -> None:
-        """Raise AccountLockedError if too many recent failed attempts."""
-        now = datetime.now(UTC)
-
-        # If a lockout is active, check whether it has expired
-        lockout_end = self._lockout_until.get(email)
-        if lockout_end is not None:
-            if now < lockout_end:
-                remaining = int((lockout_end - now).total_seconds() // 60) + 1
-                msg = (
-                    "Account locked due to too many failed login attempts."
-                    f" Try again in {remaining} minute(s)."
-                )
-                raise AccountLockedError(msg)
-            # Lockout expired — clear it and the old attempts
-            self._lockout_until.pop(email, None)
-            self._failed_attempts.pop(email, None)
-
-        # Count recent attempts within the sliding window
-        attempts = self._failed_attempts.get(email, [])
-        cutoff = now - timedelta(minutes=self._LOCKOUT_WINDOW_MINUTES)
-        recent = [a for a in attempts if a >= cutoff]
-        if len(recent) >= self._MAX_ATTEMPTS:
-            # Trigger a fixed-duration lockout
-            self._lockout_until[email] = now + timedelta(
-                minutes=self._LOCKOUT_DURATION_MINUTES
-            )
-            remaining = self._LOCKOUT_DURATION_MINUTES
-            msg = (
-                "Account locked due to too many failed login attempts."
-                f" Try again in {remaining} minute(s)."
-            )
-            raise AccountLockedError(msg)
-
-    def _record_failed_attempt(self, email: str) -> None:
-        """Record a failed login attempt for rate limiting."""
-        now = datetime.now(UTC)
-        if email not in self._failed_attempts:
-            self._failed_attempts[email] = []
-        self._failed_attempts[email].append(now)
-        # Prune old entries to avoid unbounded growth
-        cutoff = now - timedelta(minutes=self._LOCKOUT_WINDOW_MINUTES)
-        self._failed_attempts[email] = [
-            a for a in self._failed_attempts[email] if a >= cutoff
-        ]
