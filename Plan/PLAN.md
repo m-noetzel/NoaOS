@@ -176,14 +176,24 @@ The plan is organized into **waves** — groups of related phases that deliver a
 | — | — **WAVE 22 BOUNDARY** — | **Complete** | — | — | — | — | System audit 7.2/10. Retro done. CI analysis done (CI-042 P1). 3 new findings: W22-H1/H2 (dead-end stores), W22-M1 (runs/cost not domain-filtered). HUMAN GATE: approve CI-042 + Wave 23 plan. |
 | — | — **AUTH STABILITY (pre-Wave 23)** — | — | — | — | — | — | — |
 | **AU1** | Auth Stability — Session Validation & Error Clarity | **Complete** | 13 | main | ~60 min | ~55 min | Fixes AUTH-H1/H2/M1/M2: rate limiting removed, 7-day tokens, `/auth/me` startup check, `skipAuthRetry` on login, localStorage flag removed |
+| — | — **WAVE 23: CODE QUALITY — TARGET 9/10** — | — | — | — | — | — | Audit: `docs/CODEBASE_AUDIT_2026-03-16.md`. Before: Arch 7, Wiring 5, Hygiene 6, Security 8, Testing 7, Modern 7, Frontend 7. |
+| **CQ1** | Wire Unwired Features | **Planned** | — | main | ~60 min | — | Wire 4 built-but-disconnected features: DbCapabilityChecker→gateway, load_custom_tools at startup, scope filtering in tool_node, preview generation in approval flow |
+| **CQ2** | Delete Dead Governance Stack | **Planned** | — | main | ~30 min | — | Delete ~400 LOC: governance.py, idempotency.py, rate_limiter.py, mcp_adapter.py, ToolRegistry. Remove TOOL_ALLOWLIST, execute_tool, set_registry/get_registry. Depends: CQ1 |
+| **CQ3** | Delete Frontend Dead Code | **Planned** | — | main | ~20 min | — | Delete JSONViewer, ~11 unused shadcn/ui components (aspect-ratio, carousel, hover-card, input-otp, menubar, navigation-menu, pagination, resizable, toggle-group, context-menu, command) |
+| **CQ4** | Enums, Config Centralization, Magic Strings | **Planned** | — | main | ~30 min | — | PrivacyMode + RiskTier StrEnums in types.py. Centralize model defaults in config.py. Replace magic strings across ~15 files |
+| **CQ5** | Split Chat.tsx & Settings.tsx | **Planned** | — | main | ~45 min | — | Chat.tsx 759→7 files (ThreadSidebar, ChatMessages, ApprovalCard, ChatComposer, useChatSSE, useOptimisticMessages, groupMessagesByRun). Settings.tsx 640→4 files. Depends: CQ3 |
+| **CQ6** | Strict Types & DI Cleanup | **Planned** | — | main | ~60 min | — | Zero `Any` in public signatures. Replace module-level globals with app.state refs via AgentState. Tighten TypedDict access. Depends: CQ4 |
+| **CQ7** | Integration Tests for Wired Features | **Planned** | — | main | ~45 min | — | Non-mocked tests: capability enforcement, custom tool restore, scope filtering, preview generation, dead code absence. Depends: CQ1 |
+| **CQ8** | Consistent Error Handling & SSE Contract | **Planned** | — | main | ~30 min | — | Narrow 71 broad `except Exception` to <20 with specific types. Typed SSE event dicts (sse_types.py), remove `as string` casts in frontend. Depends: CQ6 |
+| **CQ9** | Security Hardening (final) | **Planned** | — | main | ~20 min | — | Logging sanitizer tests, structured approval fields (migration), CORS verification test, responder defensive check. Depends: CQ8 |
 
-### Wave 23: Observability & Ops
+### Wave 24: Observability & Ops
 - Lightweight monitoring (health dashboard, error rate tracking)
 - Alerting on failures (ntfy or similar, already partially wired)
 - Structured log aggregation and retention
 - Query performance audit (EXPLAIN ANALYZE on hot paths)
 
-### Wave 23B: Database Security Hardening
+### Wave 24B: Database Security Hardening
 - **RLS1**: Postgres Row-Level Security (RLS) for domain isolation
   - Add `domain` column to all domain-sensitive tables (runs, messages, memory_facts, tool_call_log, usage_stats)
   - Create Postgres roles: `noa_private` and `noa_external` with row-level policies
@@ -195,7 +205,7 @@ The plan is organized into **waves** — groups of related phases that deliver a
   - Migration: add RLS policies without breaking existing queries (policies are additive)
   - Tests: verify cross-domain SELECT/INSERT blocked at DB level, not just application level
 
-### Wave 24: Polish & Extended Capabilities
+### Wave 25: Polish & Extended Capabilities
 - **MS1**: Microsoft Outlook Mail + Calendar (OAuth2 + Graph API)
 - Frontend bundle optimization (tree-shaking, lazy routes audit)
 - Advanced tool integrations (new MCP servers, custom workflows)

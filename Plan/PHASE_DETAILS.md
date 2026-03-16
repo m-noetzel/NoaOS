@@ -5001,3 +5001,208 @@ cd web && npm test -- --testPathPattern="au1|auth|AuthContext|AuthGuard|client" 
 - iOS auth changes (iOS Keychain + AuthViewModel handles its own session)
 - DB-backed rate limiting (removed entirely for single-user)
 - Multi-user considerations
+
+---
+
+## Wave 23: Code Quality — Target 9/10
+
+Triggered by codebase audit 2026-03-16 (see `docs/CODEBASE_AUDIT_2026-03-16.md`).
+Current scores: Architecture 7, Wiring 5, Hygiene 6, Security 8, Testing 7, Modern Practices 7, Frontend 7.
+Target: All dimensions >= 9/10.
+
+Execution order: CQ1+CQ3+CQ4 parallel → CQ2 (after CQ1) → CQ5 (after CQ3) → CQ6 (after CQ4) → CQ7 (after CQ1) → CQ8 (after CQ6) → CQ9 (after CQ8).
+
+---
+
+### Phase CQ1: Wire Unwired Features (~60 min)
+
+**Goal:** Connect the 4 features that are built but not wired into the execution path.
+
+**Depends on:** None
+**Blocks:** CQ2, CQ7
+
+**Deliverables:**
+
+1. **Wire `capability_checker` to gateway at startup**
+   - Refactor `DbCapabilityChecker.__init__` to accept `session_factory` instead of single `session`.
+   - Each `has_capability()` call opens its own session, checks, closes.
+   - In `app.py` `wire_llm_pipeline()`, after gateway creation, set `gateway.capability_checker = DbCapabilityChecker(sf)`.
+
+2. **Wire `load_custom_tools()` at startup**
+   - Move call to `lifespan()` after `wire_llm_pipeline()` returns (lifespan is async, wire_llm_pipeline is sync).
+   - The gateway is available via `get_gateway()` at that point.
+
+3. **Wire `ToolScopeRegistry` into orchestrator tool dispatch**
+   - Add `tool_scope` field to `AgentState` TypedDict.
+   - In `tool_node()`: if `state.get("tool_scope")` is set, call `filter_tools_by_allowlist()` and reject calls not in the filtered list.
+   - Pass scope from `ChatRequest` → runner → state.
+
+4. **Wire `generate_preview()` into approval flow**
+   - In `gateway.py` dispatch, when `needs_approval` is true, call `generate_preview()` from `policy/preview.py` and include preview text in the approval response.
+   - Wire `requires_preview()` — only generate preview for medium/high risk.
+
+**Files:**
+- `src/noa/api/app.py` — startup wiring for capability_checker + custom tools
+- `src/noa/tools/capabilities.py` — refactor to session_factory
+- `src/noa/tools/gateway.py` — wire preview generation into approval path
+- `src/noa/orchestrator/nodes/tools.py` — scope filtering
+- `src/noa/orchestrator/state.py` — add `tool_scope` field
+- `src/noa/orchestrator/runner.py` — pass scope from request to state
+- `src/noa/policy/preview.py` — becomes the single preview implementation
+
+**Tests:**
+- Integration test: capability grant → tool call succeeds; no grant → tool call denied
+- Integration test: custom tool registered → restart → tool still available
+- Integration test: scope set to "email_draft" → web_search call rejected
+- Unit test: medium risk tool → preview text included in approval response
+
+---
+
+### Phase CQ2: Delete Dead Governance Stack (~30 min)
+
+**Goal:** Remove ~400 lines of dead code (Stack B). After CQ1 wires preview.py, the rest of Stack B has zero callers.
+
+**Depends on:** CQ1
+**Blocks:** None
+
+**Delete entirely:**
+- `src/noa/tools/governance.py` — GovernanceWrapper + duplicate generate_preview
+- `src/noa/tools/idempotency.py` — IdempotencyStore (gateway has its own)
+- `src/noa/tools/rate_limiter.py` — RateLimiter class (gateway has its own)
+- `src/noa/tools/mcp_adapter.py` — deprecated MCPToolAdapter stub
+- `src/noa/tools/interface.py` lines 42-88 — ToolRegistry class (keep ToolInterface protocol)
+
+**Clean up references:**
+- `src/noa/orchestrator/nodes/tools.py` — remove `ToolRegistry` import, `_registry`, `set_registry()`, `get_registry()`, `_dispatch_registry()`, `_dispatch_registry_legacy()`, `TOOL_ALLOWLIST`, `execute_tool()`.
+
+**Delete tests for dead code:**
+- `tests/unit/test_tool_governance.py`
+
+**Verification:** `ruff check`, `mypy`, full test suite. No import errors.
+
+---
+
+### Phase CQ3: Delete Frontend Dead Code (~20 min)
+
+**Goal:** Remove unused components and clean up shadcn bloat.
+
+**Depends on:** None
+**Blocks:** CQ5
+
+**Delete:**
+- `web/src/components/shared/JSONViewer.tsx` — never imported
+
+**Remove unused shadcn/ui components** (verify zero imports first):
+- `aspect-ratio.tsx`, `carousel.tsx`, `hover-card.tsx`, `input-otp.tsx`
+- `menubar.tsx`, `navigation-menu.tsx`, `pagination.tsx`, `resizable.tsx`
+- `toggle-group.tsx`, `context-menu.tsx`, `command.tsx`
+
+**Verification:** `cd web && npm run build` — no import errors.
+
+---
+
+### Phase CQ4: Enums, Config Centralization, Magic Strings (~30 min)
+
+**Goal:** Replace magic strings with Enums, centralize duplicated config.
+
+**Depends on:** None
+**Blocks:** CQ6
+
+**Deliverables:**
+
+1. **PrivacyMode Enum** — `src/noa/types.py`, StrEnum with PRIVATE/EXTERNAL. Replace all string comparisons across ~15 files.
+2. **RiskTier Enum** — LOW/MEDIUM/HIGH. Replace magic strings in policy/engine.py, gateway.py, approval.py.
+3. **Centralize model defaults** — Single DEFAULT_MODELS dict in config.py. model_config.py and llm/router.py read from it.
+
+**Tests:** Existing tests pass unchanged (StrEnum is string-compatible).
+
+---
+
+### Phase CQ5: Split Chat.tsx & Settings.tsx (~45 min)
+
+**Goal:** Break 759-line Chat.tsx into 7 focused modules, Settings.tsx into 4.
+
+**Depends on:** CQ3
+**Blocks:** None
+
+**Chat.tsx splits:**
+- `hooks/useChatSSE.ts` (~80 lines) — SSE connection, event dispatch, streaming state
+- `hooks/useOptimisticMessages.ts` (~40 lines) — Optimistic insert + dedup logic
+- `utils/groupMessagesByRun.ts` (~30 lines) — Pure utility function
+- `components/chat/ThreadSidebar.tsx` (~120 lines) — Thread list, create/delete/rename
+- `components/chat/ChatMessages.tsx` (~80 lines) — Render message groups + streaming content
+- `components/chat/ApprovalCard.tsx` (~80 lines) — Inline approval request UI
+- `components/chat/ChatComposer.tsx` (~90 lines) — Input + advanced settings
+- `pages/Chat.tsx` (~100 lines) — Layout shell, composes children
+
+**Settings.tsx splits:**
+- `components/settings/GoogleAuthSection.tsx` (~80 lines)
+- `components/settings/SystemPromptSection.tsx` (~60 lines)
+- `components/settings/GeneralSettings.tsx` (~100 lines)
+- `pages/Settings.tsx` (~60 lines) — Layout, tab container
+
+**Approach:** Extract bottom-up (utilities → hooks → components). No behavior changes.
+
+**Tests:** Existing tests pass. Add 1 unit test per new hook.
+
+---
+
+### Phase CQ6: Strict Types & DI Cleanup (~60 min)
+
+**Goal:** Eliminate `Any` types in public interfaces, replace module-level globals with app.state refs.
+
+**Depends on:** CQ4
+**Blocks:** CQ8
+
+**Deliverables:**
+
+1. **Remove `Any` from public function signatures** — chat.py getters, app_state.py, gateway.py attributes. Target: zero `Any` in function signatures outside test files.
+2. **Replace module-level globals** — `_router`, `_gateway`, `_registry` globals → pass through `AgentState` context object. Remove `set_*()` / `get_*()` module-level functions.
+3. **TypedDict access tightening** — Direct access `state["messages"]` for required fields, `.get()` only for optional. Runtime validation at graph entry point.
+
+**Tests:** `mypy --strict` on modified files. Existing tests pass.
+
+---
+
+### Phase CQ7: Integration Tests for Wired Features (~45 min)
+
+**Goal:** Every feature wired in CQ1 has a non-mocked integration test.
+
+**Depends on:** CQ1
+**Blocks:** None
+
+**New tests:**
+1. Capability enforcement: grant → succeeds, no grant → denied, revoke → denied (real DB)
+2. Custom tool restore: register via API → restart → tool still in gateway (real DB)
+3. Scope filtering: "email_draft" scope → web_search rejected; "research" → accepted (ASGI client)
+4. Preview generation: medium-risk → preview text in approval; low-risk → no preview (ASGI client)
+5. Dead code absence: verify governance.py/idempotency.py/rate_limiter.py/mcp_adapter.py deleted
+
+---
+
+### Phase CQ8: Consistent Error Handling & SSE Contract (~30 min)
+
+**Goal:** Standardize error handling and SSE event shapes.
+
+**Depends on:** CQ6
+**Blocks:** CQ9
+
+**Deliverables:**
+
+1. **Error handling** — Audit 71 `except Exception` catches. Keep startup degradation (~15), narrow tool/DB operations to specific types, remove known-type catches. Target <20 broad catches.
+2. **SSE event contract** — Typed dicts per event type in `sse_types.py`. Runner emits typed events. Frontend mirrors types in TypeScript, removes `as string` casts.
+
+---
+
+### Phase CQ9: Security Hardening (final) (~20 min)
+
+**Goal:** Close last security gaps from audit.
+
+**Depends on:** CQ8
+**Blocks:** None
+
+**Deliverables:**
+1. Logging sanitizer unit tests (real-format API keys masked)
+2. Structured approval fields — add `tool_name`/`tool_args` columns to Approval model (migration), replace string-split parsing
+3. CORS verification integration test (evil origin rejected)
+4. Responder node `isinstance(r, dict)` defensive check
