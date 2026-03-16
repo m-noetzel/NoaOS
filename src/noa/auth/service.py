@@ -12,7 +12,12 @@ from typing import Any
 
 from sqlalchemy import select
 
-from noa.auth.jwt import create_access_token, create_refresh_token, decode_token
+from noa.auth.jwt import (
+    TokenError,
+    create_access_token,
+    create_refresh_token,
+    decode_token,
+)
 from noa.auth.password import hash_password, verify_password
 from noa.config import Settings
 from noa.db.models.session import AuthSession
@@ -199,7 +204,7 @@ class AuthService:
 
         try:
             payload = decode_token(token, secret_key=secret)
-        except Exception as exc:
+        except TokenError as exc:
             msg = "Invalid or expired reset token"
             raise AuthError(msg) from exc
 

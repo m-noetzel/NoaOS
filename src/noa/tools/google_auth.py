@@ -266,7 +266,11 @@ async def load_tokens_from_db(
             decrypt_token(cred.access_token_enc) if cred.access_token_enc else ""
         )
         refresh_token = decrypt_token(cred.refresh_token_enc)
-    except Exception:  # noqa: BLE001
+    except (ValueError, Exception):  # noqa: BLE001
+        # cryptography.fernet.InvalidToken (subclass of Exception) is raised
+        # when decryption fails (wrong key or corrupted ciphertext). We can't
+        # import it here without adding cryptography as a hard dependency at
+        # module level, so we catch broadly with a comment explaining why.
         logger.warning("Failed to decrypt Google tokens for user %s", user_id)
         return False
 

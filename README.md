@@ -1,33 +1,18 @@
 # Noa
 
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![TypeScript](https://img.shields.io/badge/typescript-5.x-blue.svg)](https://www.typescriptlang.org/)
-[![Swift 6](https://img.shields.io/badge/swift-6-orange.svg)](https://swift.org/)
-[![Tests](https://img.shields.io/badge/tests-2%2C400%2B-brightgreen.svg)](#run-tests)
-[![Coverage](https://img.shields.io/badge/coverage-84%25-brightgreen.svg)](#run-tests)
-[![PostgreSQL 16](https://img.shields.io/badge/postgres-16-336791.svg)](https://www.postgresql.org/)
-
 **A governed personal AI agent with dual-domain architecture.**
 
-Run an AI agent on your own hardware that enforces privacy boundaries, governs every action through risk-tiered approvals, tracks costs, and integrates with Google Calendar, Gmail, Notion, and web search — with a React web UI and native iOS app.
+Noa is a self-hosted AI agent that enforces privacy boundaries through container-level network isolation, governs every action through risk-tiered approvals, tracks costs with hard budget limits, and integrates with Google Calendar, Gmail, Notion, and web search. It ships with a React web UI and a native iOS app.
 
-Built as a portfolio project demonstrating applied agent engineering: LangGraph state machine orchestration, container-based domain isolation, function-level tool governance, immutable audit logging, multi-provider LLM routing, and production-grade infrastructure with 2,400+ tests.
+Built as a portfolio project demonstrating applied agent engineering: LangGraph state machine orchestration, container-based domain isolation, function-level tool governance, immutable audit logging, multi-provider LLM routing, and production-grade infrastructure with 2,100+ tests across 123 test files.
 
-## Quick Start
-
-```bash
-git clone <this-repo> && cd Noa
-docker-compose up -d
-docker-compose exec noa-api alembic upgrade head
-# Frontend: cd web && npm install && npm run dev → http://localhost:5173
-```
-
-> See [docs/SETUP.md](docs/SETUP.md) for full setup including secret management and Ollama configuration.
+![Chat — multi-step tool chain with streaming results](assets/chat.png)
 
 ---
 
 ## Table of Contents
 
+- [Quick Start](#quick-start)
 - [Problem Statement](#problem-statement)
 - [What It Does](#what-it-does)
 - [Architecture](#architecture)
@@ -36,9 +21,36 @@ docker-compose exec noa-api alembic upgrade head
 - [How to Run and Test](#how-to-run-and-test)
 - [What to Review](#what-to-review)
 - [Key Design Decisions](#key-design-decisions)
-- [Known Risks and Limitations](#known-risks-and-limitations)
+- [Known Limitations](#known-limitations)
 - [Questions for the Reviewer](#questions-for-the-reviewer)
+- [Screenshots](#screenshots)
 - [Roadmap](#roadmap)
+
+---
+
+## Quick Start
+
+```bash
+git clone git@github.com:TuringCollegeSubmissions/mnoetz-AE.3.5.git && cd noa
+
+# 1. Configure environment
+cp .env.example .env
+# Edit .env — add at least one LLM provider key (ANTHROPIC_API_KEY or OPENAI_API_KEY)
+
+# 2. Start everything (backend + database + workers)
+./noa dev-full workers
+
+# 3. Run database migrations
+./noa db migrate
+
+# 4. Start the frontend (separate terminal)
+cd web && npm install && npm run dev
+# → http://localhost:5173
+```
+
+That's it. The `noa` CLI handles Docker Compose, database setup, and health checks. Run `./noa` without arguments to see all available commands.
+
+> **macOS users:** Secrets can alternatively be stored in Keychain instead of `.env` — see [docs/SETUP.md](docs/SETUP.md).
 
 ---
 
@@ -81,52 +93,6 @@ Noa addresses this by enforcing:
 | **Medium** | Send email, create event, write Notion | Preview + confirm | No |
 | **High** | Delete data, system changes | Preview + confirm | Biometric (iOS) |
 
-### Pages
-
-Chat, Runs, Run Detail, Approvals, Tools, Settings, Cost, Memory, Queue, Artifacts — 10 pages across web and iOS.
-
-#### Chat
-
-Send messages, trigger multi-step tool chains, and see results stream in real time. Threads persist in the sidebar.
-
-![Chat — Noa drafts an email, saves a contact to memory, and presents the draft for review](assets/chat.png)
-
-#### Run Detail — Execution Graph
-
-Inspect any run's orchestrator path: which nodes fired, which tools were called, cost per step.
-
-![Run Detail — Execution graph from user message through planner, tool calls, and final response](assets/run-execution-graph.png)
-
-#### Run Detail — Event Timeline
-
-Chronological view of every event in a run — tool calls, approval gates, latency deltas.
-
-![Run Detail — Event timeline with tool calls, approval requests, and result events](assets/run-timeline.png)
-
-#### Run Detail — Raw Events
-
-Expandable raw event log with metadata and event IDs for debugging.
-
-![Run Detail — Raw event log with expandable metadata and event IDs](assets/run-raw-events.png)
-
-#### Tools
-
-Manage tool capabilities at the function level. Each tool shows its domain, risk tier, credential status, and health.
-
-![Tools — Function-level capabilities with domain tags, risk tiers, and credential status](assets/tools.png)
-
-#### Memory
-
-Review and manage long-term memory facts. Pending facts require approval before the agent can use them.
-
-![Memory — Pending and approved facts with category, source, and edit/delete actions](assets/memory.png)
-
-#### Cost
-
-Track token usage, per-run costs, and budget limits across all providers.
-
-![Cost — Usage breakdown by provider and model with daily and monthly totals](assets/cost.png)
-
 ---
 
 ## Architecture
@@ -135,10 +101,10 @@ Track token usage, per-run costs, and budget limits across all providers.
 
 ```
 __start__ → ROUTER → AGENT ──(has tool_calls)──→ TOOLS ──(rounds < max)──→ AGENT
-                        │                           │
-                        └──(no tool_calls)──→ RESPONDER ←──(rounds >= max)──┘
-                                                 │
-                                              __end__
+                       │                           │
+                       └──(no tool_calls)──→ RESPONDER ←──(rounds >= max)──┘
+                                                │
+                                             __end__
 ```
 
 **Bounded autonomy:** Max 10 tool calls per step, max 3 rounds (configurable), 120-second timeout, cost tracking at every iteration.
@@ -164,6 +130,18 @@ RunService persists Run + Events + UsageStats to PostgreSQL
 ```
 
 **Key isolation guarantee:** The `noa-internal` Docker network has no internet route. Even if the private worker code had a bug that tried to phone home, the network layer blocks it. Private data physically cannot leave the machine.
+
+### Services
+
+| Service | Role | Network |
+|---------|------|---------|
+| `noa-api` | FastAPI backend (gateway) | Internal + External |
+| `private-worker` | Ollama LLM for private domain | Internal only |
+| `external-worker` | Cloud LLM API access | External only |
+| `postgres` | PostgreSQL 16 database | Internal |
+| `caddy` | Reverse proxy, TLS termination | Both |
+| `backup` | Scheduled encrypted backups (pg_dump + GPG) | Internal |
+| `migrate` | Alembic migration runner | Internal |
 
 > For the full system diagram, component table, and project structure, see [docs/Tech.md](docs/Tech.md).
 
@@ -198,16 +176,14 @@ Tools are dispatched through a governed gateway with 8-step enforcement per call
 
 ### Multi-Model Routing
 
-| Provider | Models | Input / Output (per 1M tokens) | Use Case |
-|----------|--------|---------------------------------|----------|
-| **Anthropic** | Claude Sonnet 4 | $3.00 / $15.00 | Default external |
-| **Anthropic** | Claude Haiku 4.5 | $0.25 / $1.25 | Fast/cheap tasks |
-| **Anthropic** | Claude Opus 4 | $15.00 / $75.00 | Complex reasoning |
-| **OpenAI** | GPT-4o | $2.50 / $10.00 | Alternative external |
-| **OpenAI** | GPT-4o-mini | $0.15 / $0.60 | Budget-conscious |
-| **OpenAI** | GPT-4.1 | $2.00 / $8.00 | Latest generation |
-| **OpenAI** | GPT-4.1-mini | $0.40 / $1.60 | Lightweight latest gen |
-| **Ollama** | Any local model | Free | Private domain |
+| Provider | Models | Use Case |
+|----------|--------|----------|
+| **Anthropic** | Claude Sonnet 4, Haiku 4.5, Opus 4 | Default external provider |
+| **OpenAI** | GPT-4.1, GPT-4.1-mini, GPT-4o, GPT-4o-mini | Alternative external |
+| **Google AI** | Gemini Pro | Google ecosystem tasks |
+| **Ollama** | Any local model (Llama 3.1, Qwen 3, Mistral, ...) | Private domain (free, offline) |
+
+Users select the model per conversation in the UI. The router enforces that private-mode requests never reach cloud providers.
 
 ### Tool Chaining Example
 
@@ -225,7 +201,7 @@ Round 2: send_email(to: user, subject: "AI Regulation Summary", body: <synthesiz
 
 | Category | Technology |
 |----------|------------|
-| **Language** | Python 3.11+ (backend), TypeScript (frontend), Swift 6 (iOS) |
+| **Language** | Python 3.11+ (backend), TypeScript 5.x (frontend), Swift 6 (iOS) |
 | **Backend** | FastAPI, SQLAlchemy 2.0 (async), Alembic, Pydantic v2 |
 | **Orchestration** | LangGraph + LangChain Core (state machine, conditional edges) |
 | **Database** | PostgreSQL 16 (asyncpg) |
@@ -234,11 +210,11 @@ Round 2: send_email(to: user, subject: "AI Regulation Summary", body: <synthesiz
 | **Local LLM** | Ollama |
 | **Frontend** | React 18, Vite, Tailwind CSS, Radix UI, TanStack Query, Zod |
 | **iOS** | SwiftUI, async/await actors, ASWebAuthenticationSession |
-| **Streaming** | Server-Sent Events (SSE) |
+| **Streaming** | Server-Sent Events (SSE) with 15s keepalive |
 | **Reverse Proxy** | Caddy (TLS, Let's Encrypt) |
-| **Containers** | Docker Compose (5 services, 2 isolated networks) |
+| **Containers** | Docker Compose (7 services, 2 isolated networks) |
 | **Security** | nh3 (HTML sanitization), DOMPurify (frontend), certificate pinning (iOS) |
-| **Testing** | pytest, Vitest, Playwright, XCTest, mutmut (mutation testing) |
+| **Testing** | pytest (2,100+), Vitest, Playwright, XCTest |
 | **Static Analysis** | ruff, mypy (strict), ESLint, TypeScript strict |
 
 ---
@@ -248,47 +224,54 @@ Round 2: send_email(to: user, subject: "AI Regulation Summary", body: <synthesiz
 ### Prerequisites
 
 - Docker Desktop (macOS or Linux)
-- Python 3.11+
 - Node.js 18+ (for frontend)
-- Ollama (optional, for private domain)
+- At least one LLM API key (Anthropic, OpenAI, or Google AI)
+- Ollama (optional, for private domain — runs inside Docker if not installed locally)
 
 ### Setup
 
 ```bash
-git clone <this-repo> && cd Noa
+# 1. Clone and configure
+git clone git@github.com:TuringCollegeSubmissions/mnoetz-AE.3.5.git && cd noa
+cp .env.example .env
+# Edit .env — add your API key(s) and review the defaults
 
-# Store secrets (macOS Keychain or environment variables)
-# macOS:
-./tools/keychain_store.sh set ANTHROPIC_API_KEY "sk-ant-..."
-./tools/keychain_store.sh set OPENAI_API_KEY "sk-..."
-# Linux/CI: export ANTHROPIC_API_KEY=... and OPENAI_API_KEY=...
+# 2. Start the full stack
+./noa dev-full workers
+# Starts: postgres, noa-api, private-worker, external-worker
 
-# Start all services
-docker-compose up -d
+# 3. Run migrations
+./noa db migrate
 
-# Run database migrations
-docker-compose exec noa-api alembic upgrade head
+# 4. Frontend (separate terminal)
+cd web && npm install && npm run dev
+# → http://localhost:5173
+
+# 5. Verify everything is running
+./noa health
 ```
 
-### Development Mode
+### The `noa` CLI
 
-```bash
-# Backend (with live reload)
-docker-compose -f docker-compose.dev.yml up -d
+The project includes a CLI that wraps all common operations:
 
-# Frontend
-cd web && npm install && npm run dev
-# Opens at http://localhost:5173
-
-# Optional: Pull Ollama models for private domain
-ollama pull qwen2.5:14b
-ollama pull llama3.3:70b
+```
+./noa                     Start all services
+./noa dev-full workers    Full dev stack with LLM workers
+./noa health              Run health checks against all services
+./noa status              Show service status
+./noa logs [service]      Tail logs (all or specific service)
+./noa test                Run the full test suite
+./noa db migrate          Run database migrations
+./noa db console          Open a psql shell
+./noa shell [service]     Open a shell in any container
+./noa backup              Trigger a manual encrypted backup
 ```
 
 ### Run Tests
 
 ```bash
-# Backend tests
+# Backend
 pytest tests/unit/ -v                         # Unit tests (fast)
 pytest tests/integration/ -v                  # Integration (requires Postgres)
 pytest tests/ --cov=src/noa --cov-report=html # Full suite + coverage
@@ -296,17 +279,23 @@ pytest tests/ --cov=src/noa --cov-report=html # Full suite + coverage
 # Static analysis
 ruff check src/ && mypy src/
 
-# Frontend tests
-cd web && npm run test                        # Vitest
+# Frontend
+cd web && npm test                            # Vitest
 cd web && npm run test:e2e                    # Playwright E2E
-
-# Mutation testing (critical paths)
-mutmut run
 ```
 
-Expected: **2,400+ tests passing**, 84% coverage, 0 mypy errors, 0 ruff violations.
+### What You Need to Test Each Feature
 
-> For the full test coverage breakdown by area, see [docs/Tech.md](docs/Tech.md#testing).
+| Feature | Required Keys | How to Verify |
+|---------|---------------|---------------|
+| Chat (external) | `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` | Send a message in the Chat UI |
+| Chat (private) | Ollama running | Send a message with private mode toggled |
+| Google Calendar | `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` | Tools page → connect Google → list events |
+| Gmail | Same as Calendar (shared OAuth) | Search or read emails |
+| Notion | `NOTION_TOKEN` | Tools page → search Notion pages |
+| Web Search | `TAVILY_API_KEY` | Ask a question requiring current info |
+| Memory | None (local) | Ask Noa to remember something, then recall it |
+| Cost tracking | Any LLM key | Check the Cost page after a conversation |
 
 ---
 
@@ -350,32 +339,87 @@ Expected: **2,400+ tests passing**, 84% coverage, 0 mypy errors, 0 ruff violatio
 | **Immutable hash-chain audit** | Each entry references the prior entry's hash — tampering is detectable without a separate integrity service |
 | **File-based system prompt** | `prompts/system_prompt.txt` is the single source of truth — the UI reads and writes it directly, no hidden backend overrides |
 | **SSE streaming with keepalive** | 15-second keepalive pings prevent proxy timeouts during long tool calls; clients see real-time tool execution |
-| **Multi-provider LLM routing** | Users pick the right model for each task — cheap and fast (Haiku/GPT-4o-mini) or powerful (Opus/GPT-4o) |
 | **iOS native with certificate pinning** | SPKI-based pinning in release builds prevents MITM; offline queue handles network interruptions |
 
 ---
 
-## Known Risks and Limitations
+## Known Limitations
 
-| Risk | Status | Mitigation |
-|------|--------|------------|
+| Limitation | Status | Mitigation |
+|------------|--------|------------|
 | Local model quality varies by hardware (70b needs significant VRAM) | By design | 3-tier model policy: 8b fast, 14b default, 70b judge — users select based on hardware |
-| No multi-user authentication | By design | Single-user system running on personal hardware; profile isolation not user isolation |
-| Single-machine container isolation (not physical) | Phase 1 | Phase 2 targets dedicated hardware for private domain with mTLS between machines |
-| Knowledge graph / memory grows unbounded | Open | Manual clearing available; no automatic pruning yet |
+| Single-user system (no multi-tenancy) | By design | Personal agent running on personal hardware; designed for one user |
+| Single-machine container isolation (not physical) | Phase 1 | Phase 2 targets dedicated hardware for private domain with mTLS |
+| Memory grows unbounded | Open | Manual clearing available; no automatic pruning yet |
 | Ollama structured output depends on model compliance | Mitigated | JSON schema in API payload + repeated instructions in prompt |
-| Cloud LLM costs can accumulate across tools | Mitigated | Hard per-task, daily, and monthly budget limits enforced before execution |
 
 ---
 
 ## Questions for the Reviewer
 
-1. **Domain isolation** — Is container-level network isolation sufficient for Phase 1, or should we add encryption at rest for the private domain before moving to physical isolation?
+1. **Domain isolation** — Is container-level network isolation sufficient for Phase 1, or should encryption at rest be added for the private domain before moving to physical isolation?
 2. **Approval model** — Are the 3 risk tiers (Low/Medium/High) well-calibrated? Should there be a 4th tier for irreversible actions (e.g., "delete all emails matching...")?
 3. **Tool governance** — Is function-level capability granting the right granularity, or is it over-engineered for a single-user system?
-4. **Cost control** — Are hard limits (fail before execution) the right approach, or should there be a "soft warning" tier that prompts the user but allows override?
-5. **Agent autonomy** — Is 3 tool-rounds with 10 calls per round the right balance between capability and safety?
-6. **Biggest risk** — What is the single biggest architectural risk you see?
+4. **Agent autonomy** — Is 3 tool-rounds with 10 calls per round the right balance between capability and safety?
+5. **Biggest risk** — What is the single biggest architectural risk you see?
+
+---
+
+## Screenshots
+
+<details>
+<summary>Run Detail — Execution Graph</summary>
+
+Inspect any run's orchestrator path: which nodes fired, which tools were called, cost per step.
+
+![Run Detail — Execution graph](assets/run-execution-graph.png)
+
+</details>
+
+<details>
+<summary>Run Detail — Event Timeline</summary>
+
+Chronological view of every event in a run — tool calls, approval gates, latency deltas.
+
+![Run Detail — Event timeline](assets/run-timeline.png)
+
+</details>
+
+<details>
+<summary>Run Detail — Raw Events</summary>
+
+Expandable raw event log with metadata and event IDs for debugging.
+
+![Run Detail — Raw event log](assets/run-raw-events.png)
+
+</details>
+
+<details>
+<summary>Tools</summary>
+
+Manage tool capabilities at the function level. Each tool shows its domain, risk tier, credential status, and health.
+
+![Tools dashboard](assets/tools.png)
+
+</details>
+
+<details>
+<summary>Memory</summary>
+
+Review and manage long-term memory facts. Pending facts require approval before the agent can use them.
+
+![Memory management](assets/memory.png)
+
+</details>
+
+<details>
+<summary>Cost</summary>
+
+Track token usage, per-run costs, and budget limits across all providers.
+
+![Cost tracking](assets/cost.png)
+
+</details>
 
 ---
 
@@ -383,11 +427,10 @@ Expected: **2,400+ tests passing**, 84% coverage, 0 mypy errors, 0 ruff violatio
 
 | Phase | Scope | Status |
 |-------|-------|--------|
-| **Waves 1-22** | Core platform: backend, iOS, web, tools, governance, domain isolation, quality infra (130 phases) | Complete |
+| **Waves 1-22** | Core platform: backend, iOS, web, tools, governance, domain isolation, quality infra (130+ phases) | Complete |
 | **Auth Stability** | Session validation, error clarity, 7-day tokens, startup check | Complete |
-| **Wave 23** | Observability: health dashboard, error rate tracking, alerting, structured log aggregation | Planned |
-| **Wave 23B** | DB Security: Postgres Row-Level Security (RLS) for domain isolation | Planned |
-| **Wave 24** | Polish: Microsoft Outlook, bundle optimization, voice UX, iOS widgets | Planned |
+| **Wave 23** | Code quality: wire audit, enum consistency, strict typing | In Progress |
+| **Wave 24** | Observability: health dashboard, error rate tracking, structured logging | Planned |
 | **Phase 2** | Physical isolation: dedicated Mac for private domain, mTLS, air-gapped network | Planned |
 | **Future** | MCP Server: expose Noa as an MCP server for Claude Desktop integration | Planned |
 
@@ -395,13 +438,11 @@ Expected: **2,400+ tests passing**, 84% coverage, 0 mypy errors, 0 ruff violatio
 
 ## References
 
-- [docs/Tech.md](docs/Tech.md) — Technical deep-dive (architecture diagrams, component tables, project structure, test coverage)
-- [docs/SETUP.md](docs/SETUP.md) — Full system setup guide
+- [docs/Tech.md](docs/Tech.md) — Technical deep-dive (architecture, components, test coverage)
+- [docs/SETUP.md](docs/SETUP.md) — Full setup guide (secrets, Ollama, TLS)
 - [docs/RUNBOOK.md](docs/RUNBOOK.md) — Operations and troubleshooting
 - [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) — Quick start for developers
-- `SPEC.md` — Authoritative product specification (97KB, 150+ sections)
-- `Plan/PLAN.md` — Full wave and phase status tracking (22 waves, 130 phases)
-- `Plan/TRACEABILITY.md` — Spec coverage matrix
+- `Plan/PLAN.md` — Wave and phase status tracking
 
 ---
 

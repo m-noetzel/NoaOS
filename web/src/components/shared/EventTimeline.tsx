@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { RunEvent } from "@/api/types";
 import { ToolCallChip } from "./ToolCallChip";
-import { cn } from "@/lib/utils";
+import { cn, asString, asRecord } from "@/lib/utils";
 import { MessageSquare, Brain, Wrench, ClipboardCheck, Shield, CheckCircle2, XCircle, Package, Timer, ChevronRight, ChevronDown } from "lucide-react";
 
 const eventIcons: Record<string, React.ReactNode> = {
@@ -94,9 +94,9 @@ function TimelineRow({ event, isLast, duration }: { event: RunEvent; isLast: boo
 
         {event.type === "planner_step" && (
           <p className="text-sm text-muted-foreground mt-0.5">
-            {event.data.step as string}
+            {asString(event.data.step)}
             {event.data.description && (
-              <span className="text-muted-foreground/60"> — {event.data.description as string}</span>
+              <span className="text-muted-foreground/60"> — {asString(event.data.description)}</span>
             )}
           </p>
         )}
@@ -105,12 +105,12 @@ function TimelineRow({ event, isLast, duration }: { event: RunEvent; isLast: boo
           <div className="mt-1 space-y-1">
             <div className="flex items-center gap-2">
               <ToolCallChip
-                toolName={event.data.tool_name as string}
-                args={event.data.args as Record<string, unknown>}
+                toolName={asString(event.data.tool_name)}
+                args={asRecord(event.data.args)}
               />
               {event.data.parallel_group && (
                 <span className="rounded-full bg-warning/10 text-warning/70 px-1.5 py-0.5 text-[9px] font-mono border border-warning/20">
-                  ∥ {event.data.parallel_group as string}
+                  ∥ {asString(event.data.parallel_group)}
                 </span>
               )}
             </div>
@@ -125,11 +125,12 @@ function TimelineRow({ event, isLast, duration }: { event: RunEvent; isLast: boo
           <div className="mt-0.5 space-y-0.5">
             <div className="text-xs text-muted-foreground flex items-center gap-2">
               {event.data.tool_name && (
-                <span className="font-mono text-warning/80">{event.data.tool_name as string}</span>
+                <span className="font-mono text-warning/80">{asString(event.data.tool_name)}</span>
               )}
               {event.data.tokens_in !== undefined && (
                 <span className="text-[10px] text-muted-foreground/40 font-mono">
-                  {(event.data.tokens_in as number) + (event.data.tokens_out as number || 0)} tok
+                  {(typeof event.data.tokens_in === "number" ? event.data.tokens_in : 0)
+                   + (typeof event.data.tokens_out === "number" ? event.data.tokens_out : 0)} tok
                 </span>
               )}
             </div>
@@ -141,16 +142,16 @@ function TimelineRow({ event, isLast, duration }: { event: RunEvent; isLast: boo
         {event.type === "result_ready" && (
           <p className="text-sm text-muted-foreground mt-1 truncate">
             {/* CRITICAL 2: backend emits "response", fallback to "response_text" for compat */}
-            {((event.data.response ?? event.data.response_text) as string)?.slice(0, 120)}…
+            {asString(event.data.response ?? event.data.response_text).slice(0, 120)}…
           </p>
         )}
 
         {event.type === "error" && (
-          <p className="text-sm text-destructive mt-1">{event.data.message as string}</p>
+          <p className="text-sm text-destructive mt-1">{asString(event.data.message)}</p>
         )}
 
         {event.type === "message_received" && (
-          <p className="text-sm text-muted-foreground mt-0.5 truncate">{event.data.text as string}</p>
+          <p className="text-sm text-muted-foreground mt-0.5 truncate">{asString(event.data.text)}</p>
         )}
       </div>
     </div>

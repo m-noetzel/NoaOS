@@ -10,6 +10,7 @@ Tests:
 
 from __future__ import annotations
 
+import os
 import uuid
 from pathlib import Path
 from typing import Any
@@ -20,12 +21,25 @@ from tests.integration.conftest import register_and_login
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+async def _get_user_id(client: Any, tokens: dict[str, Any]) -> uuid.UUID:
+    """Decode user_id from an access token."""
+    from noa.auth.jwt import decode_token
+
+    payload = decode_token(tokens["access_token"], secret_key=os.environ["SECRET_KEY"])
+    return uuid.UUID(payload["sub"])
+
+
+# ---------------------------------------------------------------------------
 # 1. Capability enforcement via DbCapabilityChecker + ToolGateway (real DB)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_capability_grant_allows_tool_dispatch(pg_app: Any) -> None:
+async def test_capability_grant_allows_tool_dispatch(pg_client: Any, pg_app: Any) -> None:
     """Granting a capability for a user allows the gateway to dispatch that tool."""
     from noa.api import app_state
     from noa.tools.capabilities import DbCapabilityChecker
@@ -34,7 +48,9 @@ async def test_capability_grant_allows_tool_dispatch(pg_app: Any) -> None:
     sf = app_state.get_session_factory()
     assert sf is not None
 
-    user_id = uuid.uuid4()
+    # Use a real user ID from the DB (FK constraint)
+    tokens = await register_and_login(pg_client, "cq7_cap_grant@example.com")
+    user_id = await _get_user_id(pg_client, tokens)
 
     # Create a minimal gateway with a stub adapter
     gateway = ToolGateway()
@@ -49,13 +65,12 @@ async def test_capability_grant_allows_tool_dispatch(pg_app: Any) -> None:
 
     gateway.register("web_search", _StubAdapter())
 
-    # Wire a real DbCapabilityChecker backed by the test Postgres DB
+    # Grant the capability using a real DB-backed checker
     async with sf() as session:
         checker = DbCapabilityChecker(session)
-        # Grant the capability
         await checker.grant(user_id, "web_search")
 
-    # Attach a new checker (own session per call, as per CQ1 design)
+    # Attach a new checker for dispatch (own session, as per CQ1 design)
     async with sf() as session:
         checker2 = DbCapabilityChecker(session)
         gateway.capability_checker = checker2
@@ -74,7 +89,7 @@ async def test_capability_grant_allows_tool_dispatch(pg_app: Any) -> None:
 
 
 @pytest.mark.asyncio
-async def test_capability_no_grant_denies_tool_dispatch(pg_app: Any) -> None:
+async def test_capability_no_grant_denies_tool_dispatch(pg_client: Any, pg_app: Any) -> None:
     """Dispatching a tool without a capability grant returns a capability_denied error."""
     from noa.api import app_state
     from noa.tools.capabilities import DbCapabilityChecker
@@ -83,7 +98,9 @@ async def test_capability_no_grant_denies_tool_dispatch(pg_app: Any) -> None:
     sf = app_state.get_session_factory()
     assert sf is not None
 
-    user_id = uuid.uuid4()  # New user — no grants
+    # Use a real user with no capability grants
+    tokens = await register_and_login(pg_client, "cq7_cap_no_grant@example.com")
+    user_id = await _get_user_id(pg_client, tokens)
 
     gateway = ToolGateway()
 
@@ -115,7 +132,7 @@ async def test_capability_no_grant_denies_tool_dispatch(pg_app: Any) -> None:
 
 
 @pytest.mark.asyncio
-async def test_capability_revoke_denies_tool_dispatch(pg_app: Any) -> None:
+async def test_capability_revoke_denies_tool_dispatch(pg_client: Any, pg_app: Any) -> None:
     """Revoking a capability causes subsequent dispatch to be denied."""
     from noa.api import app_state
     from noa.tools.capabilities import DbCapabilityChecker
@@ -124,7 +141,9 @@ async def test_capability_revoke_denies_tool_dispatch(pg_app: Any) -> None:
     sf = app_state.get_session_factory()
     assert sf is not None
 
-    user_id = uuid.uuid4()
+    # Use a real user ID from the DB
+    tokens = await register_and_login(pg_client, "cq7_cap_revoke@example.com")
+    user_id = await _get_user_id(pg_client, tokens)
 
     gateway = ToolGateway()
 

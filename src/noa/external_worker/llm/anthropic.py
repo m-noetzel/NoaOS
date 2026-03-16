@@ -6,6 +6,7 @@ Spec refs: SPEC.md Section 14.1, Section 14.4
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from typing import Any
 
@@ -90,7 +91,7 @@ class AnthropicClient:
             try:
                 body = response.json()
                 detail = body.get("error", {}).get("message", "")
-            except Exception:  # noqa: BLE001
+            except (json.JSONDecodeError, ValueError):
                 detail = response.text
             msg = f"Anthropic API error {response.status_code}: {detail}"
             raise ProviderError(msg)

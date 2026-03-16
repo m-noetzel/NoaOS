@@ -1,0 +1,231 @@
+"""Typed SSE event dicts for the chat streaming protocol.
+
+All events yielded by OrchestratorRunner and emitted by the /chat endpoint
+conform to one of these TypedDicts. The ``event_type`` field is the
+discriminator used by the frontend to route events.
+
+Spec refs: SPEC.md §22.1, §22.2, §22.4
+"""
+
+from __future__ import annotations
+
+from typing import Any, Literal
+
+from typing_extensions import TypedDict
+
+
+class MetaEvent(TypedDict):
+    """First event in every SSE stream — identifies the run and thread.
+
+    Emitted by the chat endpoint before the runner starts.
+    """
+
+    event_type: Literal["meta"]
+    run_id: str
+    thread_id: str
+
+
+class TokenEvent(TypedDict):
+    """Incremental LLM token for streaming responses (future use).
+
+    Not currently emitted by OrchestratorRunner but reserved for
+    streaming token delivery.
+    """
+
+    event_type: Literal["token"]
+    payload: _TokenPayload
+
+
+class _TokenPayload(TypedDict):
+    content: str
+
+
+class DoneEvent(TypedDict):
+    """Terminal success event — run completed normally."""
+
+    event_type: Literal["done"]
+    payload: _DonePayload
+
+
+class _DonePayload(TypedDict):
+    run_id: str
+
+
+class ErrorEvent(TypedDict):
+    """Terminal error event — run failed."""
+
+    event_type: Literal["error"]
+    payload: _ErrorPayload
+
+
+class _ErrorPayload(TypedDict):
+    error: str
+
+
+class ToolCallEvent(TypedDict):
+    """Emitted when a tool is about to be invoked."""
+
+    event_type: Literal["tool_called"]
+    payload: _ToolCallPayload
+    timestamp: str
+
+
+class _ToolCallPayload(TypedDict):
+    tool_name: str
+    tool_call: dict[str, Any]
+
+
+class ToolStartEvent(TypedDict):
+    """Emitted when a tool execution starts (before result)."""
+
+    event_type: Literal["tool_start"]
+    payload: _ToolStartPayload
+    timestamp: str
+
+
+class _ToolStartPayload(TypedDict):
+    tool_name: str
+
+
+class ToolEndEvent(TypedDict):
+    """Emitted when a tool execution completes (result available)."""
+
+    event_type: Literal["tool_end"]
+    payload: _ToolEndPayload
+    timestamp: str
+
+
+class _ToolEndPayload(TypedDict):
+    tool_name: str
+    result: dict[str, Any]
+
+
+class ToolResultEvent(TypedDict):
+    """Emitted after tool execution with full result (non-approval path)."""
+
+    event_type: Literal["tool_result"]
+    payload: _ToolResultPayload
+    timestamp: str
+
+
+class _ToolResultPayload(TypedDict):
+    tool_name: str
+    tool_result: dict[str, Any]
+
+
+class ApprovalEvent(TypedDict):
+    """Emitted when a tool call requires human approval."""
+
+    event_type: Literal["approval_requested"]
+    payload: _ApprovalPayload
+    timestamp: str
+
+
+class _ApprovalPayload(TypedDict):
+    tool: str
+    function: str
+    args: dict[str, Any]
+    risk_tier: str
+
+
+class ResultReadyEvent(TypedDict):
+    """Emitted when the LLM has produced its final response."""
+
+    event_type: Literal["result_ready"]
+    payload: _ResultReadyPayload
+    timestamp: str
+
+
+class _ResultReadyPayload(TypedDict):
+    response: str
+    total_cost: float
+    llm_usage: list[dict[str, Any]]
+
+
+class MessageReceivedEvent(TypedDict):
+    """Emitted at the start of a run to echo the user message."""
+
+    event_type: Literal["message_received"]
+    payload: _MessageReceivedPayload
+    timestamp: str
+
+
+class _MessageReceivedPayload(TypedDict):
+    message: str
+
+
+class ClassificationDoneEvent(TypedDict):
+    """Emitted after privacy mode classification."""
+
+    event_type: Literal["classification_done"]
+    payload: _ClassificationDonePayload
+    timestamp: str
+
+
+class _ClassificationDonePayload(TypedDict):
+    privacy_mode: str
+    model: str | None
+
+
+class StepStartedEvent(TypedDict):
+    """Emitted when a graph node completes execution."""
+
+    event_type: Literal["step_started"]
+    payload: _StepStartedPayload
+    timestamp: str
+
+
+class _StepStartedPayload(TypedDict):
+    step: str
+
+
+class QueuedEvent(TypedDict):
+    """Emitted when a private-domain request is queued (domain unavailable)."""
+
+    event_type: Literal["queued"]
+    payload: _QueuedPayload
+
+
+class _QueuedPayload(TypedDict):
+    queue_id: str | None
+    message: str
+
+
+# Union type for all valid SSE events emitted by the chat pipeline.
+# Used for type narrowing in tests and consumers.
+SSEEvent = (
+    MetaEvent
+    | TokenEvent
+    | DoneEvent
+    | ErrorEvent
+    | ToolCallEvent
+    | ToolStartEvent
+    | ToolEndEvent
+    | ToolResultEvent
+    | ApprovalEvent
+    | ResultReadyEvent
+    | MessageReceivedEvent
+    | ClassificationDoneEvent
+    | StepStartedEvent
+    | QueuedEvent
+)
+
+# All valid event_type literals (kept in sync with SSEEvent union above).
+VALID_SSE_EVENT_TYPES: frozenset[str] = frozenset(
+    {
+        "meta",
+        "token",
+        "done",
+        "error",
+        "tool_called",
+        "tool_start",
+        "tool_end",
+        "tool_result",
+        "approval_requested",
+        "result_ready",
+        "message_received",
+        "classification_done",
+        "step_started",
+        "queued",
+    }
+)

@@ -127,7 +127,7 @@ class OpenAIClient:
             try:
                 body = response.json()
                 detail = body.get("error", {}).get("message", "")
-            except Exception:  # noqa: BLE001
+            except (json.JSONDecodeError, ValueError):
                 detail = response.text
             msg = f"OpenAI API error {response.status_code}: {detail}"
             raise ProviderError(msg)

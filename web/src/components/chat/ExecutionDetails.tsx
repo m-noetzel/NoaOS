@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { SSEEvent } from "@/api/types";
-import { cn } from "@/lib/utils";
+import { cn, asString, asRecord } from "@/lib/utils";
 import { ChevronDown, ChevronRight } from "lucide-react";
 
 interface ExecutionDetailsProps {
@@ -28,17 +28,14 @@ export function ExecutionDetails({ events }: ExecutionDetailsProps) {
   for (const evt of toolEvents) {
     if (evt.event === "tool_called") {
       // Runner sends: payload.tool_call = {name, input/arguments, ...}
-      const tc = (evt.data.tool_call as Record<string, unknown>) || evt.data;
-      const name = (tc.name as string) || (evt.data.tool_name as string) || "unknown";
-      const args = (tc.input as Record<string, unknown>)
-        || (tc.arguments as Record<string, unknown>)
-        || (evt.data.args as Record<string, unknown>)
-        || {};
+      const tc = asRecord(evt.data.tool_call);
+      const name = asString(tc.name) || asString(evt.data.tool_name) || "unknown";
+      const args = asRecord(tc.input || tc.arguments || evt.data.args);
       toolPairs.push({ name, args, status: "called" });
     } else if (evt.event === "tool_result") {
       // Runner sends: payload.tool_result = {name, result, ...}
-      const tr = (evt.data.tool_result as Record<string, unknown>) || evt.data;
-      const name = (tr.name as string) || (evt.data.tool_name as string) || "unknown";
+      const tr = asRecord(evt.data.tool_result);
+      const name = asString(tr.name) || asString(evt.data.tool_name) || "unknown";
       const existing = toolPairs.find(
         (p) => p.name === name && p.status === "called"
       );
@@ -46,7 +43,8 @@ export function ExecutionDetails({ events }: ExecutionDetailsProps) {
         existing.result = typeof tr.result === "string"
           ? tr.result
           : JSON.stringify(tr.result ?? evt.data.result, null, 2);
-        existing.duration = (tr.duration_ms as number) || (evt.data.duration_ms as number);
+        existing.duration = typeof tr.duration_ms === "number" ? tr.duration_ms
+          : typeof evt.data.duration_ms === "number" ? evt.data.duration_ms : undefined;
         existing.status = "completed";
       }
     }

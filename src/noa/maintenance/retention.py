@@ -68,14 +68,14 @@ class RetentionScheduler:
         """Execute a single purge cycle (audit + approval expiry)."""
         try:
             await self._purge_audit()
-        except Exception:
+        except Exception:  # noqa: BLE001
             logger.exception("Retention purge failed")
 
         if self._approval_service is not None:
             try:
                 self._approval_service.expire_stale()
                 logger.info("Approval expiry complete")
-            except Exception:
+            except Exception:  # noqa: BLE001
                 logger.exception("Approval expiry failed")
 
     async def _purge_audit(self) -> None:
@@ -93,14 +93,14 @@ class RetentionScheduler:
         """Execute a single purge cycle (backward-compatible public API)."""
         try:
             await self._purge_audit()
-        except Exception:
+        except Exception:  # noqa: BLE001
             logger.exception("Retention purge failed")
 
         if self._approval_service is not None:
             try:
                 self._approval_service.expire_stale()
                 logger.info("Approval expiry complete")
-            except Exception:
+            except Exception:  # noqa: BLE001
                 logger.exception("Approval expiry failed")
 
     async def _loop(self) -> None:

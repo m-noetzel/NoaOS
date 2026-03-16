@@ -4,6 +4,7 @@ import { SSEClient } from "@/api/sse";
 import { useToast } from "@/hooks/use-toast";
 import type { SSEEvent, SSEEventType } from "@/api/types";
 import type { Message } from "@/api/types";
+import { asString, asRecord } from "@/lib/utils";
 
 export interface PendingApproval {
   tool: string;
@@ -42,16 +43,16 @@ export function useChatSSE({
       switch (event.event) {
         case "meta":
           if (event.data.run_id) {
-            setCurrentRunId(event.data.run_id as string);
+            setCurrentRunId(asString(event.data.run_id));
           }
           break;
         case "token_stream":
-          setStreamingContent((prev) => prev + (event.data.token as string));
+          setStreamingContent((prev) => prev + asString(event.data.token));
           break;
         case "result_ready":
           // UI-M4: Optimistically append assistant message before clearing streaming.
           setStreamingContent((prev) => {
-            const content = prev || (event.data.response as string) || "";
+            const content = prev || asString(event.data.response);
             if (content) {
               setOptimisticMessage({
                 id: `optimistic-${Date.now()}`,
@@ -71,11 +72,11 @@ export function useChatSSE({
           break;
         case "approval_requested":
           setPendingApproval({
-            tool: event.data.tool as string,
-            function: event.data.function as string,
-            args: (event.data.args as Record<string, unknown>) || {},
-            risk_tier: event.data.risk_tier as string,
-            approval_id: event.data.approval_id as string | undefined,
+            tool: asString(event.data.tool),
+            function: asString(event.data.function),
+            args: asRecord(event.data.args),
+            risk_tier: asString(event.data.risk_tier),
+            approval_id: typeof event.data.approval_id === "string" ? event.data.approval_id : undefined,
           });
           break;
         case "error":
@@ -83,7 +84,7 @@ export function useChatSSE({
           toast({
             title: "Chat error",
             description:
-              (event.data.error as string) || "An unexpected error occurred",
+              asString(event.data.error) || "An unexpected error occurred",
             variant: "destructive",
           });
           break;

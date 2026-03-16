@@ -1,5 +1,6 @@
 import type { Run, RunEvent } from "@/api/types";
 import { DollarSign, AlertTriangle } from "lucide-react";
+import { asString, asRecord } from "@/lib/utils";
 
 interface CostItem {
   name: string;
@@ -29,29 +30,29 @@ export function buildCostItems(events: RunEvent[], run?: Run): CostItem[] {
 
   const plannerEvents = events.filter((e) => e.type === "planner_step");
   if (plannerEvents.length) {
-    const tIn = plannerEvents.reduce((s, e) => s + ((e.data.tokens_in as number) || 0), 0);
-    const tOut = plannerEvents.reduce((s, e) => s + ((e.data.tokens_out as number) || 0), 0);
+    const tIn = plannerEvents.reduce((s, e) => s + (typeof e.data.tokens_in === "number" ? e.data.tokens_in : 0), 0);
+    const tOut = plannerEvents.reduce((s, e) => s + (typeof e.data.tokens_out === "number" ? e.data.tokens_out : 0), 0);
     items.push({ name: "Planner", tokens_in: tIn, tokens_out: tOut, cost: estimateCost(tIn, tOut) });
   }
 
   const toolCalls = events.filter((e) => e.type === "tool_called");
   const toolResults = events.filter((e) => e.type === "tool_result");
   for (const tc of toolCalls) {
-    const tcInner = (tc.data.tool_call as Record<string, unknown>) || tc.data;
-    const toolName = (tcInner.name as string) || (tc.data.tool_name as string) || "tool";
+    const tcInner = asRecord(tc.data.tool_call);
+    const toolName = asString(tcInner.name) || asString(tc.data.tool_name) || "tool";
     const result = toolResults.find((r) => {
-      const trInner = (r.data.tool_result as Record<string, unknown>) || r.data;
-      return ((trInner.name as string) || (r.data.tool_name as string)) === toolName;
+      const trInner = asRecord(r.data.tool_result);
+      return (asString(trInner.name) || asString(r.data.tool_name)) === toolName;
     });
-    const tIn = (result?.data.tokens_in as number) || 0;
-    const tOut = (result?.data.tokens_out as number) || 0;
+    const tIn = typeof result?.data.tokens_in === "number" ? result.data.tokens_in : 0;
+    const tOut = typeof result?.data.tokens_out === "number" ? result.data.tokens_out : 0;
     items.push({ name: toolName, tokens_in: tIn, tokens_out: tOut, cost: estimateCost(tIn, tOut) });
   }
 
   const resultEvent = events.find((e) => e.type === "result_ready");
   if (resultEvent) {
-    const tIn = (resultEvent.data.tokens_in as number) || 0;
-    const tOut = (resultEvent.data.tokens_out as number) || 0;
+    const tIn = typeof resultEvent.data.tokens_in === "number" ? resultEvent.data.tokens_in : 0;
+    const tOut = typeof resultEvent.data.tokens_out === "number" ? resultEvent.data.tokens_out : 0;
     items.push({ name: "Final response", tokens_in: tIn, tokens_out: tOut, cost: estimateCost(tIn, tOut) });
   }
 

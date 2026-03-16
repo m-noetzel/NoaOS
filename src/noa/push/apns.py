@@ -130,7 +130,11 @@ class APNsService:
 
         try:
             jwt_token = self._generate_jwt()
-        except Exception:  # noqa: BLE001
+        except (OSError, ValueError, Exception):  # noqa: BLE001
+            # _generate_jwt() can raise FileNotFoundError (bad key_path),
+            # OSError (disk read failure), or PyJWT errors (invalid key).
+            # We catch broadly here because PyJWT doesn't export a stable
+            # base exception we can import without depending on its internals.
             logger.exception("Failed to generate APNs JWT")
             return SendResult(success=False, reason="jwt_error")
 
@@ -145,6 +149,8 @@ class APNsService:
                 },
             )
         except Exception:  # noqa: BLE001
+            # httpx.HTTPError is the base, but the HTTP/2 client may raise
+            # transport-layer errors not derived from it (e.g. h2 protocol errors).
             logger.exception(
                 "APNs send failed for device_token=%s", device_token
             )

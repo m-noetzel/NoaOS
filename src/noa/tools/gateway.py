@@ -189,14 +189,30 @@ class ToolGateway:
             # Medium/high risk: require approval unless pre-approved
             needs_approval = self.policy_engine.requires_approval(risk_tier)
             if needs_approval and not getattr(request, "approved", False):
+                # CQ1: Wire generate_preview() into approval path (§19.2)
+                preview_text: str | None = None
+                if self.policy_engine.requires_preview(risk_tier):
+                    try:
+                        from noa.policy.preview import generate_preview
+
+                        preview_text = generate_preview(request.function, request.args)
+                    except Exception:  # noqa: BLE001
+                        logger.warning(
+                            "Preview generation failed for function=%s",
+                            request.function,
+                            exc_info=True,
+                        )
+                approval_result: dict[str, Any] = {
+                    "approval_required": True,
+                    "risk_tier": risk_tier,
+                    "tool": request.tool,
+                    "function": request.function,
+                    "args": request.args,
+                }
+                if preview_text is not None:
+                    approval_result["preview"] = preview_text
                 resp = ToolResponse(
-                    result={
-                        "approval_required": True,
-                        "risk_tier": risk_tier,
-                        "tool": request.tool,
-                        "function": request.function,
-                        "args": request.args,
-                    },
+                    result=approval_result,
                     error="Approval required before executing this action",
                     provider="policy_engine",
                 )

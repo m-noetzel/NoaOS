@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { SSEEvent, RunStatus } from "@/api/types";
-import { cn } from "@/lib/utils";
+import { cn, asString, asRecord } from "@/lib/utils";
 import { ChevronDown, ChevronRight, Loader2, CheckCircle2, XCircle, Search, Brain, Wrench, FileText } from "lucide-react";
 import { RunStatusBadge } from "@/components/badges/RunStatusBadge";
 
@@ -8,39 +8,39 @@ import { RunStatusBadge } from "@/components/badges/RunStatusBadge";
 function activityLabel(event: SSEEvent): string | null {
   switch (event.event) {
     case "planner_step":
-      return (event.data.step as string) || "Planning next step";
+      return asString(event.data.step) || "Planning next step";
     // UX-H10: tool_start / tool_end lifecycle events
     case "tool_start": {
-      const name = (event.data.tool_name as string) || (event.data.name as string) || "tool";
+      const name = asString(event.data.tool_name) || asString(event.data.name) || "tool";
       return `Starting: ${name}`;
     }
     case "tool_end": {
-      const name = (event.data.tool_name as string) || (event.data.name as string) || "tool";
+      const name = asString(event.data.tool_name) || asString(event.data.name) || "tool";
       return `Finished: ${name}`;
     }
     // UX-H10: generic step events
     case "step": {
-      const label = (event.data.label as string) || (event.data.step as string) || (event.data.name as string);
+      const label = asString(event.data.label) || asString(event.data.step) || asString(event.data.name);
       return label ? `Step: ${label}` : "Executing step";
     }
     case "tool_called": {
-      const tc = (event.data.tool_call as Record<string, unknown>) || event.data;
-      const name = (tc.name as string) || (event.data.tool_name as string) || "tool";
+      const tc = asRecord(event.data.tool_call);
+      const name = asString(tc.name) || asString(event.data.tool_name) || "tool";
       return `Calling: ${name}`;
     }
     case "tool_result": {
-      const tr = (event.data.tool_result as Record<string, unknown>) || event.data;
-      const name = (tr.name as string) || (event.data.tool_name as string) || "tool";
+      const tr = asRecord(event.data.tool_result);
+      const name = asString(tr.name) || asString(event.data.tool_name) || "tool";
       return `Result from: ${name}`;
     }
     case "approval_requested":
-      return `Approval needed: ${event.data.tool}.${event.data.function}`;
+      return `Approval needed: ${asString(event.data.tool)}.${asString(event.data.function)}`;
     case "classification_done": {
-      const model = (event.data.model as string) || "";
+      const model = asString(event.data.model);
       return model ? `Using ${model}` : "Classified request";
     }
     case "step_started":
-      return `Running ${(event.data.step as string) || "agent"}`;
+      return `Running ${asString(event.data.step) || "agent"}`;
     case "message_received":
       return "Processing message";
     case "result_ready":
@@ -53,7 +53,7 @@ function activityLabel(event: SSEEvent): string | null {
 function activityIcon(event: SSEEvent) {
   switch (event.event) {
     case "planner_step": {
-      const step = ((event.data.step as string) || "").toLowerCase();
+      const step = asString(event.data.step).toLowerCase();
       if (step.includes("search")) return <Search className="h-3 w-3" />;
       if (step.includes("pars") || step.includes("read")) return <FileText className="h-3 w-3" />;
       return <Brain className="h-3 w-3" />;

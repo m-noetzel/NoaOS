@@ -1,6 +1,7 @@
 import type { Run, RunEvent } from "@/api/types";
 import { Target, CheckCircle2, AlertCircle, Loader2, Clock } from "lucide-react";
 import { RunStatusBadge } from "@/components/badges/RunStatusBadge";
+import { asString } from "@/lib/utils";
 
 const statusIcons: Record<string, { icon: React.ReactNode; color: string }> = {
   completed: { icon: <CheckCircle2 className="h-4 w-4" />, color: "text-success" },
@@ -11,8 +12,8 @@ const statusIcons: Record<string, { icon: React.ReactNode; color: string }> = {
 export function RunSummary({ run, events }: { run: Run; events: RunEvent[] }) {
   const messageEvent = events.find((e) => e.type === "message_received");
   const resultEvent = events.find((e) => e.type === "result_ready");
-  const goal = (messageEvent?.data.message as string) || (messageEvent?.data.text as string) || "—";
-  const result = run.summary || (resultEvent?.data.response as string)?.slice(0, 120) || (resultEvent?.data.response_text as string)?.slice(0, 120) || "—";
+  const goal = asString(messageEvent?.data.message) || asString(messageEvent?.data.text) || "—";
+  const result = run.summary || asString(resultEvent?.data.response).slice(0, 120) || asString(resultEvent?.data.response_text).slice(0, 120) || "—";
   const cfg = statusIcons[run.status] || statusIcons.completed;
 
   return (

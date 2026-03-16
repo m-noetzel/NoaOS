@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { RunEvent } from "@/api/types";
-import { cn } from "@/lib/utils";
+import { cn, asString, asRecord, asStringArray } from "@/lib/utils";
 import {
   MessageSquare, Brain, Wrench, CheckCircle2, AlertCircle, Timer,
   ArrowDownRight, Zap, ChevronRight, X, DollarSign, Flame,
@@ -53,11 +53,11 @@ function buildGraph(events: RunEvent[]): GraphNode | null {
   const errorEvent = events.find((e) => e.type === "error");
 
   const toolNodes: GraphNode[] = toolCalledEvents.map((tc) => {
-    const tcInner = (tc.data.tool_call as Record<string, unknown>) || tc.data;
-    const toolName = (tcInner.name as string) || (tc.data.tool_name as string) || "tool";
+    const tcInner = asRecord(tc.data.tool_call);
+    const toolName = asString(tcInner.name) || asString(tc.data.tool_name) || "tool";
     const matchingResult = toolResultEvents.find((tr) => {
-      const trInner = (tr.data.tool_result as Record<string, unknown>) || tr.data;
-      const trName = (trInner.name as string) || (tr.data.tool_name as string);
+      const trInner = asRecord(tr.data.tool_result);
+      const trName = asString(trInner.name) || asString(tr.data.tool_name);
       return trName === toolName;
     });
     return {
@@ -75,7 +75,7 @@ function buildGraph(events: RunEvent[]): GraphNode | null {
   const parallelGroups = new Map<string, GraphNode[]>();
   const sequentialTools: GraphNode[] = [];
   for (const tn of toolNodes) {
-    const group = tn.event.data.parallel_group as string | undefined;
+    const group = typeof tn.event.data.parallel_group === "string" ? tn.event.data.parallel_group : undefined;
     if (group) {
       if (!parallelGroups.has(group)) parallelGroups.set(group, []);
       parallelGroups.get(group)!.push(tn);
@@ -141,7 +141,7 @@ function buildGraph(events: RunEvent[]): GraphNode | null {
   const root: GraphNode = {
     id: "root",
     label: messageEvent
-      ? ((messageEvent.data.message as string) || (messageEvent.data.text as string) || "User Message").slice(0, 50) + (((messageEvent.data.message as string) || "").length > 50 ? "..." : "")
+      ? (asString(messageEvent.data.message) || asString(messageEvent.data.text) || "User Message").slice(0, 50) + ((asString(messageEvent.data.message) || "").length > 50 ? "..." : "")
       : "User Message",
     type: "message",
     event: messageEvent || events[0],
@@ -213,13 +213,13 @@ function InspectionPanel({ node, runId, onClose }: { node: GraphNode; runId: str
     ? { ...node.event.data, ...node.resultEvent.data }
     : node.event.data;
 
-  const tokensIn = data.tokens_in as number | undefined;
-  const tokensOut = data.tokens_out as number | undefined;
-  const durationMs = data.duration_ms as number | undefined;
-  const selectedTools = data.selected_tools as string[] | undefined;
-  const strategySummary = data.strategy_summary as string | undefined;
-  const strategy = data.strategy as string | undefined;
-  const parallelGroupsData = data.parallel_groups as Array<{ group_id: string; tools: string[] }> | undefined;
+  const tokensIn = typeof data.tokens_in === "number" ? data.tokens_in : undefined;
+  const tokensOut = typeof data.tokens_out === "number" ? data.tokens_out : undefined;
+  const durationMs = typeof data.duration_ms === "number" ? data.duration_ms : undefined;
+  const selectedTools = Array.isArray(data.selected_tools) ? asStringArray(data.selected_tools) : undefined;
+  const strategySummary = typeof data.strategy_summary === "string" ? data.strategy_summary : undefined;
+  const strategy = typeof data.strategy === "string" ? data.strategy : undefined;
+  const parallelGroupsData = Array.isArray(data.parallel_groups) ? data.parallel_groups as Array<{ group_id: string; tools: string[] }> : undefined;
   const totalTokens = (tokensIn || 0) + (tokensOut || 0);
   const cost = tokensIn !== undefined || tokensOut !== undefined
     ? estimateCost(tokensIn || 0, tokensOut || 0)
@@ -362,7 +362,7 @@ function InspectionPanel({ node, runId, onClose }: { node: GraphNode; runId: str
       {node.type === "tool" && node.resultEvent && (
         <div className="rounded-lg bg-muted/30 p-3 space-y-1.5">
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Result</p>
-          <p className="text-xs text-foreground/80">{node.resultEvent.data.result as string}</p>
+          <p className="text-xs text-foreground/80">{asString(node.resultEvent.data.result)}</p>
         </div>
       )}
 

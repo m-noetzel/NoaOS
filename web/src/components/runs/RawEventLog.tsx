@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { RunEvent } from "@/api/types";
-import { cn } from "@/lib/utils";
+import { cn, asString } from "@/lib/utils";
 import { ChevronRight, ChevronDown } from "lucide-react";
 
 const typeColors: Record<string, string> = {
@@ -39,16 +39,16 @@ function EventRow({ event }: { event: RunEvent }) {
           {new Date(event.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
         </span>
         {event.data.tool_name && (
-          <span className="text-warning/70 text-[10px]">{event.data.tool_name as string}</span>
+          <span className="text-warning/70 text-[10px]">{asString(event.data.tool_name)}</span>
         )}
         {event.data.parallel_group && (
           <span className="rounded-full bg-warning/10 text-warning/70 px-1.5 py-0 text-[9px] border border-warning/20">
-            {event.data.parallel_group as string}
+            {asString(event.data.parallel_group)}
           </span>
         )}
         {event.data.duration_ms && (
           <span className="text-muted-foreground/40 text-[10px]">
-            {((event.data.duration_ms as number) / 1000).toFixed(1)}s
+            {((typeof event.data.duration_ms === "number" ? event.data.duration_ms : 0) / 1000).toFixed(1)}s
           </span>
         )}
         <span className="text-muted-foreground/30 ml-auto text-[10px]">{event.id}</span>

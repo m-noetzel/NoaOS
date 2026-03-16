@@ -1,5 +1,6 @@
 .DS_Store
 .pip_libs/
+.pylibs/
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -17,11 +18,28 @@ build/
 .agent_worktrees/
 .agent_locks/
 .claude/worktrees/
+.claude/settings.local.json
+.claude/agent-memory/
+.worktrees/
 .npm-cache/
 htmlcov/
 .mutmut-cache/
 .coverage
 .coverage.*
+
+# Internal docs — not for public repo
+STRATEGY.md
+STUDY.md
+
+# Plan — keep only PLAN.md and PHASE_DETAILS.md
+Plan/CI/
+Plan/RETROS/
+Plan/REVIEWS/
+Plan/RCA/
+Plan/FINDINGS.md
+Plan/QA_CHECKLIST.md
+Plan/ARCH_INVARIANTS.md
+Plan/DECISION_LOG.md
 
 # Xcode / iOS — IDE-generated state, not project source
 xcuserdata/
