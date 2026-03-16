@@ -73,11 +73,12 @@ class TestModelConfigDefaults:
         assert cfg.responder == "none"
 
     def test_private_mode_config(self):
-        """Private mode must use ollama/llama3.1 for agent."""
+        """Private mode must use the default private model from config."""
+        from noa.config import DEFAULT_PRIVATE_MODEL
         from noa.orchestrator.model_config import ModelConfig
 
         cfg = ModelConfig.for_privacy_mode("private")
-        assert cfg.agent == "ollama/llama3.1"
+        assert cfg.agent == DEFAULT_PRIVATE_MODEL
 
     def test_external_mode_config(self):
         """External mode must use anthropic/claude-sonnet-4-20250514 for agent."""
@@ -157,7 +158,8 @@ class TestRouterNodeModelConfig:
         assert result["privacy_mode"] == "private"
         assert "model_config" in result
         mc = result["model_config"]
-        assert mc["agent"] == "ollama/llama3"
+        from noa.config import DEFAULT_PRIVATE_MODEL
+        assert mc["agent"] == DEFAULT_PRIVATE_MODEL
 
 
 # ===========================================================================

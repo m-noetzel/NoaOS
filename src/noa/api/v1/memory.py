@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
@@ -12,7 +12,17 @@ from noa.api.middleware import trace_id_ctx
 from noa.api.schemas.common import success_envelope
 from noa.auth.middleware import AuthUser, require_auth
 
+if TYPE_CHECKING:
+    from noa.private_worker.memory_store import MemoryStore
+
 router = APIRouter(prefix="/api/v1/memory", tags=["memory"])
+
+
+class CreateFactRequest(BaseModel):
+    """Request body for creating a fact manually."""
+
+    fact: str
+    category: str = "personal_info"
 
 
 class UpdateFactRequest(BaseModel):
@@ -21,7 +31,7 @@ class UpdateFactRequest(BaseModel):
     fact: str
 
 
-def _get_memory_store() -> Any:
+def _get_memory_store() -> MemoryStore | None:
     from noa.api.app_state import get_memory_store
 
     return get_memory_store()
@@ -39,6 +49,45 @@ async def list_facts(
         return success_envelope(data=[], trace_id=rid)
     facts = store.list_all(user_id=str(user.user_id))
     return success_envelope(data=facts, trace_id=rid)
+
+
+@router.post("/facts")
+async def create_fact(
+    body: CreateFactRequest,
+    request: Request,
+    user: AuthUser = Depends(require_auth),  # noqa: B008
+) -> dict[str, Any]:
+    """Create a memory fact manually (auto-approved)."""
+    from noa.private_worker.memory_store import VALID_CATEGORIES
+
+    rid = trace_id_ctx.get("")
+    store = _get_memory_store()
+    if store is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Memory store unavailable",
+        )
+    if body.category not in VALID_CATEGORIES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid category. Must be one of: {', '.join(sorted(VALID_CATEGORIES))}",
+        )
+    fact_id = store.store(
+        fact=body.fact,
+        category=body.category,
+        embedding=[],
+        source_thread_id="manual",
+        auto_extracted=False,
+        user_id=str(user.user_id),
+    )
+    if fact_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Duplicate fact — this memory already exists",
+        )
+    return success_envelope(
+        data={"id": fact_id, "status": "approved"}, trace_id=rid
+    )
 
 
 @router.post("/facts/{fact_id}/approve")

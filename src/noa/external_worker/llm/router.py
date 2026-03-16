@@ -13,6 +13,7 @@ from noa.external_worker.exceptions import (
     ProviderError,
     ProviderTimeoutError,
 )
+from noa.types import PrivacyMode
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +103,7 @@ class ProviderRouter:
             PrivacyViolationError: If *privacy_mode* is ``"private"``
                 and an external provider is selected.
         """
-        if privacy_mode == "private":
+        if privacy_mode == PrivacyMode.PRIVATE:
             if user_selected and user_selected in _EXTERNAL_PROVIDERS:
                 msg = "private mode forbids routing to external providers"
                 raise PrivacyViolationError(msg)

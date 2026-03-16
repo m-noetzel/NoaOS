@@ -21,6 +21,12 @@ logger = logging.getLogger(__name__)
 _BASE_URL = "https://api.notion.com/v1"
 _NOTION_VERSION = "2022-06-28"
 
+# Default parent for page creation — Knowledge Management database
+_DEFAULT_PARENT = {
+    "type": "data_source_id",
+    "data_source_id": "e4a2e193-2fd7-4945-908d-c2d9a04e2237",
+}
+
 
 class NotionClient:
     """Async client for Notion API v1.
@@ -85,23 +91,15 @@ class NotionClient:
     async def create_page(
         self,
         *,
-        parent_id: str,
-        parent_type: str = "page_id",
         title: str,
         content: str,
     ) -> dict[str, Any]:
-        """Create a new page under a parent.
+        """Create a new page in the Knowledge Management database.
 
-        Args:
-            parent_id: ID of the parent page or database.
-            parent_type: Either "page_id" or "database_id".
-            title: Page title.
-            content: Page content text.
+        The parent is always the Knowledge Management database
+        (hardcoded via _DEFAULT_PARENT). The LLM only provides
+        title and content.
         """
-        if parent_type not in ("page_id", "database_id"):
-            raise ValueError(
-                f"parent_type must be 'page_id' or 'database_id', got '{parent_type}'"
-            )
         url = f"{_BASE_URL}/pages"
         children = [
             {
@@ -114,7 +112,7 @@ class NotionClient:
             for chunk in _split_content(content)
         ]
         body: dict[str, Any] = {
-            "parent": {parent_type: parent_id},
+            "parent": _DEFAULT_PARENT,
             "properties": {
                 "title": {
                     "title": [{"text": {"content": title}}],

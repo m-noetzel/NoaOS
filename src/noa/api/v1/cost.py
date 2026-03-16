@@ -7,6 +7,7 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from noa.api.middleware import trace_id_ctx
 from noa.api.schemas.common import success_envelope
@@ -36,7 +37,7 @@ async def cost_pricing(
     return success_envelope(data=entries, trace_id=trace_id_ctx.get(""))
 
 
-def _get_session_factory() -> Any:
+def _get_session_factory() -> async_sessionmaker[AsyncSession] | None:
     from noa.api.app_state import get_session_factory
 
     return get_session_factory()
@@ -141,14 +142,15 @@ async def cost_records(
     request: Request,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    since: str | None = Query(default=None),
     privacy_mode: str | None = Query(default=None, pattern="^(private|external)$"),
     user: Any = Depends(require_auth),  # noqa: B008
 ) -> dict[str, Any]:
     """Return recent cost records.
 
-    When ``privacy_mode`` is specified, only records linked to runs in that
-    domain are returned. When omitted, all domains are included (backwards
-    compatible). Records without a run_id are excluded when filtering.
+    When ``since`` is specified (ISO 8601), only records after that timestamp
+    are returned. When ``privacy_mode`` is specified, only records linked to
+    runs in that domain are returned.
     """
     rid = trace_id_ctx.get("")
     factory = _get_session_factory()
@@ -158,6 +160,8 @@ async def cost_records(
     uid = _extract_user_id(user)
 
     try:
+        from datetime import datetime
+
         from sqlalchemy import select
 
         from noa.db.models.run import Run
@@ -171,6 +175,9 @@ async def cost_records(
                 .limit(limit)
                 .offset(offset)
             )
+            if since is not None:
+                since_dt = datetime.fromisoformat(since)
+                stmt = stmt.where(UsageStats.timestamp >= since_dt)
             if privacy_mode is not None:
                 # Join through runs to filter by domain.
                 # Records without run_id are excluded when a filter is applied.

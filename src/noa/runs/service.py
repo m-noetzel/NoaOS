@@ -12,6 +12,7 @@ from sqlalchemy import select
 from noa.db.models.artifact import Artifact
 from noa.db.models.run import Run, RunEvent
 from noa.runs.schemas import VALID_EVENT_TYPES, VALID_TRANSITIONS
+from noa.types import PrivacyMode, RiskTier
 
 logger = logging.getLogger(__name__)
 
@@ -32,8 +33,8 @@ class RunService:
         user_id: uuid.UUID,
         thread_id: uuid.UUID,
         *,
-        risk_tier: str = "low",
-        privacy_mode: str = "private",
+        risk_tier: str = RiskTier.LOW,
+        privacy_mode: str = PrivacyMode.PRIVATE,
         summary: str | None = None,
     ) -> Run:
         """Create a new run with status='pending'."""
@@ -109,7 +110,7 @@ class RunService:
             apns = get_apns_service()
             if apns is None:
                 return
-            risk_tier = getattr(run, "risk_tier", "low")
+            risk_tier = getattr(run, "risk_tier", RiskTier.LOW)
             if not apns.should_notify(
                 event_type=notification_type,
                 risk_tier=risk_tier,

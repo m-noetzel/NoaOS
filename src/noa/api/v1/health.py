@@ -7,9 +7,12 @@ import logging
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Query
+
+if TYPE_CHECKING:
+    from noa.tools.gateway import ToolGateway
 
 from noa.api.middleware import trace_id_ctx
 from noa.api.schemas.common import success_envelope
@@ -111,7 +114,7 @@ async def echo(value: str = Query(...)) -> dict[str, Any]:
     )
 
 
-def _get_gateway() -> Any | None:
+def _get_gateway() -> ToolGateway | None:
     """Retrieve the ToolGateway from app state (test-patchable)."""
     from noa.api.app_state import get_gateway
 

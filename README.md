@@ -13,8 +13,6 @@ Run an AI agent on your own hardware that enforces privacy boundaries, governs e
 
 Built as a portfolio project demonstrating applied agent engineering: LangGraph state machine orchestration, container-based domain isolation, function-level tool governance, immutable audit logging, multi-provider LLM routing, and production-grade infrastructure with 2,400+ tests.
 
-<!-- TODO: Add demo GIF / screenshots here -->
-
 ## Quick Start
 
 ```bash
@@ -86,6 +84,48 @@ Noa addresses this by enforcing:
 ### Pages
 
 Chat, Runs, Run Detail, Approvals, Tools, Settings, Cost, Memory, Queue, Artifacts — 10 pages across web and iOS.
+
+#### Chat
+
+Send messages, trigger multi-step tool chains, and see results stream in real time. Threads persist in the sidebar.
+
+![Chat — Noa drafts an email, saves a contact to memory, and presents the draft for review](assets/chat.png)
+
+#### Run Detail — Execution Graph
+
+Inspect any run's orchestrator path: which nodes fired, which tools were called, cost per step.
+
+![Run Detail — Execution graph from user message through planner, tool calls, and final response](assets/run-execution-graph.png)
+
+#### Run Detail — Event Timeline
+
+Chronological view of every event in a run — tool calls, approval gates, latency deltas.
+
+![Run Detail — Event timeline with tool calls, approval requests, and result events](assets/run-timeline.png)
+
+#### Run Detail — Raw Events
+
+Expandable raw event log with metadata and event IDs for debugging.
+
+![Run Detail — Raw event log with expandable metadata and event IDs](assets/run-raw-events.png)
+
+#### Tools
+
+Manage tool capabilities at the function level. Each tool shows its domain, risk tier, credential status, and health.
+
+![Tools — Function-level capabilities with domain tags, risk tiers, and credential status](assets/tools.png)
+
+#### Memory
+
+Review and manage long-term memory facts. Pending facts require approval before the agent can use them.
+
+![Memory — Pending and approved facts with category, source, and edit/delete actions](assets/memory.png)
+
+#### Cost
+
+Track token usage, per-run costs, and budget limits across all providers.
+
+![Cost — Usage breakdown by provider and model with daily and monthly totals](assets/cost.png)
 
 ---
 

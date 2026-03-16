@@ -26,6 +26,7 @@ from noa.tools.health import (
     ToolHealthChecker,
     mask_credential,
 )
+from noa.types import PrivacyMode, RiskTier
 
 logger = logging.getLogger(__name__)
 
@@ -151,9 +152,11 @@ def _tool_is_visible_in_domain(tool_schema: dict[str, Any], privacy_mode: str) -
         func_def.get("domain", "external")
         for func_def in tool_schema["functions"].values()
     }
+    only_private = function_domains == {PrivacyMode.PRIVATE}
+    only_external = function_domains == {PrivacyMode.EXTERNAL}
     return not (
-        (privacy_mode == "external" and function_domains == {"private"})
-        or (privacy_mode == "private" and function_domains == {"external"})
+        (privacy_mode == PrivacyMode.EXTERNAL and only_private)
+        or (privacy_mode == PrivacyMode.PRIVATE and only_external)
     )
 
 
@@ -200,7 +203,7 @@ async def list_tools(
         # Build per-function metadata
         functions = []
         any_enabled = False
-        tool_risk_tier = "low"
+        tool_risk_tier: str = RiskTier.LOW
         function_domains: set[str] = set()
         risk_order = {"low": 0, "medium": 1, "high": 2}
         for func_name, func_def in tool_schema["functions"].items():
@@ -229,7 +232,8 @@ async def list_tools(
             })
 
         # Derive tool-level domain: private only if ALL functions are private
-        tool_domain = "private" if function_domains == {"private"} else "external"
+        all_private = function_domains == {PrivacyMode.PRIVATE}
+        tool_domain = PrivacyMode.PRIVATE if all_private else PrivacyMode.EXTERNAL
 
         # Credential info in the shape the frontend expects
         uid = _extract_user_id(payload)

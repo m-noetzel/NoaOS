@@ -13,6 +13,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
+from noa.types import PrivacyMode
+
 logger = logging.getLogger(__name__)
 
 # Type alias for the audit callback:
@@ -147,12 +149,18 @@ class ToolGateway:
         adapter = self._adapters[tool]
         adapter_domain = getattr(adapter, "domain", None)
         if adapter_domain is not None and request.privacy_mode:
-            if adapter_domain == "private" and request.privacy_mode == "external":
+            if (
+                adapter_domain == PrivacyMode.PRIVATE
+                and request.privacy_mode == PrivacyMode.EXTERNAL
+            ):
                 raise PermissionError(
                     f"Private-domain tool '{tool}' cannot be dispatched "
                     f"for external-domain request"
                 )
-            if adapter_domain == "external" and request.privacy_mode == "private":
+            if (
+                adapter_domain == PrivacyMode.EXTERNAL
+                and request.privacy_mode == PrivacyMode.PRIVATE
+            ):
                 raise PermissionError(
                     f"External-domain tool '{tool}' cannot be dispatched "
                     f"for private-domain request"

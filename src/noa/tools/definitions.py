@@ -218,20 +218,10 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
                 "domain": "external",
             },
             "create_page": {
-                "description": "Create a new Notion page.",
+                "description": "Create a new Notion page in the Knowledge Management database. Only provide title and content — the parent database is set automatically.",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "parent_id": {
-                            "type": "string",
-                            "description": "Parent page or database ID.",
-                        },
-                        "parent_type": {
-                            "type": "string",
-                            "enum": ["page_id", "database_id"],
-                            "description": "Type of parent: 'page_id' for a page, 'database_id' for a database. Defaults to 'page_id'.",
-                            "default": "page_id",
-                        },
                         "title": {
                             "type": "string",
                             "description": "Page title.",
@@ -241,7 +231,7 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
                             "description": "Page content (markdown).",
                         },
                     },
-                    "required": ["parent_id", "title", "content"],
+                    "required": ["title", "content"],
                 },
                 "risk_tier": "medium",
                 "domain": "external",

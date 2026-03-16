@@ -10,9 +10,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-# Default models per privacy mode.
-_EXTERNAL_AGENT_MODEL = "openai/gpt-4.1"
-_PRIVATE_AGENT_MODEL = "ollama/llama3.1"
+from noa.config import DEFAULT_EXTERNAL_MODEL, DEFAULT_PRIVATE_MODEL
+from noa.types import PrivacyMode
+
+# Default models per privacy mode (aliases from config).
+_EXTERNAL_AGENT_MODEL = DEFAULT_EXTERNAL_MODEL
+_PRIVATE_AGENT_MODEL = DEFAULT_PRIVATE_MODEL
 _NO_MODEL = "none"
 
 
@@ -48,7 +51,7 @@ class ModelConfig:
         Returns:
             ModelConfig with the correct agent model for the mode.
         """
-        if privacy_mode == "private":
+        if privacy_mode == PrivacyMode.PRIVATE:
             return cls(agent=_PRIVATE_AGENT_MODEL)
         return cls(agent=_EXTERNAL_AGENT_MODEL)
 

@@ -14,6 +14,10 @@ from pydantic_settings import BaseSettings
 
 _DEV_SECRET = "dev-secret-key-change-in-production"  # noqa: S105
 
+# Default LLM model identifiers (SPEC.md §5.1, §14)
+DEFAULT_EXTERNAL_MODEL: str = "openai/gpt-4.1-mini"
+DEFAULT_PRIVATE_MODEL: str = "ollama/llama3.1"
+
 
 class LogLevel(StrEnum):
     DEBUG = "DEBUG"

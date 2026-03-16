@@ -9,16 +9,19 @@ set_router() must be called at app startup to wire the router.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from noa.cost.pricing import estimate_cost
 from noa.orchestrator.state import AgentState
+
+if TYPE_CHECKING:
+    from noa.external_worker.llm.router import ProviderRouter
 
 # Maximum tool calls the agent will forward per step (S2.1 cost/iteration limits).
 MAX_TOOL_CALLS = 10
 
 # Module-level router reference, set at startup via set_router().
-_router: Any | None = None
+_router: ProviderRouter | None = None
 
 
 @dataclass
@@ -35,13 +38,13 @@ class LLMResponse:
     model: str = ""
 
 
-def set_router(router: Any) -> None:
+def set_router(router: ProviderRouter) -> None:
     """Set the module-level ProviderRouter. Called at app startup."""
     global _router  # noqa: PLW0603
     _router = router
 
 
-def get_router() -> Any | None:
+def get_router() -> ProviderRouter | None:
     """Return the current ProviderRouter (or None if not configured)."""
     return _router
 
@@ -114,7 +117,7 @@ async def agent_node(state: AgentState) -> dict[str, Any]:
     privacy_mode = state.get("privacy_mode", "external")
 
     available_tools = state.get("available_tools") or []
-    max_tokens = state.get("max_tokens") or 4096
+    max_tokens: int = cast(int, state.get("max_tokens") or 4096)
     response = await invoke_llm(
         model,
         messages,

@@ -8,31 +8,40 @@ the app instance is not available (e.g., CLI scripts, early startup).
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from noa.queue.health import HealthChecker
 
+if TYPE_CHECKING:
+    from fastapi import FastAPI
+
+    from noa.external_worker.llm.router import ProviderRouter
+    from noa.orchestrator.runner import OrchestratorRunner
+    from noa.private_worker.memory_store import MemoryStore
+    from noa.push.apns import APNsService
+    from noa.tools.gateway import ToolGateway
+
 # The FastAPI app instance — set once at startup
-_app_instance: Any | None = None
+_app_instance: FastAPI | None = None
 
 # Module-level fallbacks (used before app is created or in non-request contexts)
 _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
 _health_checker: HealthChecker | None = None
-_provider_router: Any | None = None
-_runner: Any | None = None
-_gateway: Any | None = None
+_provider_router: ProviderRouter | None = None
+_runner: OrchestratorRunner | None = None
+_gateway: ToolGateway | None = None
 
 
-def set_app(app: Any) -> None:
+def set_app(app: FastAPI) -> None:
     """Register the FastAPI app instance for state storage."""
     global _app_instance  # noqa: PLW0603
     _app_instance = app
 
 
-def get_app() -> Any | None:
+def get_app() -> FastAPI | None:
     """Return the registered FastAPI app instance."""
     return _app_instance
 
@@ -44,7 +53,7 @@ def _get_from_app(key: str) -> Any:
     return None
 
 
-def _set_on_app(key: str, value: Any) -> None:
+def _set_on_app(key: str, value: object) -> None:
     """Store on app.state if available."""
     if _app_instance is not None:
         setattr(_app_instance.state, key, value)
@@ -80,73 +89,73 @@ def get_health_checker() -> HealthChecker | None:
     return _get_from_app("health_checker") or _health_checker
 
 
-def set_provider_router(router: Any) -> None:
+def set_provider_router(router: ProviderRouter) -> None:
     global _provider_router  # noqa: PLW0603
     _provider_router = router
     _set_on_app("provider_router", router)
 
 
-def get_provider_router() -> Any | None:
+def get_provider_router() -> ProviderRouter | None:
     return _get_from_app("provider_router") or _provider_router
 
 
-def set_runner(runner: Any) -> None:
+def set_runner(runner: OrchestratorRunner) -> None:
     global _runner  # noqa: PLW0603
     _runner = runner
     _set_on_app("runner", runner)
 
 
-def get_runner() -> Any | None:
+def get_runner() -> OrchestratorRunner | None:
     return _get_from_app("runner") or _runner
 
 
-def set_gateway(gateway: Any) -> None:
+def set_gateway(gateway: ToolGateway) -> None:
     global _gateway  # noqa: PLW0603
     _gateway = gateway
     _set_on_app("gateway", gateway)
 
 
-def get_gateway() -> Any | None:
+def get_gateway() -> ToolGateway | None:
     return _get_from_app("gateway") or _gateway
 
 
-_apns_service: Any | None = None
+_apns_service: APNsService | None = None
 
 
-def set_apns_service(service: Any) -> None:
+def set_apns_service(service: APNsService) -> None:
     global _apns_service  # noqa: PLW0603
     _apns_service = service
     _set_on_app("apns_service", service)
 
 
-def get_apns_service() -> Any | None:
+def get_apns_service() -> APNsService | None:
     return _get_from_app("apns_service") or _apns_service
 
 
-_memory_store: Any | None = None
+_memory_store: MemoryStore | None = None
 
 
-def set_memory_store(store: Any) -> None:
+def set_memory_store(store: MemoryStore) -> None:
     global _memory_store  # noqa: PLW0603
     _memory_store = store
     _set_on_app("memory_store", store)
 
 
-def get_memory_store() -> Any | None:
+def get_memory_store() -> MemoryStore | None:
     return _get_from_app("memory_store") or _memory_store
 
 
 # External-domain memory store — separate namespace from private domain (BE-H9)
-_external_memory_store: Any | None = None
+_external_memory_store: MemoryStore | None = None
 
 
-def set_external_memory_store(store: Any) -> None:
+def set_external_memory_store(store: MemoryStore) -> None:
     global _external_memory_store  # noqa: PLW0603
     _external_memory_store = store
     _set_on_app("external_memory_store", store)
 
 
-def get_external_memory_store() -> Any | None:
+def get_external_memory_store() -> MemoryStore | None:
     return _get_from_app("external_memory_store") or _external_memory_store
 
 

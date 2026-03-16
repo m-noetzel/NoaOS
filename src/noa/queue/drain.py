@@ -10,9 +10,13 @@ import asyncio
 import contextlib
 import logging
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from noa.queue.durable import DurableQueue
+
+if TYPE_CHECKING:
+    from noa.orchestrator.runner import OrchestratorRunner
+    from noa.queue.health import HealthChecker
 
 logger = logging.getLogger(__name__)
 
@@ -41,12 +45,12 @@ class QueueDrainWorker:
     def __init__(
         self,
         session_factory: Any,
-        health_checker: Any,
-        runner: Any | None = None,
+        health_checker: HealthChecker,
+        runner: OrchestratorRunner | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._checker = health_checker
-        self._runner = runner
+        self._runner: OrchestratorRunner | None = runner
         self._task: asyncio.Task[None] | None = None
         self._stop = False
 
@@ -134,9 +138,12 @@ class QueueDrainWorker:
         provider = payload.get("provider")
 
         run_service = _NoOpRunService()
+        runner = self._runner
+        if runner is None:
+            return
 
         try:
-            async for _event in self._runner.run(
+            async for _event in runner.run(
                 message=message,
                 run_service=run_service,
                 run_id=run_id,

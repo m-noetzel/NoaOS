@@ -213,7 +213,6 @@ class TestCreatePage:
         tool = NotionTool(api_client=mock_client)
 
         result = await tool.create_page(
-            parent_id="parent-123",
             title="New Page",
             content="# Hello\n\nWorld",
         )
@@ -221,10 +220,11 @@ class TestCreatePage:
         assert result["id"] == "page-new"
 
     @pytest.mark.asyncio
-    async def test_create_passes_all_fields(self):
-        """create_page must pass parent_id, title, content to API.
+    async def test_create_passes_title_and_content(self):
+        """create_page must pass title and content to API.
 
-        SPEC.md §12.3 — create_page(parent_id, title, content).
+        SPEC.md §12.3 — create_page(title, content).
+        Parent DB is hardcoded in the client.
         """
         from noa.tools.notion import NotionTool
 
@@ -233,13 +233,11 @@ class TestCreatePage:
         tool = NotionTool(api_client=mock_client)
 
         await tool.create_page(
-            parent_id="parent-123",
             title="Test Page",
             content="Content here",
         )
 
         mock_client.create_page.assert_called_once_with(
-            parent_id="parent-123",
             title="Test Page",
             content="Content here",
         )

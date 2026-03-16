@@ -9,10 +9,9 @@ execute_tool for backward-compat (tests patch this).
 
 from __future__ import annotations
 
-from typing import Any
-
 import json as _json
 import logging
+from typing import Any
 
 from noa.orchestrator.state import AgentState
 from noa.tools.gateway import ToolGateway, ToolRequest
@@ -95,8 +94,8 @@ async def tool_node(state: AgentState) -> dict[str, Any]:
     tool_calls: list[dict[str, Any]] = state.get("tool_calls", [])
     current_rounds: int = state.get("tool_rounds", 0)
     # W22-H2: Read approvals_enabled from state (default True = enforce approvals)
-    approvals_enabled: bool = state.get("approvals_enabled", True)  # type: ignore[assignment]
-    user_id: str | None = state.get("user_id")  # type: ignore[assignment]
+    approvals_enabled: bool = bool(state.get("approvals_enabled", True))
+    user_id: str | None = state.get("user_id")
 
     if not tool_calls:
         return {"tool_results": []}

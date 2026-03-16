@@ -1,0 +1,197 @@
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/api/client";
+import type { Thread } from "@/api/types";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
+import { Plus, Trash2, Pencil, Check, X } from "lucide-react";
+
+interface ThreadSidebarProps {
+  activeThread: string | null;
+  onSelectThread: (id: string) => void;
+  onThreadDeleted: () => void;
+}
+
+export function ThreadSidebar({
+  activeThread,
+  onSelectThread,
+  onThreadDeleted,
+}: ThreadSidebarProps) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const [renamingThread, setRenamingThread] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+
+  const { data: threadsRes } = useQuery({
+    queryKey: ["threads"],
+    queryFn: () => apiRequest<Thread[]>("/api/v1/threads"),
+  });
+  const threads = threadsRes?.data || [];
+
+  const createThreadMutation = useMutation({
+    mutationFn: (title: string) =>
+      apiRequest<Thread>("/api/v1/threads", {
+        method: "POST",
+        body: JSON.stringify({ title }),
+      }),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ["threads"] });
+      if (res.data) {
+        onSelectThread(res.data.id);
+      }
+    },
+  });
+
+  const deleteThreadMutation = useMutation({
+    mutationFn: (threadId: string) =>
+      apiRequest(`/api/v1/threads/${threadId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["threads"] });
+      onThreadDeleted();
+    },
+  });
+
+  const renameThreadMutation = useMutation({
+    mutationFn: ({ threadId, title }: { threadId: string; title: string }) =>
+      apiRequest(`/api/v1/threads/${threadId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ title }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["threads"] });
+      setRenamingThread(null);
+      setRenameValue("");
+    },
+    onError: (err: Error) => {
+      toast({
+        title: "Failed to rename thread",
+        description: err.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const startRename = (
+    threadId: string,
+    currentTitle: string,
+    e: React.MouseEvent
+  ) => {
+    e.stopPropagation();
+    setRenamingThread(threadId);
+    setRenameValue(currentTitle);
+  };
+
+  const commitRename = (threadId: string) => {
+    const title = renameValue.trim();
+    if (!title) return;
+    renameThreadMutation.mutate({ threadId, title });
+  };
+
+  const cancelRename = () => {
+    setRenamingThread(null);
+    setRenameValue("");
+  };
+
+  return (
+    <div className="w-60 border-r border-border/50 flex flex-col shrink-0 bg-muted/20">
+      <div className="p-3 flex items-center justify-between border-b border-border/30">
+        <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
+          Threads
+        </span>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="New thread"
+          className="h-7 w-7 rounded-lg hover:bg-accent/60 hover:text-primary transition-all"
+          onClick={() => createThreadMutation.mutate("New Thread")}
+        >
+          <Plus className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+      <ScrollArea className="flex-1">
+        <div className="p-1.5 space-y-0.5">
+          {threads.map((thread, i) => (
+            <div
+              key={thread.id}
+              className={cn(
+                "group relative w-full text-left px-3 py-2.5 rounded-lg text-sm transition-all duration-200 animate-fade-in cursor-pointer",
+                activeThread === thread.id
+                  ? "bg-accent text-accent-foreground font-medium glow-sm border border-border/50"
+                  : "hover:bg-accent/40 text-muted-foreground hover:text-foreground"
+              )}
+              style={{ animationDelay: `${i * 50}ms` }}
+              onClick={() =>
+                renamingThread !== thread.id && onSelectThread(thread.id)
+              }
+            >
+              {/* UX-M3: Inline rename mode */}
+              {renamingThread === thread.id ? (
+                <div
+                  className="flex items-center gap-1"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <input
+                    autoFocus
+                    className="flex-1 text-[13px] bg-transparent border-b border-primary outline-none min-w-0"
+                    value={renameValue}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") commitRename(thread.id);
+                      if (e.key === "Escape") cancelRename();
+                    }}
+                    aria-label="Thread title"
+                  />
+                  <button
+                    className="p-1 rounded hover:bg-green-500/20 hover:text-green-600 text-muted-foreground transition-all"
+                    onClick={() => commitRename(thread.id)}
+                    aria-label="Confirm rename"
+                  >
+                    <Check className="h-3 w-3" />
+                  </button>
+                  <button
+                    className="p-1 rounded hover:bg-muted hover:text-foreground text-muted-foreground transition-all"
+                    onClick={cancelRename}
+                    aria-label="Cancel rename"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <p className="truncate text-[13px] pr-12">{thread.title}</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    {thread.message_count} messages
+                  </p>
+                  <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-all">
+                    <button
+                      className="p-1 rounded hover:bg-accent/60 hover:text-primary transition-all"
+                      onClick={(e) => startRename(thread.id, thread.title, e)}
+                      aria-label="Rename thread"
+                    >
+                      <Pencil className="h-3 w-3" />
+                    </button>
+                    <button
+                      className="p-1 rounded hover:bg-destructive/20 hover:text-destructive transition-all"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (confirm("Delete this thread?")) {
+                          deleteThreadMutation.mutate(thread.id);
+                        }
+                      }}
+                      aria-label="Delete thread"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      </ScrollArea>
+    </div>
+  );
+}

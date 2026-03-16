@@ -15,13 +15,15 @@ from __future__ import annotations
 
 from typing import Any
 
+from noa.config import DEFAULT_EXTERNAL_MODEL, DEFAULT_PRIVATE_MODEL
 from noa.orchestrator.model_config import ModelConfig
 from noa.orchestrator.state import AgentState
 from noa.privacy.classifier import PrivacyClassifier
+from noa.types import PrivacyMode
 
 # Legacy model selections per domain (kept for selected_model backward compat).
-_LOCAL_MODEL = "ollama/llama3"
-_EXTERNAL_MODEL = "openai/gpt-4.1"
+_LOCAL_MODEL = DEFAULT_PRIVATE_MODEL
+_EXTERNAL_MODEL = DEFAULT_EXTERNAL_MODEL
 
 # Shared classifier instance.
 _classifier = PrivacyClassifier()
@@ -45,7 +47,7 @@ def router_node(state: AgentState) -> dict[str, Any]:
     user_model = state.get("user_model_override")
     user_provider = state.get("user_provider_override")
 
-    if privacy_mode == "private":
+    if privacy_mode == PrivacyMode.PRIVATE:
         # Private mode always uses local model, regardless of user choice.
         selected_model = _LOCAL_MODEL
     elif user_provider and user_model:

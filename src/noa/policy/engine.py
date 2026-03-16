@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from noa.types import RiskTier
+
 # Action → risk tier mappings per §21 tables
 _LOW_ACTIONS = frozenset(
     [
@@ -66,22 +68,22 @@ class PolicyEngine:
         Returns 'low', 'medium', or 'high'. Unknown actions default to 'high'.
         """
         if action in _LOW_ACTIONS:
-            return "low"
+            return RiskTier.LOW
         if action in _MEDIUM_ACTIONS:
-            return "medium"
+            return RiskTier.MEDIUM
         if action in _HIGH_ACTIONS:
-            return "high"
+            return RiskTier.HIGH
         # Unknown actions default to high for safety
-        return "high"
+        return RiskTier.HIGH
 
     def requires_approval(self, risk_tier: str) -> bool:
         """Check if a risk tier requires user approval per §21."""
-        return risk_tier in ("medium", "high")
+        return risk_tier in (RiskTier.MEDIUM, RiskTier.HIGH)
 
     def requires_step_up_auth(self, risk_tier: str) -> bool:
         """Check if a risk tier requires step-up authentication per §21."""
-        return risk_tier == "high"
+        return risk_tier == RiskTier.HIGH
 
     def requires_preview(self, risk_tier: str) -> bool:
         """Check if a risk tier requires dry-run preview per §19.2."""
-        return risk_tier in ("medium", "high")
+        return risk_tier in (RiskTier.MEDIUM, RiskTier.HIGH)

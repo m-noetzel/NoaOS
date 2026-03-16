@@ -9,6 +9,7 @@ GoogleAuthClient. Auto-refreshes on 401 and retries once.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 import httpx
@@ -19,6 +20,22 @@ from noa.tools.calendar import CalendarAPIError
 logger = logging.getLogger(__name__)
 
 _BASE_URL = "https://www.googleapis.com/calendar/v3"
+
+# Regex: has timezone offset (+HH:MM / -HH:MM) or trailing Z
+_TZ_AWARE_RE = re.compile(r"(?:Z|[+-]\d{2}:\d{2})$")
+
+
+def _make_datetime_entry(dt_str: str) -> dict[str, str]:
+    """Build a Google Calendar datetime entry with timeZone fallback.
+
+    Google Calendar API returns 400 if dateTime has no offset AND no
+    timeZone field. This helper adds ``"timeZone": "UTC"`` when the
+    datetime string is naive (no offset/Z suffix).
+    """
+    entry: dict[str, str] = {"dateTime": dt_str}
+    if not _TZ_AWARE_RE.search(dt_str):
+        entry["timeZone"] = "UTC"
+    return entry
 
 
 class GoogleCalendarClient:
@@ -53,8 +70,9 @@ class GoogleCalendarClient:
             try:
                 resp.raise_for_status()
             except HTTPStatusError as exc:
+                detail = exc.response.text[:300] if exc.response.text else ""
                 raise CalendarAPIError(
-                    f"Calendar API error: {exc.response.status_code}"
+                    f"Calendar API error {exc.response.status_code}: {detail}"
                 ) from exc
             result: dict[str, Any] = resp.json()
             return result
@@ -87,8 +105,8 @@ class GoogleCalendarClient:
         url = f"{_BASE_URL}/calendars/primary/events"
         body: dict[str, Any] = {
             "summary": title,
-            "start": {"dateTime": start},
-            "end": {"dateTime": end},
+            "start": _make_datetime_entry(start),
+            "end": _make_datetime_entry(end),
         }
         if description:
             body["description"] = description
@@ -109,9 +127,9 @@ class GoogleCalendarClient:
         if "title" in changes:
             body["summary"] = changes["title"]
         if "start" in changes:
-            body["start"] = {"dateTime": changes["start"]}
+            body["start"] = _make_datetime_entry(changes["start"])
         if "end" in changes:
-            body["end"] = {"dateTime": changes["end"]}
+            body["end"] = _make_datetime_entry(changes["end"])
         if "description" in changes:
             body["description"] = changes["description"]
 

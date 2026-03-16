@@ -8,6 +8,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from noa.types import PrivacyMode, RiskTier
+
 # Valid event types per §22.2
 # "meta" is the first SSE frame emitted by /api/v1/chat (run_id, thread_id);
 # iOS3 SSEClient must parse it, so it belongs in the validated set.
@@ -49,8 +51,8 @@ class RunCreate(BaseModel):
 
     thread_id: uuid.UUID
     user_id: uuid.UUID
-    risk_tier: str = "low"
-    privacy_mode: str = "private"
+    risk_tier: str = RiskTier.LOW
+    privacy_mode: str = PrivacyMode.PRIVATE
     summary: str | None = None
 
 
