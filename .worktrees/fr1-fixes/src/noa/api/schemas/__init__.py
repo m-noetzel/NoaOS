@@ -1,1 +1,0 @@
-"""Noa API schema package."""
