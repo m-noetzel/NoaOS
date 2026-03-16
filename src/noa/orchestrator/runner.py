@@ -52,6 +52,7 @@ class OrchestratorRunner:
         timeout_seconds: int = 120,
         approvals_enabled: bool = True,
         private_available: bool = True,
+        tool_scope: str | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Execute the graph and yield structured events.
 
@@ -131,10 +132,11 @@ class OrchestratorRunner:
             # appended as operational metadata.
             sp = system_prompt or ""
             tool_ctx = self._build_tool_context(avail_tools)
-            combined = (
-                (sp + "\n\n" + tool_ctx) if sp and tool_ctx
-                else sp or tool_ctx
-            )
+            # Inject current date/time so the model knows "now"
+            now_str = datetime.now(UTC).strftime("%A, %B %d, %Y at %H:%M UTC")
+            time_ctx = f"Current date and time: {now_str}"
+            parts = [p for p in (sp, time_ctx, tool_ctx) if p]
+            combined = "\n\n".join(parts)
             if combined:
                 messages.append({"role": "system", "content": combined})
 
@@ -174,6 +176,8 @@ class OrchestratorRunner:
                 # MVP-H3: Private domain availability (for router node)
                 "private_available": private_available,
                 "user_id": user_id,
+                # CQ1: Task-level tool scope (None = all tools allowed)
+                "tool_scope": tool_scope,
             }
 
             # A4: Load checkpoint if available (resume support)
