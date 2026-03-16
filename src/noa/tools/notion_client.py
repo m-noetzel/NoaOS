@@ -91,6 +91,16 @@ class NotionClient:
     ) -> dict[str, Any]:
         """Create a new page under a parent."""
         url = f"{_BASE_URL}/pages"
+        children = [
+            {
+                "object": "block",
+                "type": "paragraph",
+                "paragraph": {
+                    "rich_text": [{"text": {"content": chunk}}],
+                },
+            }
+            for chunk in _split_content(content)
+        ]
         body: dict[str, Any] = {
             "parent": {"page_id": parent_id},
             "properties": {
@@ -98,15 +108,7 @@ class NotionClient:
                     "title": [{"text": {"content": title}}],
                 },
             },
-            "children": [
-                {
-                    "object": "block",
-                    "type": "paragraph",
-                    "paragraph": {
-                        "rich_text": [{"text": {"content": content}}],
-                    },
-                },
-            ],
+            "children": children,
         }
         result = await self._request("post", url, json=body)
         return {"id": result["id"], "url": result.get("url", "")}
@@ -131,6 +133,24 @@ class NotionClient:
             ],
         }
         return await self._request("patch", url, json=body)
+
+
+def _split_content(content: str, max_len: int = 2000) -> list[str]:
+    """Split content into chunks of max_len, preferring newline boundaries."""
+    if len(content) <= max_len:
+        return [content]
+    chunks = []
+    while content:
+        if len(content) <= max_len:
+            chunks.append(content)
+            break
+        # Find last newline within limit
+        split_at = content.rfind("\n", 0, max_len)
+        if split_at <= 0:
+            split_at = max_len
+        chunks.append(content[:split_at])
+        content = content[split_at:].lstrip("\n")
+    return chunks
 
 
 def _extract_title(page: dict[str, Any]) -> str:

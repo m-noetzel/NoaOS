@@ -96,6 +96,7 @@ async def tool_node(state: AgentState) -> dict[str, Any]:
     current_rounds: int = state.get("tool_rounds", 0)
     # W22-H2: Read approvals_enabled from state (default True = enforce approvals)
     approvals_enabled: bool = state.get("approvals_enabled", True)  # type: ignore[assignment]
+    user_id: str | None = state.get("user_id")  # type: ignore[assignment]
 
     if not tool_calls:
         return {"tool_results": []}
@@ -111,7 +112,9 @@ async def tool_node(state: AgentState) -> dict[str, Any]:
 
             if _gateway is not None:
                 result = await _dispatch_gateway(
-                    tool_name, function, args, approvals_enabled=approvals_enabled,
+                    tool_name, function, args,
+                    approvals_enabled=approvals_enabled,
+                    user_id=user_id,
                 )
             else:
                 result = await _dispatch_registry(tool_name, function, args)
@@ -130,6 +133,7 @@ async def tool_node(state: AgentState) -> dict[str, Any]:
                 result = await _dispatch_gateway(
                     parsed_tool, parsed_func, arguments,
                     approvals_enabled=approvals_enabled,
+                    user_id=user_id,
                 )
                 results.append({"name": name, **result})
                 continue
@@ -256,10 +260,18 @@ async def _dispatch_gateway(
     args: dict[str, Any],
     *,
     approvals_enabled: bool = True,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     """Dispatch through the ToolGateway."""
+    import uuid as _uuid
+
     assert _gateway is not None  # noqa: S101
-    req = ToolRequest(tool=tool_name, function=function, args=args)
+    req = ToolRequest(
+        tool=tool_name,
+        function=function,
+        args=args,
+        user_id=_uuid.UUID(user_id) if user_id else None,
+    )
     try:
         resp = await _gateway.dispatch(req, approvals_enabled=approvals_enabled)
         return _gateway_response_to_dict(resp)

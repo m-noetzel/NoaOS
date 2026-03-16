@@ -89,10 +89,10 @@ export default function Runs() {
                     </div>
                   </TableCell>
                   <TableCell className="text-right text-xs font-mono">
-                    {(run.tokens_in + run.tokens_out).toLocaleString()}
+                    {((run.tokens_in || 0) + (run.tokens_out || 0)).toLocaleString()}
                   </TableCell>
                   <TableCell className="text-right text-xs font-mono">
-                    {run.cost_usd === 0 ? "—" : `$${run.cost_usd.toFixed(4)}`}
+                    {!run.cost_usd ? "—" : `$${run.cost_usd.toFixed(4)}`}
                   </TableCell>
                   <TableCell className="text-right text-xs font-mono text-muted-foreground">
                     {run.duration_ms ? `${(run.duration_ms / 1000).toFixed(1)}s` : "—"}

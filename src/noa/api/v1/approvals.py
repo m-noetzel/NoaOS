@@ -223,13 +223,113 @@ async def decide_approval(
     # fact to MemoryStore so it becomes available for recall.
     _handle_memory_approval(approval=approval, decision=body.decision)
 
-    return success_envelope(
-        data={
-            "approval_id": str(approval_id),
-            "decision": approval.decision,
-            "status": "decided",
-            "risk_tier": approval.risk_tier,
-            "decided_at": approval.decided_at.isoformat(),
-        },
-        trace_id=rid,
-    )
+    # Execute the approved tool and complete the run
+    tool_result = None
+    if body.decision == "approved":
+        tool_result = await _execute_approved_tool(approval, str(user.user_id))
+
+    data: dict[str, Any] = {
+        "approval_id": str(approval_id),
+        "decision": approval.decision,
+        "status": "decided",
+        "risk_tier": approval.risk_tier,
+        "decided_at": approval.decided_at.isoformat(),
+    }
+    if tool_result is not None:
+        data["tool_result"] = tool_result
+
+    return success_envelope(data=data, trace_id=rid)
+
+
+async def _execute_approved_tool(
+    approval: Approval, user_id: str
+) -> dict[str, Any] | None:
+    """Execute a tool after its approval is granted, then complete the run.
+
+    Parses tool/function/args from the approval's preview_text,
+    dispatches via ToolGateway with approved=True, and updates the
+    run status from awaiting_approval → completed.
+    """
+    try:
+        from noa.api.app_state import get_gateway, get_session_factory
+        from noa.tools.gateway import ToolRequest
+
+        gateway = get_gateway()
+        if gateway is None:
+            logger.warning("No ToolGateway available to execute approved tool")
+            return None
+
+        # Parse tool_name and args from preview_text
+        # Format: "tool.function\n{args_json}" or "tool_name\n{args_json}"
+        preview = approval.preview_text or ""
+        if "\n" not in preview:
+            logger.warning("Cannot parse tool from approval preview_text: %s", preview)
+            return None
+
+        first_line, rest = preview.split("\n", 1)
+        tool_function = first_line.strip()
+
+        try:
+            tool_args = json.loads(rest)
+        except (ValueError, TypeError):
+            tool_args = {}
+
+        # Parse "tool.function" or just "function"
+        if "." in tool_function:
+            tool_name, func_name = tool_function.split(".", 1)
+        else:
+            tool_name = tool_function
+            func_name = tool_function
+
+        # Dispatch with approved=True to bypass the approval gate
+        request = ToolRequest(
+            tool=tool_name,
+            function=func_name,
+            args=tool_args,
+            approved=True,
+            user_id=uuid.UUID(user_id),
+            privacy_mode=approval.domain or "external",
+        )
+
+        response = await gateway.dispatch(request, approvals_enabled=False)
+
+        # Update run status to completed
+        try:
+            session_factory = get_session_factory()
+            if session_factory:
+                async with session_factory() as db_session:
+                    from noa.db.models.run import Run
+
+                    result = await db_session.execute(
+                        select(Run).where(Run.id == approval.run_id)
+                    )
+                    run = result.scalar_one_or_none()
+                    if run and run.status == "awaiting_approval":
+                        run.status = "completed"
+                        run.updated_at = datetime.now(UTC)
+                        await db_session.commit()
+                        logger.info(
+                            "Run %s completed after approval %s",
+                            approval.run_id,
+                            approval.id,
+                        )
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "Failed to update run status after approval", exc_info=True
+            )
+
+        if response.error:
+            logger.warning(
+                "Tool execution after approval failed: %s", response.error
+            )
+            return {"error": response.error}
+
+        return response.result
+
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "Failed to execute approved tool for approval %s",
+            approval.id,
+            exc_info=True,
+        )
+        return None

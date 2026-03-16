@@ -57,8 +57,9 @@ class MemoryTool:
         self,
         *,
         fact: str,
-        category: str,
-        source_thread_id: str,
+        category: str = "preference",
+        source_thread_id: str = "",
+        user_id: str | None = None,
     ) -> dict[str, Any]:
         """Store a fact with embedding for later retrieval.
 
@@ -66,6 +67,7 @@ class MemoryTool:
             fact: The fact text to store.
             category: Category tag (preference, habit, etc.).
             source_thread_id: ID of the thread where fact originated.
+            user_id: Owner of the fact for scoped access.
 
         Returns:
             RPC response dict with status.
@@ -78,6 +80,7 @@ class MemoryTool:
                 "category": category,
                 "source_thread_id": source_thread_id,
                 "auto_extracted": False,
+                "user_id": user_id,
             },
         }
         return await self._rpc(request)
@@ -87,6 +90,7 @@ class MemoryTool:
         *,
         query: str,
         n_results: int = 5,
+        user_id: str | None = None,
     ) -> dict[str, Any]:
         """Semantic search over stored facts.
 
@@ -106,6 +110,7 @@ class MemoryTool:
             "payload": {
                 "query": query,
                 "n_results": n_results,
+                "user_id": user_id,
             },
         }
         response = await self._rpc(request)
@@ -120,8 +125,9 @@ class MemoryTool:
         self,
         *,
         fact: str,
-        category: str,
-        source_thread_id: str,
+        category: str = "preference",
+        source_thread_id: str = "",
+        user_id: str | None = None,
     ) -> dict[str, Any]:
         """Auto-extract a fact (pending status, requires user approval).
 
@@ -131,6 +137,7 @@ class MemoryTool:
             fact: The fact text to store.
             category: Category tag.
             source_thread_id: ID of the source thread.
+            user_id: Owner of the fact for scoped access.
 
         Returns:
             RPC response dict.
@@ -143,6 +150,7 @@ class MemoryTool:
                 "category": category,
                 "source_thread_id": source_thread_id,
                 "auto_extracted": True,
+                "user_id": user_id,
             },
         }
         return await self._rpc(request)

@@ -110,7 +110,7 @@ async def agent_node(state: AgentState) -> dict[str, Any]:
     if mc and "agent" in mc:
         model = mc["agent"]
     else:
-        model = state.get("selected_model", "openai/gpt-4.1-mini")
+        model = state.get("selected_model") or "openai/gpt-4.1"
     privacy_mode = state.get("privacy_mode", "external")
 
     available_tools = state.get("available_tools") or []
@@ -126,7 +126,7 @@ async def agent_node(state: AgentState) -> dict[str, Any]:
     raw_tool_calls: list[dict[str, Any]] = response.tool_calls or []
     # Enforce bounded autonomy: cap tool calls.
     # Read limit from state (user-configured) with fallback to module constant.
-    tool_call_limit: int = state.get("max_tool_calls") or MAX_TOOL_CALLS  # type: ignore[assignment]
+    tool_call_limit = int(state.get("max_tool_calls") or MAX_TOOL_CALLS)
     tool_calls = raw_tool_calls[:tool_call_limit]
 
     content: str = response.content or ""

@@ -21,7 +21,7 @@ from noa.privacy.classifier import PrivacyClassifier
 
 # Legacy model selections per domain (kept for selected_model backward compat).
 _LOCAL_MODEL = "ollama/llama3"
-_EXTERNAL_MODEL = "openai/gpt-4.1-mini"
+_EXTERNAL_MODEL = "openai/gpt-4.1"
 
 # Shared classifier instance.
 _classifier = PrivacyClassifier()

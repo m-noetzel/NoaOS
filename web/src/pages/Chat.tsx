@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/api/client";
 import { SSEClient } from "@/api/sse";
-import type { Thread, Message, SSEEvent, ChatRequest, Run, PrivacyMode, Provider, UserSettings } from "@/api/types";
+import type { Thread, Message, SSEEvent, SSEEventType, ChatRequest, Run, PrivacyMode, Provider, UserSettings } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
@@ -86,8 +86,8 @@ export default function Chat() {
 
   // Derive model/provider/privacyMode directly from settings query data
   const settings = settingsRes?.data;
-  const model = settings?.default_model || "claude-sonnet-4-20250514";
-  const provider = (settings?.default_provider || "anthropic") as Provider;
+  const model = settings?.default_model || "gpt-4.1";
+  const provider = (settings?.default_provider || "openai") as Provider;
   const privacyMode = (settings?.default_privacy_mode || "external") as PrivacyMode;
 
   // Initialize chat defaults from saved settings (once loaded)
@@ -561,15 +561,57 @@ export default function Chat() {
                       className="flex-1 bg-green-600 hover:bg-green-700 text-white"
                       onClick={async () => {
                         const aid = pendingApproval.approval_id;
+                        const toolLabel = `${pendingApproval.tool}.${pendingApproval.function}`;
                         setPendingApproval(null);
+                        setIsStreaming(true);  // Show "executing" state while tool runs
+                        // Add a visual event so user sees what's happening
+                        setStreamEvents((prev) => [...prev, {
+                          event: "step_started" as SSEEventType,
+                          data: { step: `Executing ${toolLabel} (approved)` },
+                        }]);
                         if (aid) {
-                          await apiRequest(`/api/v1/approvals/${aid}/decide`, {
-                            method: "POST",
-                            body: JSON.stringify({ decision: "approved" }),
-                          });
-                          queryClient.invalidateQueries({ queryKey: ["approvals"] });
+                          try {
+                            const res = await apiRequest<{
+                              approval_id: string;
+                              decision: string;
+                              tool_result?: Record<string, unknown>;
+                            }>(`/api/v1/approvals/${aid}/decide`, {
+                              method: "POST",
+                              body: JSON.stringify({ decision: "approved" }),
+                            });
+                            // Show tool result in activity stream
+                            const toolResult = res.data?.tool_result;
+                            setStreamEvents((prev) => [...prev, {
+                              event: "tool_end" as SSEEventType,
+                              data: {
+                                tool_name: toolLabel,
+                                result: toolResult ?? { status: "executed" },
+                              },
+                            }]);
+                            // Build a completion message from the result
+                            const resultSummary = toolResult?.error
+                              ? `Tool execution failed: ${toolResult.error}`
+                              : `${toolLabel} executed successfully.`;
+                            setOptimisticMessage({
+                              id: `optimistic-approval-${Date.now()}`,
+                              thread_id: activeThreadRef.current || "",
+                              role: "assistant",
+                              content: resultSummary,
+                              created_at: new Date().toISOString(),
+                            });
+                            queryClient.invalidateQueries({ queryKey: ["approvals"] });
+                            queryClient.invalidateQueries({ queryKey: ["messages", activeThreadRef.current] });
+                            queryClient.invalidateQueries({ queryKey: ["runs"] });
+                            toast({ title: "Approved & Executed", description: resultSummary });
+                          } catch (err) {
+                            toast({
+                              title: "Execution failed",
+                              description: err instanceof Error ? err.message : "Unknown error",
+                              variant: "destructive",
+                            });
+                          }
                         }
-                        toast({ title: "Approved", description: `${pendingApproval.tool}.${pendingApproval.function} approved` });
+                        setIsStreaming(false);
                       }}
                     >
                       Approve
@@ -583,11 +625,14 @@ export default function Chat() {
                         setPendingApproval(null);
                         setIsStreaming(false);
                         if (aid) {
-                          await apiRequest(`/api/v1/approvals/${aid}/decide`, {
-                            method: "POST",
-                            body: JSON.stringify({ decision: "denied" }),
-                          });
-                          queryClient.invalidateQueries({ queryKey: ["approvals"] });
+                          try {
+                            await apiRequest(`/api/v1/approvals/${aid}/decide`, {
+                              method: "POST",
+                              body: JSON.stringify({ decision: "denied" }),
+                            });
+                            queryClient.invalidateQueries({ queryKey: ["approvals"] });
+                            queryClient.invalidateQueries({ queryKey: ["runs"] });
+                          } catch { /* ignore */ }
                         }
                         toast({ title: "Denied", description: "Action was denied" });
                       }}

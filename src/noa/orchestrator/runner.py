@@ -114,15 +114,7 @@ class OrchestratorRunner:
         await self._persist_event(run_service, run_id, event)
         yield event
 
-        # 4. step_started
-        event = self._make_event(
-            "step_started",
-            {"step": "agent"},
-        )
-        await self._persist_event(run_service, run_id, event)
-        yield event
-
-        # 5. Invoke graph
+        # 5. Stream graph node-by-node
         try:
             # Resolve available tools from gateway
             from noa.orchestrator.nodes.tools import get_gateway
@@ -160,9 +152,9 @@ class OrchestratorRunner:
                 "messages": messages,
                 "privacy_mode": privacy_mode,
                 "user_privacy_override": privacy_mode,
-                "selected_model": model,
+                "selected_model": model or "gpt-4.1",
                 "user_model_override": model,
-                "user_provider_override": provider,
+                "user_provider_override": provider or "openai",
                 "tool_calls": [],
                 "tool_results": [],
                 "response": None,
@@ -181,6 +173,7 @@ class OrchestratorRunner:
                 "approvals_enabled": approvals_enabled,
                 # MVP-H3: Private domain availability (for router node)
                 "private_available": private_available,
+                "user_id": user_id,
             }
 
             # A4: Load checkpoint if available (resume support)
@@ -196,80 +189,91 @@ class OrchestratorRunner:
                 len(avail_tools),
                 extra=log_ctx,
             )
-            result = await self._graph.ainvoke(initial_state)
+
+            # Stream node-by-node so the frontend sees events in real-time
+            # instead of waiting for the entire graph to complete.
+            result: dict[str, Any] = dict(initial_state)
+            seen_tools: set[str] = set()
+
+            async for chunk in self._graph.astream(initial_state):
+                # astream yields {node_name: state_update} per completed node
+                for node_name, node_output in chunk.items():
+                    if not isinstance(node_output, dict):
+                        continue
+                    # Merge node output into accumulated result
+                    result.update(node_output)
+
+                    # Emit step_started for each node as it completes
+                    step_event = self._make_event(
+                        "step_started",
+                        {"step": node_name},
+                    )
+                    await self._persist_event(run_service, run_id, step_event)
+                    yield step_event
+
+                    # Emit tool events from agent node (tool_calls)
+                    if node_name == "agent":
+                        for tc in node_output.get("tool_calls", []):
+                            tool_name = (
+                                tc.get("name")
+                                if isinstance(tc, dict)
+                                else getattr(tc, "name", "tool")
+                            )
+                            if tool_name and tool_name not in seen_tools:
+                                start_event = self._make_event(
+                                    "tool_start",
+                                    {"tool_name": tool_name},
+                                )
+                                await self._persist_event(run_service, run_id, start_event)
+                                yield start_event
+
+                                tc_event = self._make_event(
+                                    "tool_called",
+                                    {"tool_call": tc, "tool_name": tool_name},
+                                )
+                                await self._persist_event(run_service, run_id, tc_event)
+                                yield tc_event
+                                seen_tools.add(tool_name)
+
+                    # Emit tool results from tools node
+                    if node_name == "tools":
+                        for tr in node_output.get("tool_results", []):
+                            if not isinstance(tr, dict):
+                                continue
+                            tr_name = tr.get("name", tr.get("tool_name", ""))
+
+                            # Emit tool_end for completed tools
+                            end_event = self._make_event(
+                                "tool_end",
+                                {"tool_name": tr_name, "result": tr},
+                            )
+                            await self._persist_event(run_service, run_id, end_event)
+                            yield end_event
+
+                            # Emit approval_requested for actions needing approval
+                            if tr.get("approval_required"):
+                                approval_event = self._make_event(
+                                    "approval_requested",
+                                    {
+                                        "tool": tr.get("tool", ""),
+                                        "function": tr.get("function", ""),
+                                        "args": tr.get("args", {}),
+                                        "risk_tier": tr.get("risk_tier", "medium"),
+                                    },
+                                )
+                                await self._persist_event(run_service, run_id, approval_event)
+                                yield approval_event
+                            else:
+                                tr_event = self._make_event(
+                                    "tool_result",
+                                    {"tool_result": tr, "tool_name": tr_name},
+                                )
+                                await self._persist_event(run_service, run_id, tr_event)
+                                yield tr_event
 
             # A4: Save checkpoint after successful execution
             if self._checkpointer is not None:
                 await self._checkpointer.save(run_id=run_id, state=result)
-
-            # 6. Emit tool events if any
-            # UX-H10: pair each tool_called with tool_start/tool_end so the
-            # frontend ActivityStream shows per-tool execution progress.
-            tool_calls = result.get("tool_calls", [])
-            tool_results = result.get("tool_results", [])
-
-            # Build a mapping from tool name → result for pairing start/end
-            result_by_name: dict[str, Any] = {}
-            for tr in tool_results:
-                if isinstance(tr, dict):
-                    name = tr.get("name", tr.get("tool_name", ""))
-                    if name:
-                        result_by_name[name] = tr
-
-            for tc in tool_calls:
-                tool_name = (
-                    tc.get("name")
-                    if isinstance(tc, dict)
-                    else getattr(tc, "name", "tool")
-                )
-
-                # tool_start — signals the frontend that execution is beginning
-                start_event = self._make_event(
-                    "tool_start",
-                    {"tool_name": tool_name},
-                )
-                await self._persist_event(run_service, run_id, start_event)
-                yield start_event
-
-                # tool_called — full call details (inputs)
-                tc_event = self._make_event(
-                    "tool_called",
-                    {"tool_call": tc, "tool_name": tool_name},
-                )
-                await self._persist_event(run_service, run_id, tc_event)
-                yield tc_event
-
-                # tool_end — signals completion; include result if available
-                paired_result = result_by_name.get(tool_name, {})
-                end_event = self._make_event(
-                    "tool_end",
-                    {"tool_name": tool_name, "result": paired_result},
-                )
-                await self._persist_event(run_service, run_id, end_event)
-                yield end_event
-
-            for tr in tool_results:
-                # Emit approval_requested event for actions needing approval
-                if isinstance(tr, dict) and tr.get("approval_required"):
-                    approval_event = self._make_event(
-                        "approval_requested",
-                        {
-                            "tool": tr.get("tool", ""),
-                            "function": tr.get("function", ""),
-                            "args": tr.get("args", {}),
-                            "risk_tier": tr.get("risk_tier", "medium"),
-                        },
-                    )
-                    await self._persist_event(run_service, run_id, approval_event)
-                    yield approval_event
-                else:
-                    tr_name = tr.get("name", "") if isinstance(tr, dict) else ""
-                    tr_event = self._make_event(
-                        "tool_result",
-                        {"tool_result": tr, "tool_name": tr_name},
-                    )
-                    await self._persist_event(run_service, run_id, tr_event)
-                    yield tr_event
 
             # 7. result_ready
             response = result.get("response", "")
@@ -308,6 +312,7 @@ class OrchestratorRunner:
                 user_id or "unknown",
                 trace_id or "unknown",
                 str(exc),
+                exc_info=True,
                 extra=log_ctx,
             )
             # Error event — send a generic message to the client (str(exc) may

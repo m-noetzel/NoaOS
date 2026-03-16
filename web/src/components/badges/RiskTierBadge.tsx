@@ -9,8 +9,10 @@ const tierConfig: Record<RiskTier, { label: string; className: string }> = {
   critical: { label: "Critical", className: "bg-destructive text-destructive-foreground" },
 };
 
-export function RiskTierBadge({ tier }: { tier: RiskTier }) {
-  const config = tierConfig[tier];
+const fallbackConfig = { label: "Unknown", className: "bg-muted text-muted-foreground" };
+
+export function RiskTierBadge({ tier }: { tier: RiskTier | string }) {
+  const config = tierConfig[tier as RiskTier] || fallbackConfig;
   return (
     <Badge variant="outline" className={cn("text-xs font-medium", config.className)}>
       {config.label}

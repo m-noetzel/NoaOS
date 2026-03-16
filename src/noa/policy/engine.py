@@ -9,6 +9,7 @@ _LOW_ACTIONS = frozenset(
     [
         "web_search",
         "memory_recall",
+        "memory_store",
         "read_email",
         "read_calendar",
         "read_notion",
@@ -21,6 +22,10 @@ _LOW_ACTIONS = frozenset(
         "search_pages",
         "read_page",
         "draft_email",
+        # Memory tool functions
+        "remember",
+        "recall",
+        "auto_extract",
     ]
 )
 
@@ -31,7 +36,6 @@ _MEDIUM_ACTIONS = frozenset(
         "update_calendar_event",
         "create_notion_page",
         "update_notion_page",
-        "memory_store",
         "repo_modification",
         # Actual function names from TOOL_SCHEMAS
         "create_event",

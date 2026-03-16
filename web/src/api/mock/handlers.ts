@@ -169,7 +169,7 @@ export async function handleMockRequest<T>(
   // Settings
   if (path === "/api/v1/settings" && method === "GET") {
     return envelope({
-      default_model: "claude-3.5-sonnet",
+      default_model: "gpt-4.1",
       default_privacy_mode: "private",
       budget_daily_usd: 5.0,
       budget_monthly_usd: 50.0,

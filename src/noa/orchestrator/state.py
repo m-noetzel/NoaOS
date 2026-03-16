@@ -49,3 +49,5 @@ class AgentState(TypedDict):
     approvals_enabled: bool
     # MVP-H3: Private domain availability flag (passed from health checker)
     private_available: bool
+    # User identity for scoped storage (memory, etc.)
+    user_id: str | None

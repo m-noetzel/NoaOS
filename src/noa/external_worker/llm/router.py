@@ -28,7 +28,7 @@ __all__ = [
 # Default models per provider
 _DEFAULT_MODELS: dict[str, str] = {
     "anthropic": "claude-sonnet-4-20250514",
-    "openai": "gpt-4o",
+    "openai": "gpt-4.1",
     "google_ai": "gemini-pro",
     "ollama": "llama3.1",
 }
@@ -68,8 +68,8 @@ class ProviderRouter:
         ``build_llm_clients()`` (Phase QC8 / A2).
         """
         default = (
-            getattr(settings, "default_provider", "anthropic")
-            or "anthropic"
+            getattr(settings, "default_provider", "openai")
+            or "openai"
         )
         config: dict[str, Any] = {
             "default_provider": default,

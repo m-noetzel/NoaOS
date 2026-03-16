@@ -43,9 +43,19 @@ def route_after_tools(state: dict[str, Any]) -> str:
 
     Caps at max_retries from state (user-configured) or MAX_TOOL_ROUNDS as
     fallback, to enforce bounded autonomy (S2.2).
+
+    If any tool result requires approval, stop the loop immediately and
+    go to responder — the approval_requested SSE event will be emitted
+    by the runner, preventing an infinite retry loop.
     """
-    tool_rounds: int = state.get("tool_rounds", 0)
-    max_retries: int = state.get("max_retries") or MAX_TOOL_ROUNDS
+    # Stop immediately if any tool needs approval
+    tool_results = state.get("tool_results", [])
+    for tr in tool_results:
+        if isinstance(tr, dict) and tr.get("approval_required"):
+            return "responder"
+
+    tool_rounds = int(state.get("tool_rounds", 0))
+    max_retries = int(state.get("max_retries") or MAX_TOOL_ROUNDS)
     if tool_rounds >= max_retries:
         return "responder"
     return "agent"

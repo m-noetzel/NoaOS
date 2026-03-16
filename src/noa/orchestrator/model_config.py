@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 
 # Default models per privacy mode.
-_EXTERNAL_AGENT_MODEL = "anthropic/claude-sonnet-4-20250514"
+_EXTERNAL_AGENT_MODEL = "openai/gpt-4.1"
 _PRIVATE_AGENT_MODEL = "ollama/llama3.1"
 _NO_MODEL = "none"
 

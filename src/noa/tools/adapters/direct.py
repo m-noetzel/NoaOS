@@ -21,9 +21,13 @@ class DirectApiAdapter:
     async def execute(self, request: ToolRequest) -> ToolResponse:
         t0 = time.monotonic()
         try:
+            # Inject user_id into args for tools that need user-scoped storage
+            args = dict(request.args)
+            if request.user_id is not None and hasattr(self._tool, 'name') and self._tool.name == "memory":
+                args.setdefault("user_id", str(request.user_id))
             result = await self._tool.execute(
                 function=request.function,
-                args=request.args,
+                args=args,
             )
             latency = (time.monotonic() - t0) * 1000
             return ToolResponse(

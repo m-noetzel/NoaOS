@@ -298,7 +298,7 @@ export default function Settings() {
 
   useEffect(() => {
     if (settings) {
-      const newProvider = settings.default_provider || "anthropic";
+      const newProvider = settings.default_provider || "openai";
       const newModel = settings.default_model;
       setProvider(newProvider);
       // Validate that the model belongs to the provider

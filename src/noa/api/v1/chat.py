@@ -199,6 +199,7 @@ async def submit_chat(
         llm_usage: list[dict[str, Any]] = []
         response_text = ""
         collected_events: list[dict[str, Any]] = []
+        has_pending_approval = False
 
         # UX-H1: Wrap the runner async generator so we can interleave keepalive
         # pings without blocking. We race each event against a 15s sleep; if the
@@ -277,6 +278,7 @@ async def submit_chat(
                     # Inject approval_id into the SSE event payload
                     if approval_id:
                         event.setdefault("payload", {})["approval_id"] = approval_id
+                    has_pending_approval = True
 
                 yield f"data: {json.dumps(event)}\n\n"
         except Exception as exc:  # noqa: BLE001
@@ -295,9 +297,17 @@ async def submit_chat(
         if llm_usage:
             await _record_usage(user_id, run_id, llm_usage)
         await _persist_run_events(run_id, collected_events)
+        # If an approval is pending, set run to awaiting_approval so the
+        # decide endpoint can resume it after the user approves.
+        if has_pending_approval:
+            final_status = "awaiting_approval"
+        elif response_text:
+            final_status = "completed"
+        else:
+            final_status = "failed"
         await _update_run_status(
-            run_id, "completed" if response_text else "failed",
-            summary=response_text[:200].strip() if response_text else None,
+            run_id, final_status,
+            summary=_build_run_summary(collected_events, response_text),
         )
 
     return StreamingResponse(
@@ -577,6 +587,60 @@ async def _persist_messages(
                 ))
     except Exception:  # noqa: BLE001
         logger.warning("Failed to persist messages for run %s", run_id, exc_info=True)
+
+
+def _build_run_summary(
+    collected_events: list[dict[str, Any]],
+    response_text: str,
+) -> str | None:
+    """Derive a meaningful run summary from collected SSE events.
+
+    Priority:
+    1. Tool result errors  -> "Failed: <error>"
+    2. Pending approvals   -> "Awaiting approval for <tool>"
+    3. Successful tools    -> "<tool1>, <tool2> completed"
+    4. Fallback            -> first 200 chars of response_text
+    """
+    tool_errors: list[str] = []
+    approval_tool: str | None = None
+    successful_tools: list[str] = []
+
+    for event in collected_events:
+        event_type = event.get("event_type", "")
+        payload = event.get("payload", {})
+
+        if event_type == "tool_result":
+            tool_name = payload.get("tool", "") or payload.get("tool_name", "")
+            error = payload.get("error") or (
+                payload.get("result", {}).get("error")
+                if isinstance(payload.get("result"), dict)
+                else None
+            )
+            if error:
+                label = f"{tool_name}: {error}" if tool_name else str(error)
+                tool_errors.append(label[:120])
+            elif tool_name:
+                successful_tools.append(tool_name)
+
+        elif event_type == "approval_requested":
+            tool_name = payload.get("tool", "") or payload.get("function", "")
+            if tool_name and approval_tool is None:
+                approval_tool = tool_name
+
+    if tool_errors:
+        return ("Failed: " + "; ".join(tool_errors))[:200]
+
+    if approval_tool:
+        return f"Awaiting approval for {approval_tool}"[:200]
+
+    if successful_tools:
+        unique = list(dict.fromkeys(successful_tools))  # preserve order, dedupe
+        return (", ".join(unique) + " completed")[:200]
+
+    if response_text:
+        return response_text[:200].strip()
+
+    return None
 
 
 async def _update_run_status(
