@@ -1,6 +1,8 @@
 {
   "permissions": {
     "allow": [
+      "Bash(docker compose *)",
+      "Bash(docker exec *)",
       "Read(/workspace/**)",
       "Glob(/workspace/**)",
       "Grep(/workspace/**)",
@@ -158,7 +160,23 @@
       "Bash(which tailscale:*)",
       "Bash(netstat -tlnp)",
       "Read(//proc/5207/net/**)",
-      "Bash(git commit -m \"$\\(cat <<'EOF'\nfix: Google tool health checks and chat response display\n\n1. Fix _get_live_google_client\\(\\) using wrong attribute names \\(_api_client/_auth_client\n   instead of _client/_auth\\), preventing OAuth tokens from reaching live tools.\n2. Store GoogleAuthClient on app.state during registration for direct access.\n3. Fix Chat.tsx result_ready handler to use payload response when no token_stream\n   events were emitted, so responses display immediately.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")"
+      "Bash(git commit -m \"$\\(cat <<'EOF'\nfix: Google tool health checks and chat response display\n\n1. Fix _get_live_google_client\\(\\) using wrong attribute names \\(_api_client/_auth_client\n   instead of _client/_auth\\), preventing OAuth tokens from reaching live tools.\n2. Store GoogleAuthClient on app.state during registration for direct access.\n3. Fix Chat.tsx result_ready handler to use payload response when no token_stream\n   events were emitted, so responses display immediately.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI3M2JmNTMyZS01YmIxLTRlZjktYjAwYS0yNmRkNGIwNTU1MmMiLCJ0eXBlIjoiYWNjZXNzIiwiaWF0IjoxNzczNTg4NzMyLCJleHAiOjE3NzQxOTM1MzIsImp0aSI6IjgyYmNhNDYxLTY4MGUtNGE3MC1iYTI0LTFjZGVjNDJiMDRmOCIsInNpZCI6IjhhNjFiMjA5LTI0ZGItNGFlNi1hNDM1LWNjMTZhODkxMGRlYyJ9.zk41f4zmwgcPA0Z8LOaAn2tj8qUE7uhSpxdEzL9IISk\" && curl -s -N -X POST http://noa-api-dev:8000/api/v1/chat -H 'Content-Type: application/json' -H \"Authorization: Bearer $TOKEN\" -H 'Accept: text/event-stream' -d '{\"message\":\"hello\",\"privacy_mode\":\"external\",\"model\":\"claude-sonnet-4-20250514\",\"provider\":\"anthropic\"}' 2>&1 | head -50)",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI5YjViZjY5Ni0xOTAwLTRkYWEtYTZhMy1mOTY2ZWU4YTJkZjEiLCJ0eXBlIjoiYWNjZXNzIiwiaWF0IjoxNzczNTkwNjk4LCJleHAiOjE3NzQxOTU0OTgsImp0aSI6ImJjZjU3ODRmLWJjYTUtNGU4Mi1hN2Q1LWQ4NDkyNTRjNTZhNCIsInNpZCI6IjlmZGQwNGM0LTBlMDQtNDFhOC1iMDhiLTRlNjI1MzI2NWFjYiJ9.ei9UGUPkTiowIs1eH1bcWDggSNcwnhmGmBSm1UZNmbQ\"\ncurl -s -N -X POST http://noa-api-dev:8000/api/v1/chat \\\\\n  -H \"Content-Type: application/json\" \\\\\n  -H \"Authorization: Bearer $TOKEN\" \\\\\n  -d '{\"message\":\"Hallo, wie geht es dir?\",\"thread_id\":null}' \\\\\n  --max-time 30 2>&1 | head -c 2000)",
+      "Bash(npx playwright --version 2>&1 && ls playwright.config.* 2>/dev/null && ls -d e2e/ tests/ test/ 2>/dev/null)",
+      "Bash(npx playwright install chromium 2>&1 | tail -5)",
+      "Bash(cd /workspace/web/src && grep -oP \"path === \\\\\"[^\\\\\"]*\\\\\"\" api/mock/handlers.ts | sed 's/path === \"//' | sed 's/\"$//' | sort | uniq)",
+      "Read(//api/v1/approvals/**)",
+      "Read(//tmp/**)",
+      "Bash(ls -1 /workspace/src/noa/db/models/*.py | xargs basename -a | grep -v \"__\" | sed 's/.py$//' | sort)",
+      "Bash(cd /workspace/web/src && ls -1 pages/*.tsx | xargs basename -a | sed 's/\\\\.tsx$//' | sort)",
+      "Bash(echo \"=== Checking for unused services ===\"\nfind /workspace/src/noa -name \"service.py\" -type f | sort)",
+      "Bash(xargs -I {} basename {} .tsx)",
+      "Bash(cd /workspace/web && npx tsc --noEmit 2>&1 | head -30)",
+      "Bash(git commit -m \"$\\(cat <<'EOF'\ndocs: add codebase audit report and Wave 23 code quality plan\n\nFull architecture audit identified 4 unwired features \\(capability checker,\ncustom tool restore, scopes, previews\\), ~400 lines of dead governance code,\nand scoring 6.5/10 overall. Wave 23 \\(CQ1-CQ9\\) targets 9/10 on all dimensions.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git commit -m \"$\\(cat <<'EOF'\nfeat: streaming runner, user-scoped memory, approval execution, OpenAI defaults\n\n- Switch orchestrator runner from ainvoke to astream for real-time SSE events\n- Add user_id scoping to memory tool \\(remember/recall/auto_extract\\)\n- Execute approved tools inline from the approvals decide endpoint\n- Set run status to awaiting_approval when approval is pending\n- Add run summary derivation from collected SSE events\n- Switch default provider/model from Anthropic to OpenAI \\(gpt-4.1\\)\n- Add approval loop-break in route_after_tools to prevent infinite retries\n- Split Notion content into 2000-char chunks for API compliance\n- Harden badge components and Runs page against missing/null values\n- Reclassify memory actions as low-risk in policy engine\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(docker compose ps 2>/dev/null || docker-compose ps 2>/dev/null)",
+      "Bash(pip install psycopg2-binary 2>/dev/null; python3 -c \"import psycopg2; conn = psycopg2.connect\\('host=localhost port=5432 dbname=noa user=noa password=noa'\\); cur = conn.cursor\\(\\); cur.execute\\(\\\\\"SELECT id, email, is_active, created_at FROM users WHERE email = 'noetzel.noa@gmail.com'\\\\\"\\); rows = cur.fetchall\\(\\); print\\(rows if rows else 'USER NOT FOUND'\\); conn.close\\(\\)\" 2>&1)"
     ],
     "deny": [
       "Bash(git push)",

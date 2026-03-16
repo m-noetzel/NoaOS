@@ -38,21 +38,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [navigate, queryClient]);
 
   // AU1: Startup session check — call /auth/me directly via fetch (not apiRequest)
-  // to avoid circular 401-retry logic. Sets auth state from real session cookies.
+  // to avoid circular 401-retry logic. If /auth/me returns 401, attempt a token
+  // refresh before giving up — the access token may have expired while the refresh
+  // token is still valid (e.g. after a container restart).
   useEffect(() => {
     let cancelled = false;
     const checkSession = async () => {
       try {
-        const res = await fetch(`${BASE_URL}/api/v1/auth/me`, {
+        let res = await fetch(`${BASE_URL}/api/v1/auth/me`, {
           method: "GET",
           credentials: "include",
         });
-        if (!cancelled) {
-          if (res.ok) {
-            setIsAuthenticated(true);
-          } else {
-            setIsAuthenticated(false);
+        // If access token expired, try refreshing before giving up
+        if (!res.ok && res.status === 401) {
+          const refreshRes = await fetch(`${BASE_URL}/api/v1/auth/refresh`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ refresh_token: "", device_id: "web-client" }),
+            credentials: "include",
+          });
+          if (refreshRes.ok) {
+            // Retry /auth/me with the new access token cookie
+            res = await fetch(`${BASE_URL}/api/v1/auth/me`, {
+              method: "GET",
+              credentials: "include",
+            });
           }
+        }
+        if (!cancelled) {
+          setIsAuthenticated(res.ok);
         }
       } catch {
         if (!cancelled) {

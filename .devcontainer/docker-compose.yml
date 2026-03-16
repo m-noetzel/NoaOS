@@ -63,9 +63,10 @@ services:
     environment:
       POSTGRES_USER: noa
       POSTGRES_PASSWORD: dev-pg-password
-      POSTGRES_DB: noa_test
+      POSTGRES_DB: noa
     volumes:
       - dev-postgres-data:/var/lib/postgresql/data
+      - ../docker/postgres:/docker-entrypoint-initdb.d:ro
     networks:
       - noa-dev-internal
     healthcheck:
@@ -83,7 +84,7 @@ services:
       dockerfile: docker/noa-api/Dockerfile
     command: ["alembic", "upgrade", "head"]
     environment:
-      - DATABASE_URL=postgresql+asyncpg://noa:dev-pg-password@postgres-dev:5432/noa_test
+      - DATABASE_URL=postgresql+asyncpg://noa:dev-pg-password@postgres-dev:5432/noa
     networks:
       - noa-dev-internal
     depends_on:
@@ -101,7 +102,7 @@ services:
     expose:
       - "8000"
     environment:
-      - DATABASE_URL=postgresql+asyncpg://noa:dev-pg-password@postgres-dev:5432/noa_test
+      - DATABASE_URL=postgresql+asyncpg://noa:dev-pg-password@postgres-dev:5432/noa
       - NOA_ENV=development
       - SECRET_KEY=${SECRET_KEY:-dev-secret-not-for-production}
       - JWT_SECRET=${JWT_SECRET:-dev-jwt-not-for-production}

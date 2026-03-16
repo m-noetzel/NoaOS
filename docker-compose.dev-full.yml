@@ -35,7 +35,8 @@ services:
       - NOA_SHELL_MEMORY_MB=4096
       - NOA_SHELL_MAX_CONCURRENT=2
       - NOA_ENV=development
-      # Integration test DB — points to postgres-dev (no testcontainers fallback needed)
+      # Integration test DB — uses noa_test (separate from app DB 'noa').
+      # conftest.py drops all tables on every run; must never share the app DB.
       - TEST_DATABASE_URL=postgresql+asyncpg://noa:dev-pg-password@postgres-dev:5432/noa_test
       # Vite proxy target — routes /api calls to noa-api-dev when Vite runs inside Docker
       - API_PROXY_TARGET=http://noa-api-dev:8000
@@ -74,9 +75,10 @@ services:
     environment:
       POSTGRES_USER: noa
       POSTGRES_PASSWORD: dev-pg-password
-      POSTGRES_DB: noa_test
+      POSTGRES_DB: noa
     volumes:
       - dev-postgres-data:/var/lib/postgresql/data
+      - ./docker/postgres:/docker-entrypoint-initdb.d:ro
     networks:
       - noa-dev-internal
     healthcheck:
@@ -94,7 +96,7 @@ services:
       dockerfile: docker/noa-api/Dockerfile
     command: [ "alembic", "upgrade", "head" ]
     environment:
-      - DATABASE_URL=postgresql+asyncpg://noa:dev-pg-password@postgres-dev:5432/noa_test
+      - DATABASE_URL=postgresql+asyncpg://noa:dev-pg-password@postgres-dev:5432/noa
     volumes:
       - ./alembic:/app/alembic:ro
       - ./src:/app/src:ro
@@ -115,7 +117,7 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     environment:
-      - DATABASE_URL=postgresql+asyncpg://noa:dev-pg-password@postgres-dev:5432/noa_test
+      - DATABASE_URL=postgresql+asyncpg://noa:dev-pg-password@postgres-dev:5432/noa
       - NOA_ENV=development
       - SECRET_KEY=${SECRET_KEY:-dev-secret-not-for-production}
       - JWT_SECRET=${JWT_SECRET:-dev-jwt-not-for-production}

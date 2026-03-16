@@ -39,8 +39,6 @@ class UpdateSettingsRequest(BaseModel):
     system_prompt: str | None = None
     temperature: float | None = None
     max_tokens: int | None = None
-    anthropic_api_key: str | None = None
-    openai_api_key: str | None = None
     google_client_id: str | None = None
     google_client_secret: str | None = None
     notion_token: str | None = None
@@ -86,14 +84,15 @@ def _reload_llm_pipeline_if_needed(
         class _DynSettings:
             """Minimal settings adapter for ProviderRouter.from_settings()."""
 
-            anthropic_api_key: str | None = full_settings.get(
-                "anthropic_api_key",
-                os.environ.get("ANTHROPIC_API_KEY"),
-            )
-            openai_api_key: str | None = full_settings.get(
-                "openai_api_key",
-                os.environ.get("OPENAI_API_KEY"),
-            )
+            # full_settings contains MASKED keys — never use for actual credentials.
+            # Env vars (keychain-injected) take priority; fall back to raw value
+            # from this update if the key was just set via UI.
+            anthropic_api_key: str | None = os.environ.get(
+                "ANTHROPIC_API_KEY"
+            ) or updates.get("anthropic_api_key")
+            openai_api_key: str | None = os.environ.get(
+                "OPENAI_API_KEY"
+            ) or updates.get("openai_api_key")
             google_ai_api_key: str | None = os.environ.get("GOOGLE_AI_API_KEY")
             ollama_base_url: str | None = full_settings.get(
                 "ollama_base_url",

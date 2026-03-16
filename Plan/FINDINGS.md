@@ -175,8 +175,12 @@
 | AUTH-H2 | High | Auth state split between httpOnly cookies and localStorage flag can desync — startup shows "Session expired" without user action | **Resolved** | AU1 |
 | AUTH-M1 | Medium | In-memory auth rate limiting (H8) marked resolved in QC8 but never actually migrated — class-level dict still in `service.py` | **Resolved** | AU1 |
 | AUTH-M2 | Medium | No session validity check on app startup — `isAuthenticated` initialised from localStorage flag without verifying cookies are live | **Resolved** | AU1 |
+| DB-C1 | Critical | Dev app and integration tests share same database (`noa_test`) — `conftest.py` runs `drop_all` on every test session, wiping all user data including accounts. User must re-register after every test run. | **Resolved** | AUTH-fix |
+| AUTH-H3 | High | `.env` overrides token expiry to 30 min (access) / 7 days (refresh), contradicting AU1 code defaults of 7 days / 90 days — tokens expire during normal downtime, causing auth failure on restart | **Resolved** | AUTH-fix |
+| AUTH-H4 | High | Cookie `max_age` hardcoded to 7 days / 90 days regardless of actual JWT expiry from settings — browser sends valid-looking cookies containing expired JWTs | **Resolved** | AUTH-fix |
+| AUTH-M3 | Medium | Frontend startup session check (`/auth/me`) does not attempt token refresh on 401 — if access token expired but refresh token is valid, user is shown as logged out without a refresh attempt | **Resolved** | AUTH-fix |
 
-**Open:** 2 | **Partially Resolved:** 0 | **Resolved:** 163 | **Total:** 165
+**Open:** 2 | **Partially Resolved:** 0 | **Resolved:** 167 | **Total:** 169
 
 ---
 
@@ -1279,6 +1283,45 @@ Historical issues encountered during pipeline execution (formerly `Plan/ISSUES.m
 **Status:** Open
 **Description:** The test suite uses `Base.metadata.create_all` to set up in-memory SQLite databases, which bypasses alembic entirely. As a result, a migration that references a `down_revision` pointing to a non-existent file will never cause a test failure — but will cause `alembic history` and `alembic upgrade head` to crash in the worktree (and potentially in staging). Discovered during FR3 QA review: migration 015 references `down_revision="014"` but migration 014 (`014_conversation_domain_column.py`, created by FR1) was not present in the FR3 worktree because it was branched before FR1 merged. Running `alembic history` in the FR3 worktree crashed with `KeyError: '014'`. Fix: add a test `test_migration_chain_intact` that reads all migration files, builds the revision map, and asserts every `down_revision` points to an existing revision (or is None). This should run as part of the unit test suite (no DB required — pure file parsing).
 **Files:** `alembic/versions/`, `tests/unit/` (no test exists yet)
+
+## 11. Auth & Database Isolation Fix (2026-03-16)
+
+### DB-C1 — Dev app and integration tests share same database (Critical)
+
+**Root cause of daily user data loss.** Both `docker-compose.dev-full.yml` and `.devcontainer/docker-compose.yml` used `POSTGRES_DB: noa_test` for all services — the running app (API, migrations) and the integration test runner pointed at the same database. The integration test fixture (`tests/integration/conftest.py:90-100`) runs `Base.metadata.drop_all` followed by `DROP TABLE IF EXISTS alembic_version` at the start of every test session to ensure a clean schema. This nuked **all tables** — including `users`, `auth_sessions`, `conversations`, and all user data.
+
+**Symptoms:** User must re-register after every test run. Appears as "auth failed after restart" because the user row no longer exists.
+
+**Fix:**
+- Changed `POSTGRES_DB` from `noa_test` to `noa` in both compose files (app DB)
+- Changed `DATABASE_URL` for `migrate-dev` and `noa-api-dev` to point to `/noa`
+- `TEST_DATABASE_URL` (used only by integration tests in the dev container) still points to `/noa_test`
+- Added `docker/postgres/init-test-db.sh` — Postgres init script that creates `noa_test` alongside `noa` on first volume creation
+- Mounted init script in both compose files via `/docker-entrypoint-initdb.d`
+
+**Files changed:** `docker-compose.dev-full.yml`, `.devcontainer/docker-compose.yml`, `docker/postgres/init-test-db.sh` (new)
+
+### AUTH-H3 — `.env` overrides token expiry to 30 min
+
+`.env` contained `ACCESS_TOKEN_EXPIRE_MINUTES=30` and `REFRESH_TOKEN_EXPIRE_DAYS=7`, overriding the AU1 code defaults of 10080 min (7 days) / 90 days. Since pydantic-settings reads env vars first, the `.env` values won. Access tokens expired after 30 minutes of downtime, causing auth failure on restart.
+
+**Fix:** Updated `.env` and `.env.example` to `ACCESS_TOKEN_EXPIRE_MINUTES=10080` and `REFRESH_TOKEN_EXPIRE_DAYS=90`.
+
+### AUTH-H4 — Cookie max_age hardcoded, mismatched with JWT expiry
+
+`_set_auth_cookies()` in `src/noa/api/v1/auth.py` had `max_age=7 * 24 * 3600` (7 days) hardcoded for the access token cookie, regardless of the actual JWT expiry configured in settings. When `.env` set 30-minute JWT expiry, the browser kept sending the cookie (valid 7-day max_age) but the JWT inside was expired after 30 minutes — a zombie cookie.
+
+**Fix:** Cookie `max_age` now derived from `settings.access_token_expire_minutes * 60` and `settings.refresh_token_expire_days * 24 * 3600`.
+
+### AUTH-M3 — No refresh attempt on startup session check
+
+`AuthContext.tsx` called `GET /auth/me` via raw `fetch` on mount. If the access token was expired, it got 401 and immediately set `isAuthenticated = false` — without trying to refresh the token. Even if the refresh token was still valid (90-day lifetime), it was never attempted.
+
+**Fix:** On 401 from `/auth/me`, the startup check now attempts `POST /auth/refresh` (with httpOnly cookie). If refresh succeeds, it retries `/auth/me` with the new access token cookie. Only gives up if refresh also fails.
+
+**Files changed:** `web/src/auth/AuthContext.tsx`, `src/noa/api/v1/auth.py`, `.env`, `.env.example`
+
+---
 
 ### BE-H6: Memory Facts Lost on API Container Restart
 **Severity:** High

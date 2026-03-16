@@ -93,7 +93,14 @@ def _get_settings() -> Settings:
 def _set_auth_cookies(
     response: Response, tokens: dict[str, Any],
 ) -> None:
-    """Set httpOnly cookies for auth tokens (C6)."""
+    """Set httpOnly cookies for auth tokens (C6).
+
+    Cookie max_age is derived from settings so that the browser cookie
+    lifetime always matches the JWT expiry.  A mismatch (e.g. cookie
+    lives 7 days but JWT expires in 30 min) causes "session expired"
+    after restart because the browser sends a valid cookie whose inner
+    JWT is already expired.
+    """
     settings = _get_settings()
     is_secure = settings.noa_env == Environment.PRODUCTION
     response.set_cookie(
@@ -102,7 +109,7 @@ def _set_auth_cookies(
         httponly=True,
         secure=is_secure,
         samesite="lax" if not is_secure else "strict",
-        max_age=7 * 24 * 3600,  # 7 days (AU1)
+        max_age=settings.access_token_expire_minutes * 60,
         path="/",
     )
     response.set_cookie(
@@ -111,7 +118,7 @@ def _set_auth_cookies(
         httponly=True,
         secure=is_secure,
         samesite="lax" if not is_secure else "strict",
-        max_age=90 * 24 * 3600,  # 90 days (AU1)
+        max_age=settings.refresh_token_expire_days * 24 * 3600,
         path="/api/v1/auth",  # Only sent to auth endpoints
     )
 

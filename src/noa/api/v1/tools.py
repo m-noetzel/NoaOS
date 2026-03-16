@@ -31,16 +31,11 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/tools", tags=["tools"])
 
-# In-memory credential store keyed by (user_id, tool_name).
-# TODO(TM1): replace with vault/Keychain integration before production.
-_credential_store: dict[tuple[str, str], dict[str, str]] = {}
-
 # In-memory health status cache keyed by tool name.
 # Updated by the health check endpoint, read by list_tools.
 _health_cache: dict[str, dict[str, Any]] = {}
 
-# Env-var fallback: keys injected via Keychain at startup.
-# If the user hasn't manually stored credentials, these are used automatically.
+# Credentials are keychain-injected env vars only — no UI credential store.
 _ENV_CREDENTIAL_DEFAULTS: dict[str, dict[str, str]] = {
     "web_search": {"api_key": os.environ.get("TAVILY_API_KEY", "")},
     "notion": {"token": os.environ.get("NOTION_TOKEN", "")},
@@ -56,12 +51,8 @@ _ENV_CREDENTIAL_DEFAULTS: dict[str, dict[str, str]] = {
 
 
 def _get_credentials(uid: str, name: str) -> dict[str, str]:
-    """Return stored credentials, falling back to env-var defaults."""
-    stored = _credential_store.get((uid, name))
-    if stored:
-        return stored
-    defaults = {k: v for k, v in _ENV_CREDENTIAL_DEFAULTS.get(name, {}).items() if v}
-    return defaults
+    """Return credentials from env-var defaults (keychain-injected)."""
+    return {k: v for k, v in _ENV_CREDENTIAL_DEFAULTS.get(name, {}).items() if v}
 
 # ---------------------------------------------------------------------------
 # Dynamic dependency wrappers
@@ -439,92 +430,8 @@ async def check_tool_health(
 
 
 # ---------------------------------------------------------------------------
-# TM1: Credential endpoints
+# TM1: Credential status endpoint (read-only — keys via keychain only)
 # ---------------------------------------------------------------------------
-
-
-async def _auto_grant_capability(
-    uid: str, name: str, payload: Any, rid: str,
-) -> None:
-    """Best-effort capability grant when credentials are saved.
-
-    UX-H6: Auto-grants the tool capability so the agent can use the tool
-    immediately after credentials are saved without a separate enable step.
-    Runs with its own DB session obtained from app_state; silently degrades
-    if the DB is unavailable (e.g. in tests that don't wire a DB session).
-    """
-    try:
-        from noa.api.app_state import get_session_factory
-
-        session_factory = get_session_factory()
-        if session_factory is None:
-            logger.debug(
-                "No session factory available; skipping capability auto-grant for '%s'",
-                name,
-            )
-            return
-
-        user_id = (
-            payload.user_id
-            if hasattr(payload, "user_id")
-            else uuid.UUID(uid)
-        )
-        async with session_factory() as session:
-            checker = DbCapabilityChecker(session)
-            await checker.grant(user_id=user_id, tool_name=name, granted_by=user_id)
-            logger.info(
-                "Auto-granted capability '%s' for tool '%s' on credential save [%s]",
-                TOOL_CAPABILITIES[name],
-                name,
-                rid,
-            )
-    except Exception:  # noqa: BLE001
-        logger.warning(
-            "Failed to auto-grant capability for tool '%s' [%s]",
-            name,
-            rid,
-            exc_info=True,
-        )
-
-
-@router.post("/{name}/credentials")
-async def store_credentials(
-    name: str,
-    body: dict[str, Any],
-    payload: Any = Depends(require_auth),  # noqa: B008
-) -> dict[str, Any]:
-    """Store credentials for a tool. Returns masked values.
-
-    UX-H6: When a Notion credential is saved, auto-grants the notion.read
-    capability so the agent can immediately read Notion pages.
-    The same auto-grant logic applies to any tool that has a default
-    capability defined in TOOL_CAPABILITIES.
-    The capability grant is best-effort; if the DB is unavailable the
-    credential storage still succeeds.
-    """
-    if name not in KNOWN_TOOLS and name not in TOOL_CAPABILITIES:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Unknown tool: {name}",
-        )
-
-    rid = trace_id_ctx.get("")
-    uid = _extract_user_id(payload)
-
-    # Store per-user (production: encrypted vault)
-    _credential_store[(uid, name)] = dict(body)
-
-    # UX-H6: Auto-grant the tool capability when credentials are configured.
-    if name in TOOL_CAPABILITIES:
-        await _auto_grant_capability(uid, name, payload, rid)
-
-    # Return masked version
-    masked = {k: mask_credential(v) for k, v in body.items()}
-    cap_granted = name in TOOL_CAPABILITIES
-    return success_envelope(
-        data={"tool": name, "credentials": masked, "capability_granted": cap_granted},
-        trace_id=rid,
-    )
 
 
 # ---------------------------------------------------------------------------

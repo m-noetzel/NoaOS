@@ -6,7 +6,6 @@ import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import CredentialModal from "@/components/tools/CredentialModal";
 import type { ToolScope } from "@/api/types";
 
 interface ToolFunction {
@@ -46,7 +45,6 @@ export default function Tools() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [expandedTool, setExpandedTool] = useState<string | null>(null);
-  const [credentialModal, setCredentialModal] = useState<string | null>(null);
   // UX-M8: All vs Usable toggle
   const [filterMode, setFilterMode] = useState<FilterMode>("all");
   // UX-M9: Search/filter input
@@ -141,23 +139,6 @@ export default function Tools() {
     },
     onError: (err: Error) => {
       toast({ title: "Health check failed", description: err.message, variant: "destructive" });
-    },
-  });
-
-  const saveCredentialMutation = useMutation({
-    mutationFn: async ({ toolName, apiKey }: { toolName: string; apiKey: string }) => {
-      return apiRequest(`/api/v1/tools/${toolName}/credentials`, {
-        method: "POST",
-        body: JSON.stringify({ api_key: apiKey }),
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["tools"] });
-      setCredentialModal(null);
-      toast({ title: "Credentials saved" });
-    },
-    onError: (err: Error) => {
-      toast({ title: "Failed to save credentials", description: err.message, variant: "destructive" });
     },
   });
 
@@ -403,28 +384,17 @@ export default function Tools() {
                       </button>
                     </div>
 
-                    {/* Credentials section */}
+                    {/* Credentials section — read-only status, keys via Keychain */}
                     <div className="space-y-2">
                       <h3 className="text-sm font-medium">Credentials</h3>
                       {tool.credentials?.configured ? (
                         <div className="flex items-center gap-2">
-                          <span className="text-sm font-mono">{tool.credentials.masked_value}</span>
-                          <button
-                            onClick={() => setCredentialModal(tool.name)}
-                            className="text-sm px-3 py-1 rounded border hover:bg-muted"
-                          >
-                            Configure
-                          </button>
+                          <span className="text-sm font-mono text-muted-foreground">{tool.credentials.masked_value}</span>
+                          <span className="text-xs text-green-600">via Keychain</span>
                         </div>
                       ) : (
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm text-muted-foreground">No credentials found</span>
-                          <button
-                            onClick={() => setCredentialModal(tool.name)}
-                            className="text-sm px-3 py-1 rounded border hover:bg-muted"
-                          >
-                            Add key
-                          </button>
+                        <div className="text-sm text-muted-foreground">
+                          Not configured — set via <code className="text-xs">keychain_store.sh</code>
                         </div>
                       )}
                     </div>
@@ -477,17 +447,6 @@ export default function Tools() {
         </div>
       )}
 
-      {/* Credential Modal */}
-      {credentialModal && (
-        <CredentialModal
-          toolName={credentialModal}
-          open={true}
-          onClose={() => setCredentialModal(null)}
-          onSave={(apiKey) =>
-            saveCredentialMutation.mutate({ toolName: credentialModal, apiKey })
-          }
-        />
-      )}
     </div>
   );
 }
