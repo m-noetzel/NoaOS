@@ -293,7 +293,8 @@ async def _execute_approved_tool(
 
         response = await gateway.dispatch(request, approvals_enabled=False)
 
-        # Update run status to completed
+        # Resume run — set back to "running" so the next message continues
+        # the same run (a Run = full task lifecycle, not a single action).
         try:
             session_factory = get_session_factory()
             if session_factory:
@@ -305,11 +306,11 @@ async def _execute_approved_tool(
                     )
                     run = result.scalar_one_or_none()
                     if run and run.status == "awaiting_approval":
-                        run.status = "completed"
+                        run.status = "running"
                         run.updated_at = datetime.now(UTC)
                         await db_session.commit()
                         logger.info(
-                            "Run %s completed after approval %s",
+                            "Run %s resumed after approval %s",
                             approval.run_id,
                             approval.id,
                         )

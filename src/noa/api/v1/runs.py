@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from datetime import UTC, datetime
 from typing import Any, cast
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 
@@ -296,3 +297,44 @@ async def replay_run_events(
     ]
 
     return success_envelope(data={"events": events}, trace_id=rid)
+
+
+@router.post("/{run_id}/complete")
+async def complete_run(
+    run_id: uuid.UUID,
+    request: Request,
+    user: AuthUser = Depends(require_auth),  # noqa: B008
+    db: Any = Depends(get_db_session),  # noqa: B008
+) -> dict[str, Any]:
+    """Manually mark a run as completed.
+
+    Users can end a task explicitly via a UI button.
+    Only the run owner can complete their own runs, and
+    only runs in non-terminal states can be completed.
+    """
+    rid = trace_id_ctx.get("")
+
+    result = await db.execute(select(Run).where(Run.id == run_id))
+    run = result.scalar_one_or_none()
+
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    if run.user_id != user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorised")
+
+    terminal = {"completed", "failed", "cancelled"}
+    if run.status in terminal:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Run already in terminal state: {run.status}",
+        )
+
+    run.status = "completed"
+    run.updated_at = datetime.now(UTC)
+    await db.commit()
+
+    return success_envelope(
+        data={"run_id": str(run_id), "status": "completed"},
+        trace_id=rid,
+    )

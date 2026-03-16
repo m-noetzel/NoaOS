@@ -7,15 +7,20 @@ import contextlib
 import json
 import logging
 import uuid
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from noa.api.middleware import idempotency_key_ctx, trace_id_ctx
 from noa.auth.middleware import AuthUser, require_auth
+from noa.orchestrator.runner import OrchestratorRunner
+from noa.queue.health import HealthChecker
+from noa.types import PrivacyMode, RiskTier
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +33,10 @@ _IDEMPOTENCY_TTL_SECONDS = 300  # 5 minutes
 # UX-H1: SSE keepalive interval — send comment pings to prevent proxy timeouts
 # during long-running tool calls (e.g. Calendar API calls can take >30s).
 _SSE_KEEPALIVE_INTERVAL = 15  # seconds
+
+# Marker the LLM includes at the end of its response when the task is done.
+# Stripped before persisting/sending to the UI.
+_TASK_COMPLETE_MARKER = "[TASK_COMPLETE]"
 
 
 class ChatRequest(BaseModel):
@@ -43,14 +52,14 @@ class ChatRequest(BaseModel):
     system_prompt: str | None = None
 
 
-def get_runner() -> Any:
+def get_runner() -> OrchestratorRunner | None:
     """Get the OrchestratorRunner from app state."""
     from noa.api.app_state import get_runner
 
     return get_runner()
 
 
-def _get_session_factory() -> Any:
+def _get_session_factory() -> async_sessionmaker[AsyncSession] | None:
     """Get the DB session factory from app state."""
     from noa.api.app_state import get_session_factory
 
@@ -61,11 +70,48 @@ def _get_session_factory() -> Any:
 get_session_factory = _get_session_factory
 
 
-def get_health_checker() -> Any:
+def get_health_checker() -> HealthChecker | None:
     """Get the HealthChecker from app state."""
     from noa.api.app_state import get_health_checker as _ghc
 
     return _ghc()
+
+
+async def _find_active_run(thread_id: str, user_id: str) -> str | None:
+    """Find an active (non-terminal) run for the given thread.
+
+    Returns the run_id as a string if an active run exists, else None.
+    A Run represents the full task lifecycle — follow-up messages in the
+    same thread continue the same run rather than creating new ones.
+    """
+    factory = _get_session_factory()
+    if factory is None:
+        return None
+
+    try:
+        from sqlalchemy import select
+
+        from noa.db.models.run import Run
+
+        tid = uuid.UUID(thread_id)
+        uid = uuid.UUID(user_id)
+
+        async with factory() as session:
+            result = await session.execute(
+                select(Run.id)
+                .where(
+                    Run.thread_id == tid,
+                    Run.user_id == uid,
+                    Run.status.in_(["pending", "running", "awaiting_approval"]),
+                )
+                .order_by(Run.created_at.desc())
+                .limit(1)
+            )
+            row = result.scalar_one_or_none()
+            return str(row) if row else None
+    except Exception:  # noqa: BLE001
+        logger.debug("Failed to find active run for thread %s", thread_id)
+        return None
 
 
 @router.post("/chat", response_model=None)
@@ -83,7 +129,7 @@ async def submit_chat(
     user_id = str(user.user_id)
 
     # Default privacy_mode to "external" when omitted (iOS compatibility — H1)
-    privacy_mode: Literal["private", "external"] = body.privacy_mode or "external"
+    privacy_mode: str = body.privacy_mode or PrivacyMode.EXTERNAL
 
     # BE-M4: Structured log context for queryable logs
     log_ctx = {
@@ -107,8 +153,17 @@ async def submit_chat(
                      "message": "Duplicate request (same Idempotency-Key)"}},
         )
 
-    run_id = str(uuid.uuid4())
     thread_id = body.thread_id or str(uuid.uuid4())
+
+    # Reuse active run on this thread instead of creating a new one per message.
+    # A Run = full task lifecycle; follow-up messages are steps in the same run.
+    existing_run_id = (
+        await _find_active_run(thread_id, user_id)
+        if body.thread_id
+        else None
+    )
+    run_id = existing_run_id or str(uuid.uuid4())
+    is_new_run = existing_run_id is None
 
     # M1: Register idempotency key as active
     if idem_key:
@@ -131,12 +186,13 @@ async def submit_chat(
     private_available: bool = _checker.is_available() if _checker is not None else True
 
     # MVP-H3: If private domain is requested but unavailable, enqueue the task
-    if privacy_mode == "private" and not private_available:
+    if privacy_mode == PrivacyMode.PRIVATE and not private_available:
         # MVP-M2: Create Run + Conversation rows so queued request appears on Runs page.
         # Use initial_status="queued" directly — avoids a state machine transition.
         await _make_run_service(
             user_id, thread_id, run_id, privacy_mode, body.message,
             initial_status="queued",
+            create_run=is_new_run,
         )
         queue_id = await _enqueue_private_chat(
             run_id=run_id,
@@ -188,9 +244,10 @@ async def submit_chat(
             yield f"data: {json.dumps(err)}\n\n"
             return
 
-        # Create Conversation + Run rows in DB and get a no-op service for the runner
+        # Create Conversation + Run rows in DB (skip if reusing an existing run)
         run_svc = await _make_run_service(
             user_id, thread_id, run_id, privacy_mode, body.message,
+            create_run=is_new_run,
         )
 
         # Load conversation history for multi-turn context
@@ -297,14 +354,24 @@ async def submit_chat(
         if llm_usage:
             await _record_usage(user_id, run_id, llm_usage)
         await _persist_run_events(run_id, collected_events)
-        # If an approval is pending, set run to awaiting_approval so the
-        # decide endpoint can resume it after the user approves.
+        # Check if the LLM signalled task completion via [TASK_COMPLETE]
+        task_complete = _TASK_COMPLETE_MARKER in response_text
+        if task_complete:
+            response_text = response_text.replace(
+                _TASK_COMPLETE_MARKER, "",
+            ).strip()
+
+        # Run lifecycle: a run stays "running" between messages unless
+        # the LLM signals completion or an error/approval occurs.
         if has_pending_approval:
             final_status = "awaiting_approval"
-        elif response_text:
+        elif not response_text:
+            final_status = "failed"
+        elif task_complete:
             final_status = "completed"
         else:
-            final_status = "failed"
+            # Keep running — the task continues with the next message.
+            final_status = "running"
         await _update_run_status(
             run_id, final_status,
             summary=_build_run_summary(collected_events, response_text),
@@ -424,6 +491,7 @@ async def _make_run_service(
     user_message: str,
     *,
     initial_status: str = "running",
+    create_run: bool = True,
 ) -> Any:
     """Create Conversation + Run rows in DB, return a no-op service for the runner.
 
@@ -434,6 +502,10 @@ async def _make_run_service(
 
     MVP-M2: Accepts optional initial_status to support "queued" runs that are
     created before the private domain is available.
+
+    When ``create_run=False`` (reusing an existing run), only the Conversation
+    row is ensured and the existing run is transitioned back to "running" if
+    it was in an interruptible state (e.g. awaiting_approval).
     """
     factory = _get_session_factory()
     if factory is not None:
@@ -458,14 +530,25 @@ async def _make_run_service(
                         id=tid, user_id=uid, title=title, domain=privacy_mode,
                     ))
 
-                session.add(Run(
-                    id=uuid.UUID(run_id),
-                    user_id=uid,
-                    thread_id=tid,
-                    status=initial_status,
-                    risk_tier="low",
-                    privacy_mode=privacy_mode,
-                ))
+                if create_run:
+                    session.add(Run(
+                        id=uuid.UUID(run_id),
+                        user_id=uid,
+                        thread_id=tid,
+                        status=initial_status,
+                        risk_tier=RiskTier.LOW,
+                        privacy_mode=privacy_mode,
+                    ))
+                else:
+                    # Reusing existing run — ensure it's back in "running"
+                    run_result = await session.execute(
+                        select(Run).where(Run.id == uuid.UUID(run_id))
+                    )
+                    run = run_result.scalar_one_or_none()
+                    if run is not None and run.status != "running":
+                        run.status = "running"
+                        run.updated_at = datetime.now(UTC)
+
                 await session.commit()
         except Exception:  # noqa: BLE001
             logger.debug("create_run failed", exc_info=True)
@@ -663,16 +746,23 @@ async def _update_run_status(
         from noa.runs.service import RunService
 
         async with factory() as session, transactional(session):
-            svc = RunService(session=session)
-            await svc.update_status(uuid.UUID(run_id), status)
-            # Set summary if provided
+            rid = uuid.UUID(run_id)
+            result = await session.execute(
+                select(Run).where(Run.id == rid)
+            )
+            run = result.scalar_one_or_none()
+            if run is None:
+                return
+
+            # Only transition if status actually changes
+            if run.status != status:
+                svc = RunService(session=session)
+                await svc.update_status(rid, status)
+
+            # Always update summary with latest activity
             if summary:
-                result = await session.execute(
-                    select(Run).where(Run.id == uuid.UUID(run_id))
-                )
-                run = result.scalar_one_or_none()
-                if run is not None:
-                    run.summary = summary
+                run.summary = summary
+                run.updated_at = datetime.now(UTC)
     except ValueError:
         # Invalid transition (run may already be in terminal state) — ignore
         logger.debug(
@@ -723,8 +813,6 @@ async def _persist_run_events(
         return
 
     try:
-        from datetime import UTC, datetime
-
         from noa.db.models.run import RunEvent
         from noa.db.transaction import transactional
         from noa.runs.schemas import VALID_EVENT_TYPES
