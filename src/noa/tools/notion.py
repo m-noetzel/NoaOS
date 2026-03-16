@@ -121,13 +121,15 @@ class NotionTool:
         self,
         *,
         parent_id: str,
+        parent_type: str = "page_id",
         title: str,
         content: str,
     ) -> dict[str, Any]:
-        """Create a page under a parent (Medium risk).
+        """Create a page under a parent page or database (Medium risk).
 
         Args:
-            parent_id: ID of the parent page.
+            parent_id: ID of the parent page or database.
+            parent_type: Either "page_id" or "database_id".
             title: Page title.
             content: Page content in markdown.
 
@@ -136,6 +138,7 @@ class NotionTool:
         """
         return cast(dict[str, Any], await self._client.create_page(
             parent_id=parent_id,
+            parent_type=parent_type,
             title=title,
             content=content,
         ))

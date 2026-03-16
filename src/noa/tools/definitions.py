@@ -224,7 +224,13 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
                     "properties": {
                         "parent_id": {
                             "type": "string",
-                            "description": "Parent page ID.",
+                            "description": "Parent page or database ID.",
+                        },
+                        "parent_type": {
+                            "type": "string",
+                            "enum": ["page_id", "database_id"],
+                            "description": "Type of parent: 'page_id' for a page, 'database_id' for a database. Defaults to 'page_id'.",
+                            "default": "page_id",
                         },
                         "title": {
                             "type": "string",

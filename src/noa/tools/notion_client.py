@@ -86,10 +86,22 @@ class NotionClient:
         self,
         *,
         parent_id: str,
+        parent_type: str = "page_id",
         title: str,
         content: str,
     ) -> dict[str, Any]:
-        """Create a new page under a parent."""
+        """Create a new page under a parent.
+
+        Args:
+            parent_id: ID of the parent page or database.
+            parent_type: Either "page_id" or "database_id".
+            title: Page title.
+            content: Page content text.
+        """
+        if parent_type not in ("page_id", "database_id"):
+            raise ValueError(
+                f"parent_type must be 'page_id' or 'database_id', got '{parent_type}'"
+            )
         url = f"{_BASE_URL}/pages"
         children = [
             {
@@ -102,7 +114,7 @@ class NotionClient:
             for chunk in _split_content(content)
         ]
         body: dict[str, Any] = {
-            "parent": {"page_id": parent_id},
+            "parent": {parent_type: parent_id},
             "properties": {
                 "title": {
                     "title": [{"text": {"content": title}}],

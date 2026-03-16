@@ -267,6 +267,7 @@ volumes:
   postgres-data:
     name: noa-pgdata
   private-data:
+    name: noa-private-data
   coding-workspace:
   backups:
   caddy-data:    # Caddy TLS certificates and ACME state
