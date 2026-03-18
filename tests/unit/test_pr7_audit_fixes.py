@@ -168,29 +168,18 @@ class TestJWTErrorSanitization:
 class TestDeadCodeRemoved:
     """M1-M4: verify dead code files are gone."""
 
-    def test_mcp_adapter_retained_with_tests(self) -> None:
-        """noa.tools.mcp_adapter is retained because it has active tests.
-
-        The system audit flagged it as dead code superseded by mcp_remote.py
-        (TM6). However, test_tool_interface.py actively tests MCPToolAdapter,
-        so deleting the file would break the test suite. It is retained as a
-        stub adapter — not wired to the running app, but exercised by tests.
-        """
+    def test_mcp_adapter_deleted_by_cq2(self) -> None:
+        """noa.tools.mcp_adapter deleted by CQ2 (superseded by mcp_remote.py)."""
         spec = importlib.util.find_spec("noa.tools.mcp_adapter")
-        assert spec is not None, (
-            "noa.tools.mcp_adapter should be present (has active tests)"
+        assert spec is None, (
+            "noa.tools.mcp_adapter should be deleted (CQ2 dead code cleanup)"
         )
 
-    def test_governance_retained_with_tests(self) -> None:
-        """noa.tools.governance is retained because it has active tests.
-
-        The system audit flagged it as dead code (features moved to gateway.py).
-        However, test_tool_governance.py actively tests GovernanceWrapper and
-        generate_preview, so deleting the file would break the test suite.
-        """
+    def test_governance_deleted_by_cq2(self) -> None:
+        """noa.tools.governance deleted by CQ2 (moved to gateway + policy/)."""
         spec = importlib.util.find_spec("noa.tools.governance")
-        assert spec is not None, (
-            "noa.tools.governance should be present (has active tests)"
+        assert spec is None, (
+            "noa.tools.governance should be deleted (CQ2 dead code cleanup)"
         )
 
     def test_coding_module_not_importable(self) -> None:

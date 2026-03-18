@@ -408,9 +408,15 @@ def _get_live_google_client() -> Any:
                 tool = adapter._tool
                 # CalendarTool/GmailTool store api_client as _client,
                 # GoogleCalendarClient/GmailClient store auth as _auth
-                api_client = getattr(tool, "_client", None) or getattr(tool, "_api_client", None)
+                api_client = (
+                    getattr(tool, "_client", None)
+                    or getattr(tool, "_api_client", None)
+                )
                 if api_client is not None:
-                    auth_client = getattr(api_client, "_auth", None) or getattr(api_client, "_auth_client", None)
+                    auth_client = (
+                        getattr(api_client, "_auth", None)
+                        or getattr(api_client, "_auth_client", None)
+                    )
                     if auth_client is not None:
                         # Cache for next call
                         if app is not None:

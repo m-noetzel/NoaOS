@@ -10,7 +10,6 @@ Spec refs: SPEC.md S2.1 (workflow topology), S2.2 (bounded inner autonomy)
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import patch
 
 import pytest
 
@@ -50,6 +49,9 @@ def _make_agent_state(
         "response": response,
         "total_cost": total_cost,
         "tool_rounds": tool_rounds,
+        "user_id": None,
+        "tool_scope": None,
+        "approvals_enabled": False,
     }
 
 
@@ -190,41 +192,51 @@ class TestToolRoundsIncrement:
     @pytest.mark.asyncio
     async def test_tool_rounds_incremented(self):
         """tool_node must return tool_rounds incremented by 1."""
-        from noa.orchestrator.nodes.tools import tool_node
+        from noa.orchestrator.nodes.tools import set_gateway, tool_node
+        from noa.tools.gateway import ToolGateway, ToolResponse
 
-        state = _make_agent_state(
-            tool_calls=[_make_tool_call("calendar_list")],
-            tool_rounds=0,
-        )
+        class _Adapter:
+            async def execute(self, req: Any) -> ToolResponse:
+                return ToolResponse(result={"result": "No events"})
 
-        with patch(
-            "noa.orchestrator.nodes.tools.execute_tool",
-            return_value={"result": "No events"},
-        ):
+        gw = ToolGateway()
+        gw.register("calendar", _Adapter())
+        old = getattr(__import__("noa.orchestrator.nodes.tools", fromlist=["_gateway"]), "_gateway", None)
+        set_gateway(gw)
+        try:
+            state = _make_agent_state(
+                tool_calls=[{"tool": "calendar", "function": "list_events", "args": {}}],
+                tool_rounds=0,
+            )
             result = await tool_node(state)
-
-        assert "tool_rounds" in result, "tool_node must return tool_rounds"
-        assert result["tool_rounds"] == 1, (
-            f"Expected tool_rounds=1 after first pass, got {result['tool_rounds']}"
-        )
+            assert "tool_rounds" in result
+            assert result["tool_rounds"] == 1
+        finally:
+            set_gateway(old)  # type: ignore[arg-type]
 
     @pytest.mark.asyncio
     async def test_tool_rounds_incremented_from_existing(self):
         """tool_node must increment from the current tool_rounds value."""
-        from noa.orchestrator.nodes.tools import tool_node
+        from noa.orchestrator.nodes.tools import set_gateway, tool_node
+        from noa.tools.gateway import ToolGateway, ToolResponse
 
-        state = _make_agent_state(
-            tool_calls=[_make_tool_call("calendar_list")],
-            tool_rounds=2,
-        )
+        class _Adapter:
+            async def execute(self, req: Any) -> ToolResponse:
+                return ToolResponse(result={"result": "Events found"})
 
-        with patch(
-            "noa.orchestrator.nodes.tools.execute_tool",
-            return_value={"result": "Events found"},
-        ):
+        gw = ToolGateway()
+        gw.register("calendar", _Adapter())
+        old = getattr(__import__("noa.orchestrator.nodes.tools", fromlist=["_gateway"]), "_gateway", None)
+        set_gateway(gw)
+        try:
+            state = _make_agent_state(
+                tool_calls=[{"tool": "calendar", "function": "list_events", "args": {}}],
+                tool_rounds=2,
+            )
             result = await tool_node(state)
-
-        assert result["tool_rounds"] == 3
+            assert result["tool_rounds"] == 3
+        finally:
+            set_gateway(old)  # type: ignore[arg-type]
 
 
 # ===========================================================================
@@ -322,20 +334,26 @@ class TestToolUsingResponse:
     @pytest.mark.asyncio
     async def test_tool_results_populated(self):
         """tool_node must return populated tool_results for valid tool calls."""
-        from noa.orchestrator.nodes.tools import tool_node
+        from noa.orchestrator.nodes.tools import set_gateway, tool_node
+        from noa.tools.gateway import ToolGateway, ToolResponse
 
-        state = _make_agent_state(
-            tool_calls=[_make_tool_call("calendar_list", {"date": "2026-03-06"})],
-        )
+        class _Adapter:
+            async def execute(self, req: Any) -> ToolResponse:
+                return ToolResponse(result={"result": "Meeting at 3pm"})
 
-        with patch(
-            "noa.orchestrator.nodes.tools.execute_tool",
-            return_value={"result": "Meeting at 3pm"},
-        ):
+        gw = ToolGateway()
+        gw.register("calendar", _Adapter())
+        old = getattr(__import__("noa.orchestrator.nodes.tools", fromlist=["_gateway"]), "_gateway", None)
+        set_gateway(gw)
+        try:
+            state = _make_agent_state(
+                tool_calls=[{"tool": "calendar", "function": "list_events", "args": {"date": "2026-03-06"}}],
+            )
             result = await tool_node(state)
-
-        assert len(result["tool_results"]) == 1
-        assert result["tool_results"][0]["name"] == "calendar_list"
+            assert len(result["tool_results"]) == 1
+            assert result["tool_results"][0]["name"] == "calendar.list_events"
+        finally:
+            set_gateway(old)  # type: ignore[arg-type]
 
     @pytest.mark.asyncio
     async def test_empty_tool_calls_returns_empty_results_and_rounds(self):

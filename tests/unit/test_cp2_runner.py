@@ -53,22 +53,19 @@ class TestRunnerEvents:
     def _make_runner(self) -> Any:
         from noa.orchestrator.runner import OrchestratorRunner
 
-        # Mock the compiled graph's ainvoke to return final state
-        mock_graph = MagicMock()
-        mock_graph.ainvoke = AsyncMock(
-            return_value={
-                "messages": [
-                    {"role": "user", "content": "hello"},
-                    {"role": "assistant", "content": "Hi there!"},
-                ],
-                "privacy_mode": "external",
-                "selected_model": "anthropic/claude-haiku",
-                "tool_calls": [],
-                "tool_results": [],
-                "response": "Hi there!",
-                "total_cost": 0.001,
+        # Mock the compiled graph's astream to yield node output chunks.
+        # The runner uses astream (not ainvoke) since Wave 23.
+        async def _fake_astream(state: Any):
+            yield {
+                "agent": {
+                    "response": "Hi there!",
+                    "tool_calls": [],
+                    "total_cost": 0.001,
+                }
             }
-        )
+
+        mock_graph = MagicMock()
+        mock_graph.astream = _fake_astream
         return OrchestratorRunner(graph=mock_graph)
 
     def test_yields_message_received_first(self) -> None:
@@ -134,10 +131,13 @@ class TestRunnerEvents:
     def test_yields_error_on_exception(self) -> None:
         from noa.orchestrator.runner import OrchestratorRunner
 
+        # Runner uses astream since Wave 23 — mock it to raise
+        async def _failing_astream(state: Any):
+            raise RuntimeError("LLM failed")
+            yield  # make it an async generator
+
         mock_graph = MagicMock()
-        mock_graph.ainvoke = AsyncMock(
-            side_effect=RuntimeError("LLM failed"),
-        )
+        mock_graph.astream = _failing_astream
         runner = OrchestratorRunner(graph=mock_graph)
         svc = _mock_run_service()
 
@@ -174,21 +174,12 @@ class TestRunnerStatusTransitions:
     def _make_runner(self) -> Any:
         from noa.orchestrator.runner import OrchestratorRunner
 
+        # Runner uses astream since Wave 23
+        async def _fake_astream(state: Any):
+            yield {"agent": {"response": "Hi!", "tool_calls": [], "total_cost": 0.001}}
+
         mock_graph = MagicMock()
-        mock_graph.ainvoke = AsyncMock(
-            return_value={
-                "messages": [
-                    {"role": "user", "content": "hello"},
-                    {"role": "assistant", "content": "Hi!"},
-                ],
-                "privacy_mode": "external",
-                "selected_model": "anthropic/claude-haiku",
-                "tool_calls": [],
-                "tool_results": [],
-                "response": "Hi!",
-                "total_cost": 0.001,
-            }
-        )
+        mock_graph.astream = _fake_astream
         return OrchestratorRunner(graph=mock_graph)
 
     def test_transitions_to_running_then_completed(self) -> None:
@@ -211,10 +202,13 @@ class TestRunnerStatusTransitions:
     def test_transitions_to_failed_on_error(self) -> None:
         from noa.orchestrator.runner import OrchestratorRunner
 
+        # Runner uses astream since Wave 23
+        async def _failing_astream(state: Any):
+            raise RuntimeError("boom")
+            yield  # make it an async generator
+
         mock_graph = MagicMock()
-        mock_graph.ainvoke = AsyncMock(
-            side_effect=RuntimeError("boom"),
-        )
+        mock_graph.astream = _failing_astream
         runner = OrchestratorRunner(graph=mock_graph)
         svc = _mock_run_service()
 

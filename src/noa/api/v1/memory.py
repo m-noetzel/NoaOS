@@ -70,7 +70,10 @@ async def create_fact(
     if body.category not in VALID_CATEGORIES:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Invalid category. Must be one of: {', '.join(sorted(VALID_CATEGORIES))}",
+            detail=(
+                "Invalid category. Must be one of: "
+                f"{', '.join(sorted(VALID_CATEGORIES))}"
+            ),
         )
     fact_id = store.store(
         fact=body.fact,

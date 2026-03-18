@@ -242,35 +242,46 @@ class TestThreadCreationRaceLogic:
     """
 
     def test_create_thread_mutation_uses_mutate_async_in_handle_send(self) -> None:
-        """Chat.tsx handleSend must await createThreadMutation.mutateAsync."""
+        """ChatComposer.tsx handleSend must await createThreadMutation.mutateAsync.
+
+        Wave 23 (CQ5): Thread creation logic moved from Chat.tsx to ChatComposer.tsx.
+        """
         import pathlib
 
-        chat_path = pathlib.Path(
-            __file__
-        ).parent.parent.parent / "web" / "src" / "pages" / "Chat.tsx"
-        source = chat_path.read_text()
+        composer_path = (
+            pathlib.Path(__file__).parent.parent.parent
+            / "web"
+            / "src"
+            / "components"
+            / "chat"
+            / "ChatComposer.tsx"
+        )
+        source = composer_path.read_text()
 
-        # The fix replaces createThreadMutation.mutate(title) with
-        # createThreadMutation.mutateAsync(title) inside handleSend
+        # The fix uses createThreadMutation.mutateAsync inside handleSend
         assert "mutateAsync" in source, (
-            "Chat.tsx handleSend must use mutateAsync for thread creation"
+            "ChatComposer.tsx handleSend must use mutateAsync for thread creation"
         )
         assert "await createThreadMutation.mutateAsync" in source, (
             "Thread creation must be awaited before SSE connect"
         )
 
     def test_thread_id_from_response_used_in_chat_body(self) -> None:
-        """After await, the thread_id from the response must be in the body."""
+        """After await, the thread_id from the response must be used in the body.
+
+        Wave 23 (CQ5): Thread creation logic moved from Chat.tsx to ChatComposer.tsx.
+        """
         import pathlib
 
-        chat_path = (
+        composer_path = (
             pathlib.Path(__file__).parent.parent.parent
             / "web"
             / "src"
-            / "pages"
-            / "Chat.tsx"
+            / "components"
+            / "chat"
+            / "ChatComposer.tsx"
         )
-        source = chat_path.read_text()
+        source = composer_path.read_text()
         # The fixed code assigns `threadId = res.data?.id` and uses it in body
         assert "threadId" in source, (
             "Fixed code must use a local threadId variable"

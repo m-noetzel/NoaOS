@@ -111,163 +111,84 @@ class TestToolInterfaceAttributes:
 
 
 # ---------------------------------------------------------------------------
-# ToolRegistry
+# ToolGateway allowlist (replaces ToolRegistry tests after CQ2 cleanup)
 # ---------------------------------------------------------------------------
 
 
-class TestToolRegistry:
-    """Tests for the ToolRegistry per §2.1 (static allowlists)."""
+class TestToolGatewayAllowlist:
+    """Tests for ToolGateway allowlist per §2.1 (static allowlists)."""
 
-    def test_registry_dispatch_routes_to_correct_tool(self):
-        """ToolRegistry must dispatch to the correct tool.
-
-        SPEC.md §2.1 — Tool dispatch through registry.
-        """
-        from noa.tools.interface import ToolRegistry
-
-        mock_tool = AsyncMock()
-        mock_tool.name = "test_tool"
-        registry = ToolRegistry({"test_tool": mock_tool})
-
-        assert registry.get("test_tool") is mock_tool
-
-    def test_registry_unknown_tool_raises_error(self):
-        """ToolRegistry must raise KeyError for unknown tools.
-
-        SPEC.md §2.2 — LLM may NOT execute tools not in allowlist.
-        """
-        from noa.tools.interface import ToolRegistry
-
-        registry = ToolRegistry({})
-
-        with pytest.raises(KeyError, match="unknown_tool"):
-            registry.get("unknown_tool")
-
-    def test_registry_allowlist_matches_keys(self):
-        """ToolRegistry allowlist must match registered tool names.
+    def test_gateway_allowlist_matches_registered_tools(self):
+        """ToolGateway allowlist must match registered tool names.
 
         SPEC.md §2.1 — Static allowlists.
         """
-        from noa.tools.interface import ToolRegistry
+        from noa.tools.gateway import ToolGateway
 
-        mock1 = AsyncMock()
-        mock1.name = "calendar"
-        mock2 = AsyncMock()
-        mock2.name = "gmail"
-        registry = ToolRegistry({"calendar": mock1, "gmail": mock2})
+        gw = ToolGateway()
+        adapter1 = AsyncMock()
+        adapter2 = AsyncMock()
+        gw.register("calendar", adapter1)
+        gw.register("gmail", adapter2)
 
-        assert registry.allowlist == frozenset({"calendar", "gmail"})
+        assert gw.allowlist == frozenset({"calendar", "gmail"})
 
-    def test_registry_list_tools(self):
-        """ToolRegistry must list all registered tools."""
-        from noa.tools.interface import ToolRegistry
+    def test_gateway_list_tools(self):
+        """ToolGateway must list all registered tools."""
+        from noa.tools.gateway import ToolGateway
 
-        mock1 = AsyncMock()
-        mock1.name = "calendar"
-        registry = ToolRegistry({"calendar": mock1})
+        gw = ToolGateway()
+        gw.register("calendar", AsyncMock())
 
-        assert "calendar" in registry.list_tools()
+        assert "calendar" in gw.list_tools()
 
 
 # ---------------------------------------------------------------------------
 # MCPToolAdapter
-# ---------------------------------------------------------------------------
-
-
-class TestMCPToolAdapter:
-    """Tests for the MCPToolAdapter stub."""
-
-    def test_mcp_adapter_implements_interface(self):
-        """MCPToolAdapter must implement ToolInterface.
-
-        MCP-ready design per MASTER_PLAN TI6.
-        """
-        from noa.tools.interface import ToolInterface
-        from noa.tools.mcp_adapter import MCPToolAdapter
-
-        adapter = MCPToolAdapter(
-            name="mcp_test",
-            domain="external",
-            risk_tiers={"default": "low"},
-        )
-        assert isinstance(adapter, ToolInterface)
-
-    @pytest.mark.asyncio
-    async def test_mcp_adapter_execute_raises_not_implemented(self):
-        """MCPToolAdapter.execute() must raise NotImplementedError.
-
-        Transport layer deferred per MASTER_PLAN TI6.
-        """
-        from noa.tools.mcp_adapter import MCPToolAdapter
-
-        adapter = MCPToolAdapter(
-            name="mcp_test",
-            domain="external",
-            risk_tiers={"default": "low"},
-        )
-
-        with pytest.raises(NotImplementedError, match="MCPToolAdapter is deprecated"):
-            await adapter.execute(function="test", args={})
-
-    def test_mcp_adapter_risk_tiers_from_config(self):
-        """MCPToolAdapter risk_tiers must come from static config.
-
-        SPEC.md §2.1 — Risk tiers NOT from MCP server discovery.
-        """
-        from noa.tools.mcp_adapter import MCPToolAdapter
-
-        tiers = {"search": "low", "create": "medium"}
-        adapter = MCPToolAdapter(
-            name="mcp_test",
-            domain="external",
-            risk_tiers=tiers,
-        )
-
-        assert adapter.risk_tiers == tiers
-
-
 # ---------------------------------------------------------------------------
 # tool_node wiring
 # ---------------------------------------------------------------------------
 
 
 class TestToolNodeWiring:
-    """Tests for tool_node dispatch through ToolRegistry."""
+    """Tests for tool_node dispatch through ToolGateway."""
 
     @pytest.mark.asyncio
-    async def test_tool_node_dispatches_through_registry(self):
-        """tool_node must dispatch through ToolRegistry.
+    async def test_tool_node_dispatches_through_gateway(self):
+        """tool_node must dispatch through ToolGateway.
 
         SPEC.md §2.1 — Static allowlist dispatch.
         """
-        from noa.tools.interface import ToolRegistry
+        from noa.tools.adapters.direct import DirectApiAdapter
+        from noa.tools.gateway import ToolGateway, ToolRequest
 
         mock_tool = AsyncMock()
         mock_tool.name = "calendar"
+        mock_tool.domain = "external"
+        mock_tool.risk_tiers = {"list_events": "low"}
         mock_tool.execute.return_value = {"id": "evt-123"}
 
-        registry = ToolRegistry({"calendar": mock_tool})
+        gw = ToolGateway()
+        gw.register("calendar", DirectApiAdapter(tool=mock_tool))
 
-        result = await registry.dispatch(
-            name="calendar",
+        req = ToolRequest(
+            tool="calendar",
             function="list_events",
             args={"start_date": "2026-03-05"},
         )
+        resp = await gw.dispatch(req)
 
-        mock_tool.execute.assert_called_once_with(
-            function="list_events",
-            args={"start_date": "2026-03-05"},
-        )
-        assert result == {"id": "evt-123"}
+        assert resp.error is None
+        assert resp.result == {"id": "evt-123"}
 
     @pytest.mark.asyncio
-    async def test_tool_node_unknown_tool_returns_error(self):
-        """Dispatching unknown tool must raise KeyError."""
-        from noa.tools.interface import ToolRegistry
+    async def test_gateway_unknown_tool_returns_error(self):
+        """Dispatching unknown tool must return an error response."""
+        from noa.tools.gateway import ToolGateway, ToolRequest
 
-        registry = ToolRegistry({})
+        gw = ToolGateway()
 
-        with pytest.raises(KeyError):
-            await registry.dispatch(
-                name="nonexistent", function="test", args={},
-            )
+        req = ToolRequest(tool="nonexistent", function="test", args={})
+        resp = await gw.dispatch(req)
+        assert resp.error is not None
+        assert "not registered" in resp.error.lower()

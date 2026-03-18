@@ -13,11 +13,9 @@ Spec refs: SPEC.md §22.1, §22.2
 from __future__ import annotations
 
 import json
-import textwrap
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # 1. SSE TypedDicts — structural correctness
@@ -127,8 +125,8 @@ class TestAuthServiceExceptionNarrowing:
         session = AsyncMock()
         service = AuthService(session=session, settings=test_settings)
 
-        with patch("noa.auth.service.decode_token", side_effect=TokenError("bad token")):
-            with pytest.raises(AuthError, match="Invalid or expired reset token"):
+        with patch("noa.auth.service.decode_token", side_effect=TokenError("bad token")), \
+             pytest.raises(AuthError, match="Invalid or expired reset token"):
                 await service.reset_password(token="bad-token", new_password="newpassword123")
 
     @pytest.mark.asyncio
@@ -159,8 +157,8 @@ class TestOpenAIJsonNarrowing:
 
     def test_parse_response_handles_non_json_error_body(self) -> None:
         """When error body is not valid JSON, falls back to response.text."""
-        from noa.external_worker.llm.openai import OpenAIClient
         from noa.external_worker.exceptions import ProviderError
+        from noa.external_worker.llm.openai import OpenAIClient
 
         client = OpenAIClient(api_key="test", model="gpt-4")
 
@@ -174,8 +172,8 @@ class TestOpenAIJsonNarrowing:
 
     def test_parse_response_uses_json_error_detail_when_valid(self) -> None:
         """When error body is valid JSON, extracts error.message."""
-        from noa.external_worker.llm.openai import OpenAIClient
         from noa.external_worker.exceptions import ProviderError
+        from noa.external_worker.llm.openai import OpenAIClient
 
         client = OpenAIClient(api_key="test", model="gpt-4")
 
@@ -209,8 +207,8 @@ class TestAnthropicJsonNarrowing:
 
     def test_parse_response_handles_non_json_error_body(self) -> None:
         """When error body is not valid JSON, falls back to response.text."""
-        from noa.external_worker.llm.anthropic import AnthropicClient
         from noa.external_worker.exceptions import ProviderError
+        from noa.external_worker.llm.anthropic import AnthropicClient
 
         client = AnthropicClient(api_key="test", model="claude-3")
 
@@ -234,6 +232,7 @@ class TestRetentionExceptionHandling:
     def test_run_once_catches_purge_failure(self) -> None:
         """RetentionScheduler._run_once() catches and logs purge errors."""
         import asyncio
+
         from noa.maintenance.retention import RetentionScheduler
 
         failing_service = MagicMock()
@@ -249,6 +248,7 @@ class TestRetentionExceptionHandling:
     def test_run_once_catches_approval_expiry_failure(self) -> None:
         """RetentionScheduler._run_once() catches approval expiry errors."""
         import asyncio
+
         from noa.maintenance.retention import RetentionScheduler
 
         audit_service = MagicMock()

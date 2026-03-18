@@ -56,6 +56,7 @@ async def invoke_llm(
     privacy_mode: str = "external",
     max_tokens: int = 4096,
     tools: list[dict[str, Any]] | None = None,
+    temperature: float | None = None,
 ) -> LLMResponse:
     """Invoke the LLM via ProviderRouter.
 
@@ -87,14 +88,17 @@ async def invoke_llm(
     else:
         model_name = model
 
-    result: dict[str, Any] = await _router.complete(
-        messages=messages,
-        max_tokens=max_tokens,
-        privacy_mode=privacy_mode,
-        provider=provider,
-        model=model_name,
-        tools=tools,
-    )
+    complete_kwargs: dict[str, Any] = {
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "privacy_mode": privacy_mode,
+        "provider": provider,
+        "model": model_name,
+        "tools": tools,
+    }
+    if temperature is not None:
+        complete_kwargs["temperature"] = temperature
+    result: dict[str, Any] = await _router.complete(**complete_kwargs)
 
     return LLMResponse(
         content=result.get("content", ""),
@@ -118,12 +122,15 @@ async def agent_node(state: AgentState) -> dict[str, Any]:
 
     available_tools = state.get("available_tools") or []
     max_tokens: int = cast(int, state.get("max_tokens") or 4096)
+    raw_temp = state.get("temperature")
+    temp: float | None = float(cast(float, raw_temp)) if raw_temp is not None else None
     response = await invoke_llm(
         model,
         messages,
         privacy_mode=privacy_mode,
         max_tokens=max_tokens,
         tools=available_tools or None,
+        temperature=temp,
     )
 
     raw_tool_calls: list[dict[str, Any]] = response.tool_calls or []

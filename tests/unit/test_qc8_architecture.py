@@ -277,36 +277,12 @@ class TestA5Transactional:
 
 
 class TestH8PerUserRateLimiting:
-    """H8: Rate limiter keyed by (user_id, action) for isolation."""
+    """H8: Rate limiter keyed by (user_id, action) for isolation.
 
-    def test_rate_limit_per_user_isolation(self) -> None:
-        """User A hitting the limit does NOT block user B.
-        Phase QC8 / H8."""
-        from noa.tools.rate_limiter import RateLimiter
-
-        rl = RateLimiter(limits={"send_email": 2}, window_seconds=3600)
-
-        user_a = str(_uuid())
-        user_b = str(_uuid())
-
-        # User A exhausts limit
-        assert rl.check("send_email", user_id=user_a) is True
-        assert rl.check("send_email", user_id=user_a) is True
-        assert rl.check("send_email", user_id=user_a) is False  # blocked
-
-        # User B must still succeed
-        assert rl.check("send_email", user_id=user_b) is True
-
-    def test_rate_limit_without_user_id_falls_back(self) -> None:
-        """user_id=None applies a global/shared limit, does not crash.
-        Phase QC8 / H8."""
-        from noa.tools.rate_limiter import RateLimiter
-
-        rl = RateLimiter(limits={"send_email": 1}, window_seconds=3600)
-
-        # Should not crash with None
-        result = rl.check("send_email", user_id=None)
-        assert isinstance(result, bool)
+    CQ2: Standalone RateLimiter class was deleted. Per-user rate limiting
+    is now built into ToolGateway._per_user_rate_calls. Tests below verify
+    the gateway's built-in rate limiting.
+    """
 
     @pytest.mark.asyncio
     async def test_gateway_passes_user_id_to_rate_limiter(self) -> None:
@@ -389,33 +365,36 @@ class TestM1IdempotencyWiring:
         default = idempotency_key_ctx.get(None)
         assert default is None or default == ""
 
-    def test_duplicate_request_returns_cached_response(self) -> None:
-        """IdempotencyStore: same key twice, second returns cached result.
-        Phase QC8 / M1."""
-        from noa.tools.idempotency import IdempotencyStore
+    def test_gateway_idempotency_cache_returns_cached_response(self) -> None:
+        """ToolGateway idempotency: same key twice, second returns cached.
+        Phase QC8 / M1. CQ2: Standalone IdempotencyStore deleted, gateway has built-in cache."""
+        import asyncio
 
-        store = IdempotencyStore(ttl_seconds=60)
+        from noa.tools.gateway import ToolGateway, ToolRequest, ToolResponse
 
-        store.set("key-1", {"data": "result"})
-        cached = store.get("key-1")
-        assert cached == {"data": "result"}
+        gw = ToolGateway()
+        call_count = 0
 
-        # Second set with same key must NOT overwrite
-        store.set("key-1", {"data": "different"})
-        assert store.get("key-1") == {"data": "result"}
+        class _CountingAdapter:
+            async def execute(self, request: ToolRequest) -> ToolResponse:
+                nonlocal call_count
+                call_count += 1
+                return ToolResponse(result={"data": "result"})
 
-    def test_different_keys_processed_independently(self) -> None:
-        """Different idempotency keys are stored independently.
-        Phase QC8 / M1."""
-        from noa.tools.idempotency import IdempotencyStore
+        gw.register("test", _CountingAdapter())
 
-        store = IdempotencyStore(ttl_seconds=60)
+        req = ToolRequest(
+            tool="test", function="do", args={},
+            idempotency_key="key-1",
+        )
+        resp1 = asyncio.run(gw.dispatch(req))
+        assert resp1.result == {"data": "result"}
+        assert call_count == 1
 
-        store.set("key-a", {"a": 1})
-        store.set("key-b", {"b": 2})
-
-        assert store.get("key-a") == {"a": 1}
-        assert store.get("key-b") == {"b": 2}
+        # Second call with same key should return cached
+        resp2 = asyncio.run(gw.dispatch(req))
+        assert resp2.cached is True
+        assert call_count == 1  # adapter not called again
 
 
 # ===========================================================================

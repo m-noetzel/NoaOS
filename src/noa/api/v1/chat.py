@@ -50,6 +50,7 @@ class ChatRequest(BaseModel):
     temperature: float | None = None
     max_tokens: int | None = None
     system_prompt: str | None = None
+    tool_scope: str | None = None
 
 
 def get_runner() -> OrchestratorRunner | None:
@@ -285,6 +286,7 @@ async def submit_chat(
                         timeout_seconds=user_settings.get("timeout_seconds", 120),
                         approvals_enabled=user_settings.get("approvals_enabled", True),
                         private_available=private_available,
+                        tool_scope=body.tool_scope,
                     ):
                         await event_queue.put(event)
                 finally:
@@ -875,6 +877,8 @@ async def _create_approval(
                 run_id=uuid.UUID(run_id),
                 user_id=uuid.UUID(user_id),
                 risk_tier=risk_tier,
+                tool_name=tool or None,
+                function_name=function or None,
                 preview_text=preview,
                 decision="pending",
                 domain=privacy_mode,

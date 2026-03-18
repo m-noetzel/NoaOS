@@ -177,21 +177,30 @@ The plan is organized into **waves** — groups of related phases that deliver a
 | — | — **AUTH STABILITY (pre-Wave 23)** — | — | — | — | — | — | — |
 | **AU1** | Auth Stability — Session Validation & Error Clarity | **Complete** | 13 | main | ~60 min | ~55 min | Fixes AUTH-H1/H2/M1/M2: rate limiting removed, 7-day tokens, `/auth/me` startup check, `skipAuthRetry` on login, localStorage flag removed |
 | — | — **WAVE 23: CODE QUALITY — TARGET 9/10** — | — | — | — | — | — | Audit: `docs/CODEBASE_AUDIT_2026-03-16.md`. Before: Arch 7, Wiring 5, Hygiene 6, Security 8, Testing 7, Modern 7, Frontend 7. |
-| **CQ1** | Wire Unwired Features | **Planned** | — | main | ~60 min | — | Wire 4 built-but-disconnected features: DbCapabilityChecker→gateway, load_custom_tools at startup, scope filtering in tool_node, preview generation in approval flow |
-| **CQ2** | Delete Dead Governance Stack | **Planned** | — | main | ~30 min | — | Delete ~400 LOC: governance.py, idempotency.py, rate_limiter.py, mcp_adapter.py, ToolRegistry. Remove TOOL_ALLOWLIST, execute_tool, set_registry/get_registry. Depends: CQ1 |
+| **CQ1** | Wire Unwired Features | **Complete** | 29 | main | ~60 min | ~30 min | DbCapabilityChecker→gateway (session_factory), load_custom_tools at startup, scope filtering in tool_node, preview already wired. AgentState+ChatRequest+runner tool_scope field. |
+| **CQ2** | Delete Dead Governance Stack | **Complete** | — | main | ~30 min | ~15 min | Deleted governance.py, idempotency.py, rate_limiter.py, mcp_adapter.py, ToolRegistry, TOOL_ALLOWLIST, execute_tool, set_registry/get_registry. Updated 8 test files. |
 | **CQ3** | Delete Frontend Dead Code | **Complete** | — | main | ~20 min | ~10 min | Deleted 12 unused files: JSONViewer + 11 shadcn/ui components (aspect-ratio, carousel, hover-card, input-otp, menubar, navigation-menu, pagination, resizable, toggle-group, context-menu, command). Build passes. |
 | **CQ4** | Enums, Config Centralization, Magic Strings | **Complete** | 19 | main | ~30 min | ~30 min | PrivacyMode + RiskTier StrEnums in types.py. DEFAULT_EXTERNAL_MODEL/DEFAULT_PRIVATE_MODEL in config.py. Replaced magic strings in 10 files. 0 new ruff/mypy errors. |
 | **CQ5** | Split Chat.tsx & Settings.tsx | **Complete** | 167 | main | 40 min | — | Chat.tsx 759→7 files (ThreadSidebar, ChatMessages, ApprovalCard, ChatComposer, useChatSSE, useOptimisticMessages). Settings.tsx 640→4 files (GeneralSettings, GoogleSettings, ToolSettings + providerModels.ts). Build passes, 0 new test failures. |
 | **CQ6** | Strict Types & DI Cleanup | **Complete** | 23 | main | ~60 min | ~45 min | Typed app_state.py (ProviderRouter/OrchestratorRunner/ToolGateway/MemoryStore/APNsService). Typed agent.py _router. Typed chat.py/health.py/memory.py/cost.py DI helpers. Fixed all 5 pre-existing mypy errors → 0 errors. bool() cast for TypedDict access, removed unused type: ignore. |
 | **CQ7** | Integration Tests for Wired Features | **Complete** | 22 | main | ~45 min | ~40 min | 16/22 tests pass (6 dead-code-absence tests pass after CQ2 runs). gateway.py: preview wired into approval path. Real DB tests for capability grant/deny/revoke, custom tool restore, scope filtering. |
 | **CQ8** | Consistent Error Handling & SSE Contract | **Complete** | 33 (14 Python + 19 TS) | main | ~30 min | ~45 min | Created sse_types.py with 14 typed SSE event TypedDicts + VALID_SSE_EVENT_TYPES frozenset. Narrowed auth/service.py except Exception→TokenError, openai.py/anthropic.py except Exception→json.JSONDecodeError. Added noqa:BLE001 to 4 retention.py bare excepts. Added asString/asRecord/asStringArray helpers in utils.ts. Replaced all `as string` casts in ActivityStream, ExecutionDetails, EventTimeline, RunGraph, RunSummary, CostBreakdown, RawEventLog, useChatSSE. Frontend build clean, mypy 0 errors, ruff clean. |
-| **CQ9** | Security Hardening (final) | **Planned** | — | main | ~20 min | — | Logging sanitizer tests, structured approval fields (migration), CORS verification test, responder defensive check. Depends: CQ8 |
+| **CQ9** | Security Hardening (final) | **Complete** | — | main | ~20 min | ~5 min | Logging sanitizer (done), structured approval fields (migration 019 + model columns), CORS tests (done), responder defensive check (done). 3/4 already done, added migration. |
 
-### Wave 24: Observability & Ops
-- Lightweight monitoring (health dashboard, error rate tracking)
-- Alerting on failures (ntfy or similar, already partially wired)
-- Structured log aggregation and retention
-- Query performance audit (EXPLAIN ANALYZE on hot paths)
+### Wave 24: Orchestrator Intelligence & Observability
+| ID | Phase | Status | Tests | Branch | Est. | Actual | Notes |
+|----|-------|--------|-------|--------|------|--------|-------|
+| **VM1** | Private Vector Memory (pgvector + Ollama embeddings) | **Planned** | — | — | ~60 min | — | Replace placeholder embeddings in MemoryStore with real `nomic-embed-text` via Ollama. Add pgvector extension + `embedding` column to memory_facts. Wire `rag_ingest`, `rag_query`, `summarize`, `search` RPC handlers in private worker. Cosine similarity recall replaces stub. |
+| **OI1** | Planning Node (reason-before-act) | **Planned** | — | — | ~45 min | — | Add `plan` field to AgentState, create `nodes/planner.py` (LLM call without tools), insert between router→agent in graph. Planner output injected as system context for agent. Cheaper (no tool schemas), better tool selection, auditable reasoning. |
+| **OI2** | Lightweight Monitoring & Alerting | **Planned** | — | — | ~45 min | — | Health dashboard, error rate tracking, ntfy alerting |
+| **OI3** | Structured Log Aggregation | **Planned** | — | — | ~30 min | — | Log retention policies, structured query support |
+| **OI4** | Query Performance Audit | **Planned** | — | — | ~30 min | — | EXPLAIN ANALYZE on hot paths, index recommendations |
+| **OI5** | Audit Trail UI | **Planned** | — | — | ~45 min | — | Per-run audit trail view (linked from activity stream via trace_id), chain integrity indicator on health dashboard, filterable audit log page (date/action/tool/domain), JSON export. Backend endpoints exist (`/audit/entries`, `/audit/verify`), needs frontend wiring. |
+| **OI6** | Proactive Memory Extraction (zero-cost) | **Planned** | — | — | ~30 min | — | Wire `auto_extract` as an available tool in agent turns. System prompt instructs LLM to call it alongside normal responses when user shares personal facts/preferences/scheduling. No extra LLM call — piggybacks on existing agent turn. Facts land as `status: "pending"`, user approves in Memory UI. `auto_extraction_enabled` flag already exists in MemoryTool. Depends on OI1 (planner can flag memorizable content for edge cases where no tools are invoked). |
+| **OI7** | Cross-Domain Step-Up Approval | **Planned** | — | — | ~60 min | — | Private-by-default with per-action consent for external tools. When in private mode and LLM requests an external tool (Gmail, Calendar, web search), trigger approval prompt instead of hiding/blocking the tool. Flow: private LLM (Ollama) reasons locally → needs external tool → approval prompt ("This requires Gmail. Allow?") → user approves → DLP scans outbound payload → tool executes externally → result returns to private LLM. Only the specific tool call crosses the domain boundary, not conversation history. Wires into existing approval framework (OC4) + tool visibility filtering (FR1/TM4) + DLP. External mode unchanged (all tools available, memory still routes through private RPC). |
+| **OI8** | Smart Domain Redirect (cross-domain UX) | **Planned** | — | — | ~45 min | — | Replace 403 DOMAIN_MISMATCH with intelligent handling. When user sends a private-classified message in an external thread (or vice versa): (1) detect mismatch in `_check_thread_domain`, (2) auto-create a new thread in the correct domain, (3) route the message there, (4) return SSE meta event with new thread_id so frontend switches context. Frontend: show toast "Switched to private thread for this request." Falls back to explicit consent prompt if user has OI7 enabled and prefers to stay in current thread. Eliminates the hard 403 wall while preserving domain isolation — messages never mix in the same thread. |
+| **LS1** | LLM Token Streaming | **Planned** | — | — | ~90 min | — | Fixes TECH-H1. Add stream=True to Anthropic, OpenAI, Google AI, and Ollama clients. Runner yields `token` SSE events per partial chunk. Frontend renders tokens incrementally (already handles SSE). Ollama already has a streaming API; Anthropic/OpenAI use server-sent events natively. |
+| **LS2** | Orchestrator Timeout Watchdog | **Planned** | — | — | ~30 min | — | Fixes TECH-M2. Wrap `runner.run()` graph execution in `asyncio.wait_for(timeout=settings.timeout_seconds)`. On timeout: emit `error` SSE event, mark run as `failed`, cancel pending tool tasks. `timeout_seconds` already stored in UserSettings (wired by MVP-fixes). |
 
 ### Wave 24B: Database Security Hardening
 - **RLS1**: Postgres Row-Level Security (RLS) for domain isolation
@@ -206,11 +215,14 @@ The plan is organized into **waves** — groups of related phases that deliver a
   - Tests: verify cross-domain SELECT/INSERT blocked at DB level, not just application level
 
 ### Wave 25: Polish & Extended Capabilities
+- **SEC1**: JWT Token Revocation — Fixes TECH-M1. Token blacklist table in Postgres (token_jti + expires_at), checked on every authenticated request. Background sweeper purges expired entries. Adds ~1 DB read per request; acceptable for single-user.
 - **MS1**: Microsoft Outlook Mail + Calendar (OAuth2 + Graph API)
 - Frontend bundle optimization (tree-shaking, lazy routes audit)
 - Advanced tool integrations (new MCP servers, custom workflows)
 - Voice UX refinement (streaming transcription, inline playback)
 - iOS widget / Shortcuts integration
+- **Deferred (Phase 2)**: TECH-M3 Egress control — requires external egress proxy (squid/mitmproxy) as a sidecar container enforcing the `noa.egress.allowlist` label. Infrastructure work, not application-level.
+- **Deferred (long-term)**: TECH-L1 Privacy classifier improvement — ML-based intent classification, conversation-context-aware routing.
 
 ---
 

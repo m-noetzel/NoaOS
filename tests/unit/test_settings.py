@@ -298,12 +298,16 @@ class TestSettingsAPI:
     """Tests for settings API endpoint schema and structure."""
 
     def test_update_request_accepts_credential_fields(self):
-        """The UpdateSettingsRequest must accept API key fields."""
+        """The UpdateSettingsRequest must accept tool credential fields.
+
+        Wave 23: anthropic_api_key and openai_api_key were removed from
+        UpdateSettingsRequest (credentials moved to env-var injection).
+        Remaining credential fields: google OAuth, notion_token, tavily_api_key,
+        ollama_base_url.
+        """
         from noa.api.v1.settings import UpdateSettingsRequest
 
         req = UpdateSettingsRequest(
-            anthropic_api_key="sk-ant-test",
-            openai_api_key="sk-openai-test",
             google_client_id="client-id",
             google_client_secret="client-secret",  # noqa: S106
             notion_token="ntn_test",  # noqa: S106
@@ -311,7 +315,7 @@ class TestSettingsAPI:
             ollama_base_url="http://localhost:11434",
             default_provider="anthropic",
         )
-        assert req.anthropic_api_key == "sk-ant-test"
+        assert req.google_client_id == "client-id"
         assert req.default_provider == "anthropic"
 
     def test_update_request_all_fields_optional(self):
@@ -320,5 +324,5 @@ class TestSettingsAPI:
 
         req = UpdateSettingsRequest()
         assert req.default_model is None
-        assert req.anthropic_api_key is None
+        assert req.google_client_id is None
         assert req.default_provider is None

@@ -1,10 +1,9 @@
-"""Tool node — enforces static allowlist and dispatches tools.
+"""Tool node — dispatches tool calls through ToolGateway.
 
 Spec refs: SPEC.md S2.1 (tool allowlists are static per workflow),
            SPEC.md S2.2 (LLM may NOT execute tools not in allowlist).
 
-Dispatches through ToolRegistry when available, falling back to
-execute_tool for backward-compat (tests patch this).
+All tool dispatch flows through ToolGateway (set via set_gateway at startup).
 """
 
 from __future__ import annotations
@@ -15,7 +14,6 @@ from typing import Any
 
 from noa.orchestrator.state import AgentState
 from noa.tools.gateway import ToolGateway, ToolRequest
-from noa.tools.interface import ToolRegistry
 from noa.validation.content_filter import scan_output_recursive
 
 logger = logging.getLogger(__name__)
@@ -23,36 +21,8 @@ logger = logging.getLogger(__name__)
 # Max tool output size (1 MB) — matches validation pipeline default.
 _MAX_TOOL_OUTPUT_BYTES = 1 * 1024 * 1024
 
-# Module-level registry reference, set at startup via set_registry().
-_registry: ToolRegistry | None = None
-
 # Module-level gateway reference, set at startup via set_gateway().
 _gateway: ToolGateway | None = None
-
-# Static tool allowlist (S2.1) — used as fallback when no registry is set.
-TOOL_ALLOWLIST: frozenset[str] = frozenset(
-    [
-        "calendar_list",
-        "calendar_create",
-        "calendar_delete",
-        "email_search",
-        "email_send",
-        "note_search",
-        "note_create",
-        "web_search",
-    ]
-)
-
-
-def set_registry(registry: ToolRegistry) -> None:
-    """Set the module-level ToolRegistry. Called at app startup."""
-    global _registry  # noqa: PLW0603
-    _registry = registry
-
-
-def get_registry() -> ToolRegistry | None:
-    """Get the current ToolRegistry (or None if not configured)."""
-    return _registry
 
 
 def set_gateway(gateway: ToolGateway) -> None:
@@ -66,39 +36,42 @@ def get_gateway() -> ToolGateway | None:
     return _gateway
 
 
-def execute_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:  # noqa: ARG001
-    """Fallback tool executor. Patched in tests; real dispatch uses registry.
-
-    In production this function is never called because all tool dispatch flows through
-    ToolGateway (set via set_gateway) or ToolRegistry (set via set_registry). If this
-    raises, it means the tool gateway wiring is missing — check that set_gateway() and
-    set_registry() are called during app startup in app.py.
-    """
-    msg = (
-        "execute_tool is a fallback guard — check tool gateway wiring "
-        "(set_gateway/set_registry must be called at app startup)"
-    )
-    raise NotImplementedError(msg)
-
-
 async def tool_node(state: AgentState) -> dict[str, Any]:
-    """Dispatch tool calls through the allowlist filter.
+    """Dispatch tool calls through the ToolGateway.
 
     Tool calls may use either format:
     - Registry format: {"tool": "calendar", "function": "list_events", "args": {...}}
-    - Legacy format: {"name": "calendar_list", "arguments": {...}}
+    - Legacy format: {"name": "web_search__web_search", "input": {...}}
 
-    When a ToolRegistry is configured (via set_registry), dispatch goes through
-    the registry. Otherwise falls back to execute_tool + TOOL_ALLOWLIST.
+    All dispatch flows through ToolGateway (set via set_gateway at startup).
     """
     tool_calls: list[dict[str, Any]] = state.get("tool_calls", [])
     current_rounds: int = state.get("tool_rounds", 0)
     # W22-H2: Read approvals_enabled from state (default True = enforce approvals)
     approvals_enabled: bool = bool(state.get("approvals_enabled", True))
     user_id: str | None = state.get("user_id")
+    # CQ1: Task-level tool scope filtering
+    tool_scope: str | None = state.get("tool_scope")
 
     if not tool_calls:
         return {"tool_results": []}
+
+    # CQ1: Resolve scope allowlist if set
+    scope_allowlist: set[str] | None = None
+    if tool_scope is not None:
+        from noa.tools.scopes import ToolScopeRegistry
+
+        registry = ToolScopeRegistry()
+        try:
+            scope_tools = registry.get_scope(tool_scope)
+            scope_allowlist = set(scope_tools)
+        except KeyError:
+            # Unknown scope: block all tools
+            logger.warning(
+                "Unknown tool_scope=%s — blocking all tool calls",
+                tool_scope,
+            )
+            scope_allowlist = set()
 
     results: list[dict[str, Any]] = []
     for call in tool_calls:
@@ -109,6 +82,19 @@ async def tool_node(state: AgentState) -> dict[str, Any]:
             function = call["function"]
             args = call.get("args", {})
 
+            # CQ1: Scope filtering — reject tools not in scope
+            if scope_allowlist is not None:
+                call_key = f"{tool_name}__{function}"
+                if call_key not in scope_allowlist:
+                    results.append({
+                        "name": f"{tool_name}.{function}",
+                        "error": (
+                            f"Tool {tool_name}.{function} "
+                            f"not allowed in scope '{tool_scope}'."
+                        ),
+                    })
+                    continue
+
             if _gateway is not None:
                 result = await _dispatch_gateway(
                     tool_name, function, args,
@@ -116,7 +102,10 @@ async def tool_node(state: AgentState) -> dict[str, Any]:
                     user_id=user_id,
                 )
             else:
-                result = await _dispatch_registry(tool_name, function, args)
+                result = {
+                    "error": "ToolGateway not configured"
+                    " — check app startup wiring",
+                }
             results.append({"name": f"{tool_name}.{function}", **result})
         else:
             # Legacy or LLM tool_use format:
@@ -124,6 +113,14 @@ async def tool_node(state: AgentState) -> dict[str, Any]:
             #   {"name": "calendar_list", "arguments": {...}}
             name = call.get("name", "")
             arguments = call.get("input") or call.get("arguments", {})
+
+            # CQ1: Scope filtering for legacy format
+            if scope_allowlist is not None and name not in scope_allowlist:
+                results.append({
+                    "name": name,
+                    "error": f"Tool {name} not allowed in scope '{tool_scope}'.",
+                })
+                continue
 
             # Parse tool__function naming from definitions
             from noa.tools.definitions import parse_tool_call_name
@@ -137,21 +134,11 @@ async def tool_node(state: AgentState) -> dict[str, Any]:
                 results.append({"name": name, **result})
                 continue
 
-            if _registry is not None:
-                # Try to dispatch through registry with legacy name
-                result = await _dispatch_registry_legacy(name, arguments)
-                results.append({"name": name, **result})
-            elif name not in TOOL_ALLOWLIST:
-                results.append(
-                    {
-                        "name": name,
-                        "error": f"Tool not allowed: {name}. "
-                        "Denied by static allowlist.",
-                    }
-                )
-            else:
-                result = execute_tool(name, arguments)
-                results.append({"name": name, **result})
+            # No gateway configured — cannot dispatch
+            results.append({
+                "name": name,
+                "error": f"Tool not registered: {name}. ToolGateway not configured.",
+            })
 
     # Validate and append tool results as messages so the LLM sees them
     msgs = list(state.get("messages", []))
@@ -201,7 +188,10 @@ def _validate_tool_output(
         )
         return {
             "name": result.get("name", tool_name),
-            "error": f"Tool output too large ({size} bytes). Limit is {_MAX_TOOL_OUTPUT_BYTES}.",
+            "error": (
+                f"Tool output too large ({size} bytes). "
+                f"Limit is {_MAX_TOOL_OUTPUT_BYTES}."
+            ),
         }
 
     # Content filter — prompt injection, exfiltration URLs, system prompt leaks
@@ -217,40 +207,6 @@ def _validate_tool_output(
         }
 
     return result
-
-
-async def _dispatch_registry(
-    tool_name: str, function: str, args: dict[str, Any]
-) -> dict[str, Any]:
-    """Dispatch through the ToolRegistry."""
-    assert _registry is not None  # noqa: S101
-    try:
-        return await _registry.dispatch(name=tool_name, function=function, args=args)
-    except KeyError:
-        return {"error": f"Tool not allowed: {tool_name}. Not in registry."}
-
-
-async def _dispatch_registry_legacy(
-    name: str, arguments: dict[str, Any]
-) -> dict[str, Any]:
-    """Dispatch a legacy flat tool name through the registry.
-
-    Maps flat names like "calendar_list" → tool="calendar", function="list_events"
-    by checking each registered tool's risk_tiers for a matching function.
-    """
-    assert _registry is not None  # noqa: S101
-
-    # Try direct dispatch: the name might be a tool name with function in arguments
-    for tool_name in _registry.list_tools():
-        try:
-            tool = _registry.get(tool_name)
-        except KeyError:
-            continue
-        # Check if the flat name matches any function in this tool's risk_tiers
-        if name in tool.risk_tiers:
-            return await _dispatch_registry(tool_name, name, arguments)
-
-    return {"error": f"Tool not allowed: {name}. Not found in registry."}
 
 
 async def _dispatch_gateway(

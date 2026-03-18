@@ -150,12 +150,16 @@ class TestRiskClassification:
         )
         assert tier == "medium"
 
-    def test_store_memory_is_medium(self, policy_engine):
-        """Storing long-term memory facts is Medium risk per §21."""
+    def test_store_memory_is_low(self, policy_engine):
+        """Storing long-term memory facts is Low risk (updated Wave 23).
+
+        Previously Medium, reclassified to Low because storing personal
+        preferences is a non-destructive, privacy-preserving operation.
+        """
         tier = policy_engine.classify(
             "memory_store", {"fact": "User prefers dark mode"},
         )
-        assert tier == "medium"
+        assert tier == "low"
 
     def test_delete_data_is_high(self, policy_engine):
         """Deleting data is High risk per §21."""

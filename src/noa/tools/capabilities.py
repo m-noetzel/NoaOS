@@ -9,7 +9,7 @@ TM2: Function-level capability keys (tool__function) for granular grants.
 from __future__ import annotations
 
 import uuid
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -68,10 +68,34 @@ class DbCapabilityChecker:
     - function_name=None in a DB row acts as a wildcard (grants all functions).
     - When checking, a match on either a wildcard row or a specific function row
       is sufficient.
+
+    CQ1: Accepts either a direct ``session`` (for API endpoint use) or a
+    ``session_factory`` (for long-lived objects like ToolGateway that open
+    their own session per call).
     """
 
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(
+        self,
+        session: AsyncSession | None = None,
+        *,
+        session_factory: Any | None = None,
+    ) -> None:
         self._session = session
+        self._session_factory = session_factory
+
+    async def _get_session(self) -> Any:
+        """Return a context manager that yields an AsyncSession."""
+        from contextlib import asynccontextmanager
+
+        if self._session_factory is not None:
+            return self._session_factory()
+        if self._session is not None:
+            @asynccontextmanager
+            async def _wrap() -> Any:
+                yield self._session
+            return _wrap()
+        msg = "DbCapabilityChecker requires either session or session_factory"
+        raise RuntimeError(msg)
 
     async def has_capability(
         self,
@@ -107,8 +131,9 @@ class DbCapabilityChecker:
                 ToolCapability.tool_name == tool_name,
                 ToolCapability.capability == cap_str,
             )
-        result = await self._session.execute(stmt)
-        return result.scalars().first() is not None
+        async with await self._get_session() as session:
+            result = await session.execute(stmt)
+            return result.scalars().first() is not None
 
     async def grant(
         self,
@@ -118,27 +143,28 @@ class DbCapabilityChecker:
         function_name: str | None = None,
     ) -> None:
         cap_str = TOOL_CAPABILITIES.get(tool_name, tool_name)
-        # Check for existing grant to avoid duplicates
-        stmt = select(ToolCapability).where(
-            ToolCapability.user_id == user_id,
-            ToolCapability.tool_name == tool_name,
-            ToolCapability.capability == cap_str,
-            ToolCapability.function_name == function_name
-            if function_name is not None
-            else ToolCapability.function_name.is_(None),
-        )
-        result = await self._session.execute(stmt)
-        if result.scalars().first() is not None:
-            return  # Already granted
-        record = ToolCapability(
-            user_id=user_id,
-            tool_name=tool_name,
-            capability=cap_str,
-            granted_by=granted_by,
-            function_name=function_name,
-        )
-        self._session.add(record)
-        await self._session.commit()
+        async with await self._get_session() as session:
+            # Check for existing grant to avoid duplicates
+            stmt = select(ToolCapability).where(
+                ToolCapability.user_id == user_id,
+                ToolCapability.tool_name == tool_name,
+                ToolCapability.capability == cap_str,
+                ToolCapability.function_name == function_name
+                if function_name is not None
+                else ToolCapability.function_name.is_(None),
+            )
+            result = await session.execute(stmt)
+            if result.scalars().first() is not None:
+                return  # Already granted
+            record = ToolCapability(
+                user_id=user_id,
+                tool_name=tool_name,
+                capability=cap_str,
+                granted_by=granted_by,
+                function_name=function_name,
+            )
+            session.add(record)
+            await session.commit()
 
     async def revoke(
         self,
@@ -154,7 +180,8 @@ class DbCapabilityChecker:
         if function_name is not None:
             conditions.append(ToolCapability.function_name == function_name)
         stmt = delete(ToolCapability).where(*conditions)
-        cursor_result = await self._session.execute(stmt)
-        await self._session.commit()
-        rc: int = getattr(cursor_result, "rowcount", 0)
-        return rc
+        async with await self._get_session() as session:
+            cursor_result = await session.execute(stmt)
+            await session.commit()
+            rc: int = getattr(cursor_result, "rowcount", 0)
+            return rc

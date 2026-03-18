@@ -41,32 +41,24 @@ def test_w20_med3_no_continue_on_error() -> None:
     )
 
 
-def test_w20_med4_tools_py_message() -> None:
-    """W20-MED-4: execute_tool fallback in tools.py references 'tool gateway' in its error."""
+def test_w20_med4_tools_py_references_gateway() -> None:
+    """W20-MED-4: tools.py references ToolGateway for dispatch."""
     tools_py = REPO_ROOT / "src/noa/orchestrator/nodes/tools.py"
     content = tools_py.read_text()
 
-    assert "tool gateway" in content.lower(), (
-        "tools.py execute_tool() NotImplementedError message does not mention 'tool gateway'. "
-        "W20-MED-4 fix requires the message to guide developers to the gateway wiring."
+    assert "toolgateway" in content.lower(), (
+        "tools.py should reference ToolGateway — all dispatch flows through it."
     )
-    # Also verify the docstring explains when this is called
     assert "set_gateway" in content, (
-        "tools.py execute_tool() docstring should mention set_gateway to help diagnose misconfiguration."
+        "tools.py should contain set_gateway to configure the gateway at startup."
     )
 
 
-def test_w20_med4_mcp_adapter_deprecation() -> None:
-    """W20-MED-4: MCPToolAdapter in mcp_adapter.py has a deprecation notice."""
+def test_w20_med4_mcp_adapter_deleted_by_cq2() -> None:
+    """W20-MED-4: mcp_adapter.py deleted by CQ2 (superseded by McpRemoteAdapter)."""
     mcp_adapter = REPO_ROOT / "src/noa/tools/mcp_adapter.py"
-    content = mcp_adapter.read_text()
-
-    assert "DEPRECATED" in content, (
-        "mcp_adapter.py does not contain a DEPRECATED marker. "
-        "W20-MED-4 fix requires MCPToolAdapter to be clearly marked as superseded by McpRemoteAdapter."
-    )
-    assert "McpRemoteAdapter" in content, (
-        "mcp_adapter.py deprecation notice should reference McpRemoteAdapter (the replacement)."
+    assert not mcp_adapter.exists(), (
+        "mcp_adapter.py should be deleted — CQ2 dead code cleanup"
     )
 
 

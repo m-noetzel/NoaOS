@@ -531,7 +531,9 @@ class TestAPIWiringCompleteness:
                 response = await client.get("/api/v1/health")
             return response.status_code
 
-        status = asyncio.get_event_loop().run_until_complete(_check())
+        # Use asyncio.run() instead of get_event_loop() to avoid
+        # "no current event loop" errors after async tests close the loop.
+        status = asyncio.run(_check())
         assert status == 200
 
     def test_voice_transcribe_endpoint_registered(self):

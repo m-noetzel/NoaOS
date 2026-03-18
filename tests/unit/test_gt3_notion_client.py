@@ -224,8 +224,9 @@ class TestNotionClientCreate:
         with patch("noa.tools.notion_client.httpx") as mock_httpx:
             mock_httpx.AsyncClient.return_value = mock_http
 
+            # Wave 23: parent_id removed — parent is always the hardcoded
+            # Knowledge Management database (_DEFAULT_PARENT in notion_client.py)
             result = await client.create_page(
-                parent_id="parent-1",
                 title="New Page",
                 content="Content here",
             )

@@ -3,6 +3,14 @@
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _reset_app_state():
+    """Reset module-level app state between tests."""
+    yield
+    from noa.api.app_state import reset_all
+    reset_all()
+
+
 @pytest.fixture
 def test_settings(monkeypatch):
     """Provide test-safe settings with all env vars set."""

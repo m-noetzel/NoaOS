@@ -34,6 +34,7 @@ class OpenAIClient:
         *,
         messages: list[dict[str, Any]],
         max_tokens: int,
+        temperature: float | None = None,
         top_p: float | None = None,
         tools: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
@@ -43,6 +44,8 @@ class OpenAIClient:
             "messages": self._normalize_messages(messages),
             "max_tokens": max_tokens,
         }
+        if temperature is not None:
+            request["temperature"] = temperature
         if top_p is not None:
             request["top_p"] = top_p
         if tools:
@@ -74,7 +77,11 @@ class OpenAIClient:
                             "type": "function",
                             "function": {
                                 "name": tc.get("name", ""),
-                                "arguments": json.dumps(args) if isinstance(args, dict) else str(args),
+                                "arguments": (
+                                    json.dumps(args)
+                                    if isinstance(args, dict)
+                                    else str(args)
+                                ),
                             },
                         })
                 normalized.append({
@@ -169,6 +176,7 @@ class OpenAIClient:
         *,
         messages: list[dict[str, Any]],
         max_tokens: int,
+        temperature: float | None = None,
         top_p: float | None = None,
         model: str | None = None,
         tools: list[dict[str, Any]] | None = None,
@@ -187,6 +195,7 @@ class OpenAIClient:
         request = self.build_request(
             messages=messages,
             max_tokens=max_tokens,
+            temperature=temperature,
             top_p=top_p,
             tools=tools,
         )

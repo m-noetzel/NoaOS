@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -197,6 +197,7 @@ class TestGatewayWithDbCapabilityChecker:
     def _make_checker_granting(self, granted: bool) -> Any:
         """Build a DbCapabilityChecker that always returns the given bool."""
         from contextlib import asynccontextmanager
+
         from noa.tools.capabilities import DbCapabilityChecker
 
         @asynccontextmanager
@@ -483,6 +484,7 @@ class TestRunnerPassesToolScope:
     def test_runner_run_accepts_tool_scope_kwarg(self) -> None:
         """OrchestratorRunner.run() has a tool_scope parameter."""
         import inspect
+
         from noa.orchestrator.runner import OrchestratorRunner
         sig = inspect.signature(OrchestratorRunner.run)
         assert "tool_scope" in sig.parameters
@@ -490,6 +492,7 @@ class TestRunnerPassesToolScope:
     def test_runner_tool_scope_default_is_none(self) -> None:
         """tool_scope defaults to None so existing callers are unaffected."""
         import inspect
+
         from noa.orchestrator.runner import OrchestratorRunner
         sig = inspect.signature(OrchestratorRunner.run)
         param = sig.parameters["tool_scope"]

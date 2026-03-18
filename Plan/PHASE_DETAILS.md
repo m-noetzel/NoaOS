@@ -5206,3 +5206,148 @@ Execution order: CQ1+CQ3+CQ4 parallel → CQ2 (after CQ1) → CQ5 (after CQ3) �
 2. Structured approval fields — add `tool_name`/`tool_args` columns to Approval model (migration), replace string-split parsing
 3. CORS verification integration test (evil origin rejected)
 4. Responder node `isinstance(r, dict)` defensive check
+
+
+---
+
+## Phase VM1 — Private Vector Memory (pgvector + Ollama embeddings) (~60 min)
+
+**Goal:** Replace the stub RAG implementation in the private worker with real semantic search using `nomic-embed-text` (Ollama) for embeddings and pgvector for storage/retrieval.
+
+**Depends on:** DW1 (private worker), QE4 (Postgres integration tests)
+**Blocks:** OI6 (Proactive Memory Extraction — needs real recall to be useful)
+
+**Why private only:** The private worker has no internet access by design. It cannot call cloud embedding APIs, so it must generate embeddings locally via Ollama. The external worker offloads reasoning to cloud LLMs and does not store personal facts, so it does not need vector search.
+
+---
+
+### Deliverables
+
+**1. Postgres: pgvector extension + schema migration**
+- Migration `020_memory_embeddings.py`: `CREATE EXTENSION IF NOT EXISTS vector`, add `embedding vector(768)` column to `memory_facts` (nomic-embed-text outputs 768-dim vectors), add HNSW index for cosine similarity (`USING hnsw (embedding vector_cosine_ops)`)
+
+**2. Private worker: real embedding generation**
+- `src/noa/private_worker/embeddings.py` — `OllamaEmbedder` class: POST `/api/embeddings` to Ollama with model `nomic-embed-text`, returns `list[float]`
+- Fallback: if Ollama unreachable, log warning and return `None` (graceful degradation — fact is stored without embedding, excluded from vector search but still retrievable by exact match)
+
+**3. MemoryStore: wire embeddings into persist + recall**
+- `persist(fact)`: generate embedding via `OllamaEmbedder`, store in `memory_facts.embedding`
+- `recall(query, top_k=5)`: embed query, run `ORDER BY embedding <=> query_vec LIMIT top_k` cosine similarity search; fall back to recency sort if no embeddings present
+
+**4. Private worker RPC handlers: unstub**
+- `rag_ingest`: accept `{"text": str, "metadata": dict}`, chunk text (512-token windows, 50-token overlap), embed each chunk, store in memory_facts with `category="rag"`
+- `rag_query`: embed query, vector search, return top-k chunks with similarity scores
+- `summarize`: send text to Ollama `/api/generate` (llama3.2 or configured model), return summary string
+- `search`: keyword + vector hybrid search (OR: BM25-style substring match UNION vector results)
+
+**5. Tests**
+- Unit: `OllamaEmbedder` with mocked httpx — returns correct shape, handles 503 gracefully
+- Unit: `MemoryStore.recall` with pgvector mock — correct SQL emitted, cosine order preserved
+- Integration (Postgres): real pgvector extension, insert 3 facts with embeddings, query returns closest match first (requires `TEST_DATABASE_URL` + pgvector in testcontainer image `ankane/pgvector`)
+- RPC handler tests: `rag_ingest` → stored chunks retrievable via `rag_query`
+
+---
+
+### Files
+
+| File | Change |
+|------|--------|
+| `alembic/versions/020_memory_embeddings.py` | New migration |
+| `src/noa/private_worker/embeddings.py` | New — OllamaEmbedder |
+| `src/noa/private_worker/memory_store.py` | Wire embeddings into persist + recall |
+| `src/noa/private_worker/app.py` | Unstub rag_ingest, rag_query, summarize, search |
+| `tests/unit/test_vm1_vector_memory.py` | Unit tests |
+| `tests/integration/test_vm1_pgvector.py` | Integration tests (real DB) |
+
+---
+
+### Acceptance criteria
+
+1. `MemoryStore.recall("therapist")` returns the fact "my therapist is Dr. Smith" ranked #1 when that fact is in the store
+2. `rag_query` returns non-empty results when facts have been ingested
+3. All 4 previously-stubbed RPC handlers return real data (no `[]` stubs)
+4. Graceful degradation: if Ollama is down, `persist` stores fact without embedding, `recall` falls back to recency sort — no 500 error
+5. Migration 020 applies cleanly, pgvector extension enabled, HNSW index created
+6. ≥1 integration test using real Postgres + pgvector passes in CI
+
+
+---
+
+## Phase LS1 — LLM Token Streaming (~90 min)
+
+**Goal:** Replace buffered LLM responses with real token-by-token streaming. Users see text appearing as it's generated instead of waiting for the full response.
+
+**Fixes:** TECH-H1
+**Depends on:** CP1 (ProviderRouter), CQ8 (SSE contract + sse_types.py)
+**Blocks:** Nothing
+
+### What changes
+
+**Each provider client gains streaming support:**
+
+| Provider | Streaming API |
+|---|---|
+| Anthropic | `stream=True` on `/v1/messages`, parse `content_block_delta` events |
+| OpenAI | `stream=True` on `/v1/chat/completions`, parse `data: {"choices":[{"delta":...}]}` chunks |
+| Google AI | `alt=sse` on `generateContent`, parse `candidates[0].content.parts` chunks |
+| Ollama | Already streams by default (`stream=true` in request body) |
+
+**Runner yields `token` SSE events:**
+- New `token` event type added to `sse_types.py`: `{"type": "token", "content": "partial text"}`
+- `agent_node` collects streaming chunks from provider, yields each as a `token` event
+- Final assembled response stored in `AgentState.messages` as before (no change to state shape)
+
+**Frontend:** `useChatSSE.ts` already handles arbitrary SSE event types. Add `token` case: append to `streamingContent` (already exists for the current fake streaming). No frontend logic change beyond the event type name.
+
+### Deliverables
+1. `src/noa/external_worker/llm/anthropic.py` — streaming complete()
+2. `src/noa/external_worker/llm/openai.py` — streaming complete()
+3. `src/noa/external_worker/llm/google_ai.py` — streaming complete()
+4. `src/noa/external_worker/llm/ollama.py` — streaming complete() (verify existing)
+5. `src/noa/orchestrator/nodes/agent.py` — yield token events from streaming response
+6. `src/noa/orchestrator/sse_types.py` — add `TokenEvent` TypedDict
+7. `tests/unit/test_ls1_streaming.py` — mock streaming responses for all 4 providers, verify token events emitted
+
+### Acceptance criteria
+1. Sending a chat message yields multiple `token` SSE events before `result_ready`
+2. All 4 providers tested with mock streaming responses
+3. Non-streaming fallback preserved (if provider returns non-chunked response, treat as single token event)
+4. `mypy` + `ruff` clean
+
+---
+
+## Phase LS2 — Orchestrator Timeout Watchdog (~30 min)
+
+**Goal:** Prevent hung graph executions from holding requests indefinitely. Apply `timeout_seconds` from user settings to the full orchestrator run.
+
+**Fixes:** TECH-M2
+**Depends on:** CP2 (OrchestratorRunner), MVP-fixes (timeout_seconds wired to settings)
+**Blocks:** Nothing
+
+### What changes
+
+**`src/noa/orchestrator/runner.py`:**
+```python
+# In OrchestratorRunner.run():
+timeout = settings.timeout_seconds or 120  # default 120s
+try:
+    async with asyncio.timeout(timeout):
+        async for event in graph.astream(...):
+            yield event
+except asyncio.TimeoutError:
+    yield {"type": "error", "message": f"Request timed out after {timeout}s"}
+    # mark run as failed via RunService
+```
+
+**`src/noa/api/v1/chat.py`:** Ensure the `error` SSE event from timeout reaches the client cleanly (already handled by existing error path).
+
+### Deliverables
+1. `src/noa/orchestrator/runner.py` — `asyncio.timeout()` wrapper
+2. `tests/unit/test_ls2_timeout.py` — mock slow graph, verify timeout fires, error event emitted, run marked failed
+
+### Acceptance criteria
+1. Graph that never completes is cancelled after `timeout_seconds`
+2. Client receives `{"type": "error", "message": "Request timed out after Xs"}`
+3. Run row status set to `"failed"` in DB
+4. Fast runs unaffected (timeout not triggered)
+5. `timeout_seconds=0` or `None` → use 120s default

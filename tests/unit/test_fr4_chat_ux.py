@@ -265,22 +265,34 @@ class TestSystemPromptEndpoints:
 
 
 class TestRunnerToolLifecycleEvents:
-    """UX-H10: OrchestratorRunner emits tool_start and tool_end around tool_called."""
+    """UX-H10: OrchestratorRunner emits tool_start and tool_end around tool_called.
+
+    The runner (Wave 23) uses graph.astream() which yields {node_name: state_update}
+    chunks. tool_start + tool_called come from the "agent" node's tool_calls.
+    tool_end comes from the "tools" node's tool_results.
+    """
 
     async def _collect_events(self, tool_calls: list[Any], tool_results: list[Any]) -> list[dict[str, Any]]:
-        """Run the orchestrator with a mocked graph that returns given tools."""
+        """Run the orchestrator with a mocked graph that yields agent + tools nodes."""
         from noa.orchestrator.runner import OrchestratorRunner
 
-        fake_result: dict[str, Any] = {
-            "tool_calls": tool_calls,
-            "tool_results": tool_results,
-            "response": "done",
-            "total_cost": 0.0,
-            "llm_usage": [],
-        }
+        # Build synthetic tool_results from tool_calls when none provided,
+        # so the "tools" node can emit tool_end events.
+        effective_results = tool_results
+        if not effective_results and tool_calls:
+            effective_results = [
+                {"name": tc["name"], "result": "ok"}
+                for tc in tool_calls
+            ]
 
-        mock_graph = AsyncMock()
-        mock_graph.ainvoke = AsyncMock(return_value=fake_result)
+        async def _fake_astream(state: Any):
+            # Yield agent node output (triggers tool_start + tool_called)
+            yield {"agent": {"tool_calls": tool_calls, "response": None}}
+            # Yield tools node output (triggers tool_end)
+            yield {"tools": {"tool_results": effective_results}}
+
+        mock_graph = MagicMock()
+        mock_graph.astream = _fake_astream
 
         runner = OrchestratorRunner(graph=mock_graph)
         run_svc = AsyncMock()

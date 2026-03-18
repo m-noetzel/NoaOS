@@ -38,7 +38,7 @@ def _make_settings(monkeypatch):
     return Settings()
 
 
-def _fake_user(email: str = "user@example.com", password: str = "secret") -> Any:
+def _fake_user(email: str = "user@example.com", password: str = "secret") -> Any:  # noqa: S107
     from noa.auth.password import hash_password
     return type("User", (), {
         "id": uuid.uuid4(),
@@ -73,7 +73,7 @@ class TestRateLimitingRemoved:
         AUTH-H1: Rate limiting locks users out. Single-user system — removed.
         """
         settings = _make_settings(monkeypatch)
-        from noa.auth.service import AuthService, AuthError
+        from noa.auth.service import AuthError, AuthService
 
         mock_session = AsyncMock()
         mock_session.add = MagicMock()
@@ -353,7 +353,6 @@ class TestLoginMeIntegration:
         AU1 integration test — no internal mocks for the auth flow.
         Uses a real in-memory SQLite DB.
         """
-        import os
         monkeypatch.setenv("NOA_ENV", "testing")
         monkeypatch.setenv("SECRET_KEY", "test-secret-key-au1-signing-32bytes!!")
         monkeypatch.setenv("LOG_LEVEL", "DEBUG")
@@ -365,8 +364,8 @@ class TestLoginMeIntegration:
         from sqlalchemy.orm import sessionmaker
         from sqlalchemy.pool import StaticPool
 
-        from noa.db.models.base import Base
         from noa.auth.password import hash_password
+        from noa.db.models.base import Base
         from noa.db.models.user import User
 
         engine = create_async_engine(
@@ -488,7 +487,6 @@ class TestLoginMeIntegration:
         """
         _apply_env(monkeypatch)
         from noa.api.app import create_app
-        from noa.auth.jwt import create_access_token
         from noa.config import Settings
 
         settings = Settings()

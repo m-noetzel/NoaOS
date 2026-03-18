@@ -218,7 +218,12 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
                 "domain": "external",
             },
             "create_page": {
-                "description": "Create a new Notion page in the Knowledge Management database. Only provide title and content — the parent database is set automatically.",
+                "description": (
+                    "Create a new Notion page in the Knowledge"
+                    " Management database. Only provide title"
+                    " and content — the parent database is"
+                    " set automatically."
+                ),
                 "parameters": {
                     "type": "object",
                     "properties": {

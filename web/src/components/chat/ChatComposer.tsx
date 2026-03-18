@@ -189,16 +189,7 @@ export function ChatComposer({
                 <Textarea
                   value={effectiveSystemPrompt}
                   onChange={(e) => setSystemPrompt(e.target.value)}
-                  onBlur={() => {
-                    const val = (systemPrompt ?? "").trim();
-                    const saved = (settings?.system_prompt ?? "").trim();
-                    if (val !== saved) {
-                      saveChatDefaultsMutation.mutate({
-                        system_prompt: val || null,
-                      });
-                    }
-                  }}
-                  placeholder="Optional system prompt (e.g. 'Antworte immer auf Deutsch')"
+                  placeholder="Override system prompt for this message (leave empty to use default from Settings)"
                   className="min-h-[60px] text-sm bg-background/50 border-border/40 resize-y"
                   rows={2}
                 />

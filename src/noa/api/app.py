@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 
 def wire_llm_pipeline(settings: Any) -> None:
-    """Build and wire ProviderRouter, ToolRegistry, and OrchestratorRunner.
+    """Build and wire ProviderRouter, ToolGateway, and OrchestratorRunner.
 
     Called during app lifespan startup. Gracefully degrades if no
     LLM API keys are configured (logs warning, doesn't crash).
@@ -117,6 +117,40 @@ def wire_llm_pipeline(settings: Any) -> None:
             logger.warning("PolicyEngine not available for step-up auth")
 
         register_tools(gateway)
+
+        # CQ1: Wire DbCapabilityChecker into gateway for per-dispatch checks
+        try:
+            from noa.tools.capabilities import DbCapabilityChecker
+
+            if sf is not None:
+                gateway.capability_checker = DbCapabilityChecker(
+                    session_factory=sf,
+                )
+                logger.info("DbCapabilityChecker wired to ToolGateway")
+        except Exception:  # noqa: BLE001
+            logger.warning("DbCapabilityChecker not available")
+
+        # CQ1: Load custom tools from DB at startup
+        try:
+            from noa.tools.registration import load_custom_tools
+
+            if sf is not None:
+                import asyncio
+
+                async def _load_custom() -> None:
+                    assert sf is not None  # noqa: S101
+                    async with sf() as session:
+                        await load_custom_tools(gateway, session)
+                    logger.info("Custom tools loaded from DB")
+
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(_load_custom())
+                except RuntimeError:
+                    pass
+        except Exception:  # noqa: BLE001
+            logger.warning("Failed to load custom tools from DB")
+
         set_gateway(gateway)
         set_tools_gateway(gateway)
         logger.info(

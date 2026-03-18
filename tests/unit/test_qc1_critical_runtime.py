@@ -15,25 +15,7 @@ import pytest
 # ---------------------------------------------------------------------------
 
 class TestC1AsyncToolDispatch:
-    """C1: _dispatch_registry and _dispatch_gateway must return dict, not Future."""
-
-    @pytest.mark.asyncio
-    async def test_dispatch_registry_returns_dict(self) -> None:
-        """_dispatch_registry must return a dict (awaitable, not Future)."""
-        from noa.orchestrator.nodes.tools import _dispatch_registry, set_registry
-
-        mock_registry = MagicMock()
-        mock_registry.dispatch = AsyncMock(return_value={"result": "ok"})
-        set_registry(mock_registry)
-
-        try:
-            result = await _dispatch_registry("calendar", "list_events", {})
-            assert isinstance(result, dict), (
-                f"Expected dict, got {type(result).__name__}"
-            )
-            assert result.get("error") is None or "result" in result
-        finally:
-            set_registry(None)  # type: ignore[arg-type]
+    """C1: _dispatch_gateway must return dict, not Future."""
 
     @pytest.mark.asyncio
     async def test_dispatch_gateway_returns_dict(self) -> None:
@@ -60,15 +42,16 @@ class TestC1AsyncToolDispatch:
     async def test_tool_node_produces_valid_results(self) -> None:
         """tool_node must produce a list of dicts in tool_results,
         each with a 'name' key — not Futures or coroutines."""
-        from noa.orchestrator.nodes.tools import set_registry, tool_node
+        from noa.orchestrator.nodes.tools import set_gateway, tool_node
+        from noa.tools.gateway import ToolGateway, ToolResponse
 
-        mock_registry = MagicMock()
-        mock_registry.dispatch = AsyncMock(return_value={"output": "hello"})
-        mock_registry.list_tools = MagicMock(return_value=["calendar"])
-        mock_tool = MagicMock()
-        mock_tool.risk_tiers = {"list_events": "low"}
-        mock_registry.get = MagicMock(return_value=mock_tool)
-        set_registry(mock_registry)
+        class _FakeAdapter:
+            async def execute(self, request: Any) -> ToolResponse:
+                return ToolResponse(result={"output": "hello"}, provider="fake")
+
+        gw = ToolGateway()
+        gw.register("calendar", _FakeAdapter())
+        set_gateway(gw)
 
         try:
             state: dict[str, Any] = {
@@ -76,6 +59,10 @@ class TestC1AsyncToolDispatch:
                     {"tool": "calendar", "function": "list_events", "args": {}},
                 ],
                 "tool_rounds": 0,
+                "messages": [],
+                "approvals_enabled": False,
+                "user_id": None,
+                "tool_scope": None,
             }
             output = await tool_node(state)
             results = output["tool_results"]
@@ -86,7 +73,7 @@ class TestC1AsyncToolDispatch:
             # The result must contain actual data, not a Future
             assert "output" in r or "error" in r
         finally:
-            set_registry(None)  # type: ignore[arg-type]
+            set_gateway(None)  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------
@@ -179,18 +166,23 @@ class TestA3FullStateInitialization:
 
     @pytest.mark.asyncio
     async def test_initial_state_has_model_config(self) -> None:
-        """initial_state must contain 'model_config' key."""
+        """initial_state must contain 'model_config' key.
+
+        Wave 23: runner uses graph.astream() not graph.ainvoke(). The state
+        is captured by intercepting astream's first argument.
+        """
         from noa.orchestrator.runner import OrchestratorRunner
 
         captured_state: dict[str, Any] = {}
 
         mock_graph = MagicMock()
 
-        async def capture_invoke(state: dict[str, Any]) -> dict[str, Any]:
+        async def capture_astream(state: dict[str, Any]):
             captured_state.update(state)
-            return {"response": "test", "tool_calls": [], "tool_results": []}
+            # Yield one agent chunk so runner gets past the graph loop
+            yield {"agent": {"response": "test", "tool_calls": [], "total_cost": 0.0}}
 
-        mock_graph.ainvoke = capture_invoke
+        mock_graph.astream = capture_astream
 
         runner = OrchestratorRunner(graph=mock_graph)
         mock_run_svc = MagicMock()
@@ -211,18 +203,21 @@ class TestA3FullStateInitialization:
 
     @pytest.mark.asyncio
     async def test_initial_state_has_tool_rounds(self) -> None:
-        """initial_state must contain 'tool_rounds' key."""
+        """initial_state must contain 'tool_rounds' key.
+
+        Wave 23: runner uses graph.astream() not graph.ainvoke().
+        """
         from noa.orchestrator.runner import OrchestratorRunner
 
         captured_state: dict[str, Any] = {}
 
         mock_graph = MagicMock()
 
-        async def capture_invoke(state: dict[str, Any]) -> dict[str, Any]:
+        async def capture_astream(state: dict[str, Any]):
             captured_state.update(state)
-            return {"response": "test", "tool_calls": [], "tool_results": []}
+            yield {"agent": {"response": "test", "tool_calls": [], "total_cost": 0.0}}
 
-        mock_graph.ainvoke = capture_invoke
+        mock_graph.astream = capture_astream
 
         runner = OrchestratorRunner(graph=mock_graph)
         mock_run_svc = MagicMock()
@@ -275,14 +270,15 @@ class TestH3AuditServiceInstantiation:
 # ---------------------------------------------------------------------------
 
 class TestToolNodeIntegration:
-    """Non-mocked integration: tool_node → _dispatch_registry → result dict."""
+    """Non-mocked integration: tool_node → ToolGateway → result dict."""
 
     @pytest.mark.asyncio
     async def test_tool_node_full_dispatch_returns_dict_results(self) -> None:
-        """End-to-end: tool_node dispatches through registry and returns
+        """End-to-end: tool_node dispatches through gateway and returns
         a dict with 'tool_results' containing actual dicts (not Futures)."""
-        from noa.orchestrator.nodes.tools import set_registry, tool_node
-        from noa.tools.interface import ToolRegistry
+        from noa.orchestrator.nodes.tools import set_gateway, tool_node
+        from noa.tools.adapters.direct import DirectApiAdapter
+        from noa.tools.gateway import ToolGateway
 
         # Build a real tool implementing ToolInterface
         class DummyTool:
@@ -295,8 +291,9 @@ class TestToolNodeIntegration:
             ) -> dict[str, Any]:
                 return {"message": f"Handled {function} with {args}"}
 
-        registry = ToolRegistry(tools={"test_tool": DummyTool()})
-        set_registry(registry)
+        gw = ToolGateway()
+        gw.register("test_tool", DirectApiAdapter(tool=DummyTool()))
+        set_gateway(gw)
 
         try:
             state: dict[str, Any] = {
@@ -304,6 +301,10 @@ class TestToolNodeIntegration:
                     {"tool": "test_tool", "function": "do_thing", "args": {"x": 1}},
                 ],
                 "tool_rounds": 0,
+                "messages": [],
+                "approvals_enabled": False,
+                "user_id": None,
+                "tool_scope": None,
             }
             output = await tool_node(state)
             results = output["tool_results"]
@@ -315,4 +316,4 @@ class TestToolNodeIntegration:
             has_data = any(k not in ("name",) for k in r)
             assert has_data, "Result dict has no data keys beyond 'name'"
         finally:
-            set_registry(None)  # type: ignore[arg-type]
+            set_gateway(None)  # type: ignore[arg-type]

@@ -183,7 +183,9 @@ class TestGatewayDomainIsolation:
             privacy_mode="external",
         )
         with __import__("pytest").raises(PermissionError):
-            asyncio.get_event_loop().run_until_complete(gw.dispatch(req))
+            # Use asyncio.run() instead of get_event_loop() to avoid
+            # "no current event loop" errors after async tests close the loop.
+            asyncio.run(gw.dispatch(req))
 
     def test_external_tool_blocked_in_private_mode(self) -> None:
         """External-domain tool raises PermissionError when request is private."""
@@ -205,4 +207,4 @@ class TestGatewayDomainIsolation:
             privacy_mode="private",
         )
         with __import__("pytest").raises(PermissionError):
-            asyncio.get_event_loop().run_until_complete(gw.dispatch(req))
+            asyncio.run(gw.dispatch(req))

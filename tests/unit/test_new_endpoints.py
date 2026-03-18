@@ -262,8 +262,8 @@ class TestMemoryRoutes:
         assert ("delete", "/facts/{fact_id}") in self.routes
 
     def test_route_count(self):
-        """Exactly 4 routes defined in memory.py."""
-        assert len(self.routes) == 4
+        """Routes in memory.py: GET /facts, POST /facts, POST approve, POST update, DELETE."""
+        assert len(self.routes) == 5
 
     def test_update_fact_request_model_defined(self):
         """UpdateFactRequest Pydantic model is defined."""

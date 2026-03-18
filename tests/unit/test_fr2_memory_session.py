@@ -32,7 +32,7 @@ pytestmark = pytest.mark.fr2
 def _make_access_token(
     user_id: str | None = None,
     session_id: str | None = None,
-    secret: str = "test-secret-key-for-jwt-signing-32bytes!",
+    secret: str = "test-secret-key-for-jwt-signing-32bytes!",  # noqa: S107
 ) -> str:
     """Build a valid access token for testing."""
     from noa.auth.jwt import create_access_token
@@ -563,9 +563,8 @@ class TestBEH12LogoutClearsSession:
     async def test_logout_deletes_both_cookies(self, monkeypatch: Any):
         """POST /auth/logout must delete noa_access_token and noa_refresh_token cookies."""
         settings = _make_settings(monkeypatch)
-        from httpx import ASGITransport, AsyncClient
-
         from fastapi import FastAPI
+        from httpx import ASGITransport, AsyncClient
 
         from noa.api.deps import get_db_session
         from noa.api.v1.auth import router
@@ -619,9 +618,8 @@ class TestBEH12LogoutClearsSession:
     async def test_logout_response_status_ok(self, monkeypatch: Any):
         """POST /auth/logout must return 200 with status=logged_out."""
         _make_settings(monkeypatch)
-        from httpx import ASGITransport, AsyncClient
-
         from fastapi import FastAPI
+        from httpx import ASGITransport, AsyncClient
 
         from noa.api.deps import get_db_session
         from noa.api.v1.auth import router
@@ -671,9 +669,8 @@ class TestBEH12LogoutClearsSession:
     ):
         """Logout must still clear cookies even if session DB lookup fails."""
         _make_settings(monkeypatch)
-        from httpx import ASGITransport, AsyncClient
-
         from fastapi import FastAPI
+        from httpx import ASGITransport, AsyncClient
 
         from noa.api.deps import get_db_session
         from noa.api.v1.auth import router

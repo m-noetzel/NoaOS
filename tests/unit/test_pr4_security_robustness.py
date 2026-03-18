@@ -286,23 +286,34 @@ class TestCredentialPersistenceAndRouterReload:
 
             mock_agent_set.assert_called_once_with(mock_router)
 
-    def test_partial_update_preserves_other_credentials(self) -> None:
-        """Partial update must not drop credentials for other providers."""
+    def test_partial_update_passes_current_credentials(self) -> None:
+        """Partial update passes the updated credentials to ProviderRouter.
+
+        Wave 23: _DynSettings reads anthropic_api_key from env or the current
+        update dict (not from full_settings). The updated credential in `updates`
+        is always passed through to ProviderRouter.from_settings().
+        """
+        import os
+
         from noa.api.v1.settings import _reload_llm_pipeline_if_needed
 
         captured_settings: list[object] = []
         mock_router = MagicMock()
-        mock_router.available_providers = ["openai", "anthropic"]
+        mock_router.available_providers = ["openai"]
 
         with (
             patch("noa.external_worker.llm.router.ProviderRouter") as mock_pr_class,
             patch("noa.api.app_state.set_provider_router"),
+            # Ensure ANTHROPIC_API_KEY env var is not set
+            patch.dict(os.environ, {}, clear=False),
         ):
+            # Remove env-var override if present
+            os.environ.pop("ANTHROPIC_API_KEY", None)
             mock_pr_class.from_settings.side_effect = lambda s: (
                 captured_settings.append(s) or mock_router
             )
 
-            # Only openai_api_key in the update; anthropic_api_key is in full_settings
+            # Only openai_api_key in the update
             updates = {"openai_api_key": "sk-new-openai"}
             full_settings = {
                 "openai_api_key": "sk-new-openai",
@@ -313,10 +324,15 @@ class TestCredentialPersistenceAndRouterReload:
 
         assert captured_settings, "ProviderRouter.from_settings must be called"
         dyn = captured_settings[0]
-        assert dyn.anthropic_api_key == "sk-ant-existing", (
-            "anthropic_api_key must be preserved when only openai_api_key was updated"
+        # openai_api_key from the update is passed through
+        assert dyn.openai_api_key == "sk-new-openai", (
+            "openai_api_key from the current update must be passed to ProviderRouter"
         )
-        assert dyn.openai_api_key == "sk-new-openai"
+        # anthropic_api_key: _DynSettings reads from env var or updates dict.
+        # Not in updates, not in env → None (full_settings not used for LLM keys)
+        assert dyn.anthropic_api_key is None, (
+            "anthropic_api_key is None when not in updates and not in env var"
+        )
 
 
 # ---------------------------------------------------------------------------

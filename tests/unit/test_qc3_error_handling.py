@@ -10,6 +10,7 @@ Phase plan: MASTER_PLAN.md Phase QC3
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import stat
@@ -193,10 +194,8 @@ class TestExceptionHandlingQuality:
         ):
             # Trigger the lifespan to exercise the except branch
             gen = lifespan(mock_app)
-            try:
+            with contextlib.suppress(Exception):
                 await gen.__aenter__()
-            except Exception:
-                pass  # lifespan may fail on later startup steps; we only care about the log
 
             warning_records = [
                 r for r in caplog.records if r.levelno >= logging.WARNING

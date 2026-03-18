@@ -228,7 +228,9 @@ class OrchestratorRunner:
                                     "tool_start",
                                     {"tool_name": tool_name},
                                 )
-                                await self._persist_event(run_service, run_id, start_event)
+                                await self._persist_event(
+                                    run_service, run_id, start_event,
+                                )
                                 yield start_event
 
                                 tc_event = self._make_event(
@@ -265,7 +267,9 @@ class OrchestratorRunner:
                                         "risk_tier": tr.get("risk_tier", "medium"),
                                     },
                                 )
-                                await self._persist_event(run_service, run_id, approval_event)
+                                await self._persist_event(
+                                    run_service, run_id, approval_event,
+                                )
                                 yield approval_event
                             else:
                                 tr_event = self._make_event(

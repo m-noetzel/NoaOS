@@ -105,6 +105,7 @@ services:
       start_period: 30s
     volumes:
       - ./src:/app/src:ro  # Live source mount — restart picks up changes without rebuild
+      - ./prompts:/app/prompts:rw  # System prompt file — editable from UI and host
       - backups:/backups:ro  # Backup verify_status.json for GET /health/backup (§10.5)
       - private-data:/data  # Memory facts persistence (BE-H6)
     # Container hardening (§8.1)

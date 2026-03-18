@@ -22,6 +22,8 @@ class Approval(Base):
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False,
     )
     risk_tier: Mapped[str] = mapped_column(String(16), nullable=False)
+    tool_name: Mapped[str | None] = mapped_column(String(128))
+    function_name: Mapped[str | None] = mapped_column(String(128))
     preview_text: Mapped[str | None] = mapped_column(Text)
     decision: Mapped[str] = mapped_column(
         String(16), nullable=False, default="pending",

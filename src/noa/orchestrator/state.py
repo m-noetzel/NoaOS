@@ -51,3 +51,5 @@ class AgentState(TypedDict):
     private_available: bool
     # User identity for scoped storage (memory, etc.)
     user_id: str | None
+    # CQ1: Task-level tool scope (None = all tools allowed)
+    tool_scope: str | None

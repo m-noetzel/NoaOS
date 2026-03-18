@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -267,10 +266,8 @@ class TestToolNodeGatewayIntegration:
         gw.register("web_search", adapter)
 
         old_gw = getattr(tm, "_gateway", None)
-        old_reg = tm._registry
         try:
             tm._gateway = gw
-            tm._registry = None
 
             calls = [{
                 "tool": "web_search",
@@ -283,26 +280,15 @@ class TestToolNodeGatewayIntegration:
             assert tr.get("error") is None
         finally:
             tm._gateway = old_gw
-            tm._registry = old_reg
 
     @pytest.mark.asyncio
-    async def test_tool_node_falls_back_to_registry(self) -> None:
+    async def test_tool_node_no_gateway_returns_error(self) -> None:
+        """Without ToolGateway, tool_node returns an error (CQ2: no registry fallback)."""
         from noa.orchestrator.nodes import tools as tm
 
-        mock_reg = MagicMock(spec=tm.ToolRegistry)
-        mock_reg.dispatch = AsyncMock(
-            return_value={"data": "ok"}
-        )
-        mock_reg.list_tools.return_value = ["calendar"]
-        mock_tool = MagicMock()
-        mock_tool.risk_tiers = {"list_events": "low"}
-        mock_reg.get.return_value = mock_tool
-
         old_gw = getattr(tm, "_gateway", None)
-        old_reg = tm._registry
         try:
             tm._gateway = None
-            tm._registry = mock_reg
 
             calls = [{
                 "tool": "calendar",
@@ -311,6 +297,6 @@ class TestToolNodeGatewayIntegration:
             }]
             result = await tm.tool_node(self._make_state(calls))
             assert len(result["tool_results"]) == 1
+            assert "error" in result["tool_results"][0]
         finally:
             tm._gateway = old_gw
-            tm._registry = old_reg

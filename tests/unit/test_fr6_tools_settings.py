@@ -364,10 +364,15 @@ class TestAgentLimits:
 
 
 class TestNotionCapabilityAutoGrant:
-    """Tests that saving Notion credentials auto-grants notion.read capability."""
+    """Tests that tool capabilities can be granted via the enable endpoint.
+
+    Wave 23: The POST /tools/{name}/credentials endpoint was removed.
+    Credentials now come from keychain env vars. Capability grants are
+    performed explicitly via POST /tools/{name}/enable.
+    """
 
     async def test_store_notion_credentials_grants_capability(self) -> None:
-        """POST /tools/notion/credentials auto-grants notion.read capability."""
+        """POST /tools/notion/enable grants notion capability to the user."""
         import noa.api.v1.tools as tools_mod
         from noa.auth.middleware import AuthUser
         from noa.tools.capabilities import DbCapabilityChecker
@@ -397,19 +402,18 @@ class TestNotionCapabilityAutoGrant:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 resp = await client.post(
-                    "/api/v1/tools/notion/credentials",
-                    json={"token": "secret-notion-token"},
+                    "/api/v1/tools/notion/enable",
                     headers={"Authorization": "Bearer fake-token"},
                 )
                 assert resp.status_code == 200
                 data = resp.json()["data"]
-                assert data["capability_granted"] is True
+                assert data["status"] == "granted"
 
             # Verify capability actually exists in DB
             async with factory() as sess:
                 checker = DbCapabilityChecker(sess)
                 has_cap = await checker.has_capability(user_id, "notion")
-                assert has_cap, "notion.read capability must be granted after credential save"
+                assert has_cap, "notion capability must be granted after /enable call"
 
         finally:
             # Restore module-level references
@@ -419,7 +423,7 @@ class TestNotionCapabilityAutoGrant:
         await engine.dispose()
 
     async def test_store_web_search_credentials_grants_capability(self) -> None:
-        """POST /tools/web_search/credentials auto-grants search.read capability."""
+        """POST /tools/web_search/enable grants web_search capability to the user."""
         import noa.api.v1.tools as tools_mod
         from noa.auth.middleware import AuthUser
         from noa.tools.capabilities import DbCapabilityChecker
@@ -448,8 +452,7 @@ class TestNotionCapabilityAutoGrant:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 resp = await client.post(
-                    "/api/v1/tools/web_search/credentials",
-                    json={"api_key": "tvly-test-key"},
+                    "/api/v1/tools/web_search/enable",
                     headers={"Authorization": "Bearer fake-token"},
                 )
                 assert resp.status_code == 200
@@ -457,7 +460,7 @@ class TestNotionCapabilityAutoGrant:
             async with factory() as sess:
                 checker = DbCapabilityChecker(sess)
                 has_cap = await checker.has_capability(user_id, "web_search")
-                assert has_cap, "search.read capability must be granted after credential save"
+                assert has_cap, "web_search capability must be granted after /enable call"
 
         finally:
             tools_mod.require_auth = tools_mod._SELF_REF  # type: ignore[assignment]

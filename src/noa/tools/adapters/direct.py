@@ -23,7 +23,11 @@ class DirectApiAdapter:
         try:
             # Inject user_id into args for tools that need user-scoped storage
             args = dict(request.args)
-            if request.user_id is not None and hasattr(self._tool, 'name') and self._tool.name == "memory":
+            is_memory = (
+                hasattr(self._tool, 'name')
+                and self._tool.name == "memory"
+            )
+            if request.user_id is not None and is_memory:
                 args.setdefault("user_id", str(request.user_id))
             result = await self._tool.execute(
                 function=request.function,

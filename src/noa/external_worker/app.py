@@ -93,13 +93,16 @@ def create_external_app(settings: Any = None) -> FastAPI:
             )
 
         try:
-            result = await router.complete(
-                messages=body.messages,
-                max_tokens=body.max_tokens,
-                privacy_mode=body.privacy_mode,
-                provider=body.provider,
-                model=body.model,
-            )
+            complete_kwargs: dict[str, Any] = {
+                "messages": body.messages,
+                "max_tokens": body.max_tokens,
+                "privacy_mode": body.privacy_mode,
+                "provider": body.provider,
+                "model": body.model,
+            }
+            if body.temperature is not None:
+                complete_kwargs["temperature"] = body.temperature
+            result = await router.complete(**complete_kwargs)
         except (httpx.HTTPError, ValueError, KeyError, ProviderError) as exc:
             logger.error("complete_endpoint_error: %s", exc)
             return JSONResponse(

@@ -15,12 +15,9 @@ Verifies:
 from __future__ import annotations
 
 import inspect
-import uuid
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
-
 
 pytestmark = pytest.mark.cq6
 
@@ -126,6 +123,7 @@ class TestAppStateTypedGetters:
     def test_app_state_backed_runner_retrieval(self) -> None:
         """Runner stored on app.state is returned when app is registered."""
         from fastapi import FastAPI
+
         from noa.api.app_state import get_runner, set_app, set_runner
         from noa.orchestrator.runner import OrchestratorRunner
 
@@ -175,12 +173,13 @@ class TestAgentRouterTyped:
 
     def test_invoke_llm_raises_without_router(self) -> None:
         import asyncio
+
         from noa.orchestrator.nodes.agent import invoke_llm
 
         with pytest.raises(RuntimeError, match="no router configured"):
-            asyncio.get_event_loop().run_until_complete(
-                invoke_llm("openai/gpt-4", [])
-            )
+            # Use asyncio.run() to avoid "no current event loop" errors
+            # after async tests have closed the loop.
+            asyncio.run(invoke_llm("openai/gpt-4", []))
 
 
 # ---------------------------------------------------------------------------

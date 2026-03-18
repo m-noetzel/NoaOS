@@ -379,39 +379,46 @@ class TestHealthEndpoint:
 
 
 class TestCredentialEndpoint:
-    """POST/GET /api/v1/tools/{name}/credentials."""
+    """GET /api/v1/tools/{name}/credentials.
+
+    Wave 23: POST credential endpoint removed — credentials are now injected
+    via keychain env vars. Only GET (masked read) remains.
+    """
 
     @pytest.fixture
     def _app(self):
         return _make_app()
 
-    async def test_post_stores_and_returns_masked(
+    async def test_get_returns_masked_credentials_from_env(
         self, _app: Any,
     ) -> None:
-        """TM1: POST stores credential, returns masked."""
+        """TM1: GET /credentials returns masked env-var credentials."""
+        import os
+
         from httpx import ASGITransport, AsyncClient
 
         async def _auth():
             return _fake_user()
 
-        async with AsyncClient(
-            transport=ASGITransport(app=_app),
-            base_url="http://test",
-        ) as client:
-            with patch(
-                "noa.api.v1.tools.require_auth", _auth,
-            ):
-                resp = await client.post(
-                    "/api/v1/tools/web_search/credentials",
-                    json={"api_key": "tvly-abc123456789"},
-                )
+        # Inject a credential via env var (simulates keychain injection)
+        with patch.dict(os.environ, {"TAVILY_API_KEY": "tvly-abc123456789"}):
+            async with AsyncClient(
+                transport=ASGITransport(app=_app),
+                base_url="http://test",
+            ) as client:
+                with patch(
+                    "noa.api.v1.tools.require_auth", _auth,
+                ):
+                    resp = await client.get(
+                        "/api/v1/tools/web_search/credentials",
+                    )
 
         assert resp.status_code == 200
         body = resp.json()
         data = body.get("data", body)
+        # Raw credential must not appear in response
         raw = "tvly-abc123456789"
         assert raw not in str(data)
-        assert "****" in str(data)
 
     async def test_get_returns_only_masked(
         self, _app: Any,

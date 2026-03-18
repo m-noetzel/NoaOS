@@ -8,7 +8,7 @@ Deliverables tested:
 2. AgentState gets model_config field
 3. router_node returns model_config in state update
 4. agent_node reads model_config["agent"] with fallback
-5. Default config: router=none, agent=anthropic/claude-sonnet-4-20250514, responder=none
+5. Default config: router=none, agent=DEFAULT_EXTERNAL_MODEL, responder=none
 6. Private mode: agent=ollama/llama3.1
 """
 
@@ -64,12 +64,17 @@ class TestModelConfigDefaults:
     """ModelConfig must declare correct per-node defaults."""
 
     def test_default_external_config(self):
-        """External-mode defaults: router=none, agent=sonnet, responder=none."""
+        """External-mode defaults: router=none, agent=DEFAULT_EXTERNAL_MODEL, responder=none.
+
+        Updated in Wave 23 (CQ4 centralization): DEFAULT_EXTERNAL_MODEL is now
+        openai/gpt-4.1-mini (config.py) rather than anthropic/claude-sonnet-4-20250514.
+        """
+        from noa.config import DEFAULT_EXTERNAL_MODEL
         from noa.orchestrator.model_config import ModelConfig
 
         cfg = ModelConfig()
         assert cfg.router == "none"
-        assert cfg.agent == "anthropic/claude-sonnet-4-20250514"
+        assert cfg.agent == DEFAULT_EXTERNAL_MODEL
         assert cfg.responder == "none"
 
     def test_private_mode_config(self):
@@ -81,14 +86,19 @@ class TestModelConfigDefaults:
         assert cfg.agent == DEFAULT_PRIVATE_MODEL
 
     def test_external_mode_config(self):
-        """External mode must use anthropic/claude-sonnet-4-20250514 for agent."""
+        """External mode must use DEFAULT_EXTERNAL_MODEL for agent.
+
+        Updated in Wave 23 (CQ4): DEFAULT_EXTERNAL_MODEL is openai/gpt-4.1-mini.
+        """
+        from noa.config import DEFAULT_EXTERNAL_MODEL
         from noa.orchestrator.model_config import ModelConfig
 
         cfg = ModelConfig.for_privacy_mode("external")
-        assert cfg.agent == "anthropic/claude-sonnet-4-20250514"
+        assert cfg.agent == DEFAULT_EXTERNAL_MODEL
 
     def test_to_dict(self):
         """ModelConfig.to_dict() returns a plain dict suitable for AgentState."""
+        from noa.config import DEFAULT_EXTERNAL_MODEL
         from noa.orchestrator.model_config import ModelConfig
 
         cfg = ModelConfig()
@@ -96,7 +106,7 @@ class TestModelConfigDefaults:
         assert isinstance(d, dict)
         assert d == {
             "router": "none",
-            "agent": "anthropic/claude-sonnet-4-20250514",
+            "agent": DEFAULT_EXTERNAL_MODEL,
             "responder": "none",
         }
 
@@ -232,11 +242,12 @@ class TestModelConfigFromSettings:
         assert cfg.responder == "none"
 
     def test_from_settings_empty_uses_defaults(self):
-        """Empty settings dict returns default ModelConfig."""
+        """Empty settings dict returns default ModelConfig (DEFAULT_EXTERNAL_MODEL)."""
+        from noa.config import DEFAULT_EXTERNAL_MODEL
         from noa.orchestrator.model_config import ModelConfig
 
         cfg = ModelConfig.from_settings({})
-        assert cfg.agent == "anthropic/claude-sonnet-4-20250514"
+        assert cfg.agent == DEFAULT_EXTERNAL_MODEL
 
 
 # ===========================================================================
