@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -26,16 +27,19 @@ _TZ_AWARE_RE = re.compile(r"(?:Z|[+-]\d{2}:\d{2})$")
 
 
 def _make_datetime_entry(dt_str: str) -> dict[str, str]:
-    """Build a Google Calendar datetime entry with timeZone fallback.
+    """Build a Google Calendar datetime entry.
 
-    Google Calendar API returns 400 if dateTime has no offset AND no
-    timeZone field. This helper adds ``"timeZone": "UTC"`` when the
-    datetime string is naive (no offset/Z suffix).
+    If the datetime string is naive (no offset/Z suffix), attach the
+    system's local UTC offset so the event lands at the intended local
+    time rather than being misinterpreted as UTC.
     """
-    entry: dict[str, str] = {"dateTime": dt_str}
     if not _TZ_AWARE_RE.search(dt_str):
-        entry["timeZone"] = "UTC"
-    return entry
+        # Treat naive string as local time, attach the system offset.
+        # datetime.fromisoformat + astimezone() preserves wall-clock
+        # time and appends the local UTC offset (e.g. +01:00).
+        aware = datetime.fromisoformat(dt_str).astimezone()
+        return {"dateTime": aware.isoformat()}
+    return {"dateTime": dt_str}
 
 
 class GoogleCalendarClient:

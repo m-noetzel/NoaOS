@@ -348,23 +348,31 @@ function InspectionPanel({ node, runId, onClose }: { node: GraphNode; runId: str
         </div>
       )}
 
-      {/* Tool parameters */}
-      {node.type === "tool" && node.event.data.args && (
-        <div className="rounded-lg bg-muted/30 p-3 space-y-1.5">
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Parameters</p>
-          <pre className="text-[11px] font-mono text-foreground/80 overflow-x-auto whitespace-pre-wrap">
-            {JSON.stringify(node.event.data.args, null, 2)}
-          </pre>
-        </div>
-      )}
+      {/* Tool parameters — args may be top-level or nested inside tool_call */}
+      {node.type === "tool" && (() => {
+        const args = node.event.data.args ?? asRecord(node.event.data.tool_call)?.args;
+        return args && Object.keys(args as object).length > 0 ? (
+          <div className="rounded-lg bg-muted/30 p-3 space-y-1.5">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Parameters</p>
+            <pre className="text-[11px] font-mono text-foreground/80 overflow-x-auto whitespace-pre-wrap">
+              {JSON.stringify(args, null, 2)}
+            </pre>
+          </div>
+        ) : null;
+      })()}
 
-      {/* Tool result */}
-      {node.type === "tool" && node.resultEvent && (
-        <div className="rounded-lg bg-muted/30 p-3 space-y-1.5">
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Result</p>
-          <p className="text-xs text-foreground/80">{asString(node.resultEvent.data.result)}</p>
-        </div>
-      )}
+      {/* Tool result — result may be top-level or nested inside tool_result */}
+      {node.type === "tool" && node.resultEvent && (() => {
+        const result = node.resultEvent.data.result ?? node.resultEvent.data.tool_result;
+        return result ? (
+          <div className="rounded-lg bg-muted/30 p-3 space-y-1.5">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Result</p>
+            <pre className="text-[11px] font-mono text-foreground/80 overflow-x-auto whitespace-pre-wrap max-h-48">
+              {typeof result === "string" ? result : JSON.stringify(result, null, 2)}
+            </pre>
+          </div>
+        ) : null;
+      })()}
 
       {/* Generic metadata */}
       {(node.type === "message" || node.type === "result" || node.type === "error") && (

@@ -105,8 +105,8 @@ function TimelineRow({ event, isLast, duration }: { event: RunEvent; isLast: boo
           <div className="mt-1 space-y-1">
             <div className="flex items-center gap-2">
               <ToolCallChip
-                toolName={asString(event.data.tool_name)}
-                args={asRecord(event.data.args)}
+                toolName={asString(event.data.tool_name) || asString(asRecord(event.data.tool_call).name)}
+                args={asRecord(event.data.args) || asRecord(asRecord(event.data.tool_call).args)}
               />
               {event.data.parallel_group && (
                 <span className="rounded-full bg-warning/10 text-warning/70 px-1.5 py-0.5 text-[9px] font-mono border border-warning/20">
@@ -114,10 +114,8 @@ function TimelineRow({ event, isLast, duration }: { event: RunEvent; isLast: boo
                 </span>
               )}
             </div>
-            {/* UX-H5: Full tool input expandable */}
-            {event.data.args !== undefined && (
-              <ExpandableData label="Input" data={event.data.args} />
-            )}
+            {/* UX-H5: Full tool input expandable — args may be top-level or nested in tool_call */}
+            <ExpandableData label="Input" data={event.data.args ?? asRecord(event.data.tool_call)?.args} />
           </div>
         )}
 
@@ -127,15 +125,9 @@ function TimelineRow({ event, isLast, duration }: { event: RunEvent; isLast: boo
               {event.data.tool_name && (
                 <span className="font-mono text-warning/80">{asString(event.data.tool_name)}</span>
               )}
-              {event.data.tokens_in !== undefined && (
-                <span className="text-[10px] text-muted-foreground/40 font-mono">
-                  {(typeof event.data.tokens_in === "number" ? event.data.tokens_in : 0)
-                   + (typeof event.data.tokens_out === "number" ? event.data.tokens_out : 0)} tok
-                </span>
-              )}
             </div>
-            {/* UX-H5: Full tool output expandable — shows Tavily results, calendar data, etc. */}
-            <ExpandableData label="Output" data={event.data.result ?? event.data.output ?? event.data} />
+            {/* UX-H5: result may be top-level, nested in tool_result, or fallback to full data */}
+            <ExpandableData label="Output" data={event.data.result ?? asRecord(event.data.tool_result) ?? event.data.output} />
           </div>
         )}
 
@@ -147,11 +139,11 @@ function TimelineRow({ event, isLast, duration }: { event: RunEvent; isLast: boo
         )}
 
         {event.type === "error" && (
-          <p className="text-sm text-destructive mt-1">{asString(event.data.message)}</p>
+          <p className="text-sm text-destructive mt-1">{asString(event.data.error ?? event.data.message)}</p>
         )}
 
         {event.type === "message_received" && (
-          <p className="text-sm text-muted-foreground mt-0.5 truncate">{asString(event.data.text)}</p>
+          <p className="text-sm text-muted-foreground mt-0.5 truncate">{asString(event.data.message ?? event.data.text)}</p>
         )}
       </div>
     </div>

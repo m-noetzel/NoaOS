@@ -25,35 +25,35 @@ export function buildCostItems(events: RunEvent[], run?: Run): CostItem[] {
     }));
   }
 
-  // Fallback: estimate from events
   const items: CostItem[] = [];
 
-  const plannerEvents = events.filter((e) => e.type === "planner_step");
-  if (plannerEvents.length) {
-    const tIn = plannerEvents.reduce((s, e) => s + (typeof e.data.tokens_in === "number" ? e.data.tokens_in : 0), 0);
-    const tOut = plannerEvents.reduce((s, e) => s + (typeof e.data.tokens_out === "number" ? e.data.tokens_out : 0), 0);
-    items.push({ name: "Planner", tokens_in: tIn, tokens_out: tOut, cost: estimateCost(tIn, tOut) });
+  // Primary: parse llm_usage from result_ready — real per-call tokens+cost from agent node
+  // Each entry: {provider, model, input_tokens, output_tokens, cost_usd}
+  const resultEvent = events.find((e) => e.type === "result_ready");
+  if (resultEvent) {
+    const llmUsage = Array.isArray(resultEvent.data.llm_usage) ? resultEvent.data.llm_usage : [];
+    for (const usage of llmUsage) {
+      if (typeof usage !== "object" || usage === null) continue;
+      const u = usage as Record<string, unknown>;
+      const tIn = typeof u.input_tokens === "number" ? u.input_tokens : 0;
+      const tOut = typeof u.output_tokens === "number" ? u.output_tokens : 0;
+      const costUsd = typeof u.cost_usd === "number" ? u.cost_usd : estimateCost(tIn, tOut);
+      const model = (typeof u.model === "string" && u.model) || (typeof u.provider === "string" && u.provider) || "agent";
+      items.push({ name: `LLM · ${model}`, tokens_in: tIn, tokens_out: tOut, cost: costUsd });
+    }
+
+    // If llm_usage was empty but total_cost exists, show a single aggregate row
+    if (!llmUsage.length && typeof resultEvent.data.total_cost === "number" && resultEvent.data.total_cost > 0) {
+      items.push({ name: "LLM (total)", tokens_in: 0, tokens_out: 0, cost: resultEvent.data.total_cost as number });
+    }
   }
 
+  // Tool calls: API calls don't consume LLM tokens, show them for completeness at $0
   const toolCalls = events.filter((e) => e.type === "tool_called");
-  const toolResults = events.filter((e) => e.type === "tool_result");
   for (const tc of toolCalls) {
     const tcInner = asRecord(tc.data.tool_call);
     const toolName = asString(tcInner.name) || asString(tc.data.tool_name) || "tool";
-    const result = toolResults.find((r) => {
-      const trInner = asRecord(r.data.tool_result);
-      return (asString(trInner.name) || asString(r.data.tool_name)) === toolName;
-    });
-    const tIn = typeof result?.data.tokens_in === "number" ? result.data.tokens_in : 0;
-    const tOut = typeof result?.data.tokens_out === "number" ? result.data.tokens_out : 0;
-    items.push({ name: toolName, tokens_in: tIn, tokens_out: tOut, cost: estimateCost(tIn, tOut) });
-  }
-
-  const resultEvent = events.find((e) => e.type === "result_ready");
-  if (resultEvent) {
-    const tIn = typeof resultEvent.data.tokens_in === "number" ? resultEvent.data.tokens_in : 0;
-    const tOut = typeof resultEvent.data.tokens_out === "number" ? resultEvent.data.tokens_out : 0;
-    items.push({ name: "Final response", tokens_in: tIn, tokens_out: tOut, cost: estimateCost(tIn, tOut) });
+    items.push({ name: `tool · ${toolName}`, tokens_in: 0, tokens_out: 0, cost: 0 });
   }
 
   return items;

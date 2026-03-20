@@ -129,8 +129,35 @@ async def submit_chat(
     rid = trace_id_ctx.get("")
     user_id = str(user.user_id)
 
-    # Default privacy_mode to "external" when omitted (iOS compatibility — H1)
-    privacy_mode: str = body.privacy_mode or PrivacyMode.EXTERNAL
+    # MVP-H3: Check private domain availability before classifying privacy_mode
+    _checker = get_health_checker()
+    private_available: bool = _checker.is_available() if _checker is not None else True
+
+    # Determine effective privacy_mode.
+    # Priority:
+    # 1. Explicit "private" from client → always private.
+    # 2. Existing thread → inherit its domain (avoids BE-C3 domain mismatch).
+    # 3. New thread → content-classify the message so that private content
+    #    (journal, diary, etc.) is queued when the private worker is unavailable.
+    #    The frontend default of "external" must not suppress this detection.
+    if body.privacy_mode == PrivacyMode.PRIVATE:
+        privacy_mode: str = PrivacyMode.PRIVATE
+    elif body.thread_id is not None:
+        thread_domain = await _get_thread_domain(body.thread_id, user_id)
+        privacy_mode = thread_domain or body.privacy_mode or PrivacyMode.EXTERNAL
+    elif body.privacy_mode is None:
+        # No explicit mode and no thread — classify the message content.
+        # Only runs when the client hasn't expressed a preference; an explicit
+        # "external" from the client is respected as-is (Transparency Principle).
+        from noa.privacy.classifier import PrivacyClassifier
+        _clf = PrivacyClassifier()
+        _clf_result = _clf.classify(
+            {"messages": [{"role": "user", "content": body.message}]},
+            private_available=private_available,
+        )
+        privacy_mode = _clf_result.domain
+    else:
+        privacy_mode = body.privacy_mode
 
     # BE-M4: Structured log context for queryable logs
     log_ctx = {
@@ -181,10 +208,6 @@ async def submit_chat(
 
     # W22-H1/H2: Load user settings for agent limits and approvals toggle
     user_settings = await _load_user_settings(user.user_id)
-
-    # MVP-H3: Check private domain availability from HealthChecker
-    _checker = get_health_checker()
-    private_available: bool = _checker.is_available() if _checker is not None else True
 
     # MVP-H3: If private domain is requested but unavailable, enqueue the task
     if privacy_mode == PrivacyMode.PRIVATE and not private_available:
@@ -483,6 +506,31 @@ async def _check_thread_domain(
         return None
 
     return None
+
+
+async def _get_thread_domain(thread_id: str, user_id: str) -> str | None:
+    """Return the domain of an existing thread, or None if not found."""
+    factory = _get_session_factory()
+    if factory is None:
+        return None
+    try:
+        from sqlalchemy import select
+
+        from noa.db.models.conversation import Conversation
+
+        tid = uuid.UUID(thread_id)
+        uid = uuid.UUID(user_id)
+        async with factory() as session:
+            result = await session.execute(
+                select(Conversation.domain).where(
+                    Conversation.id == tid,
+                    Conversation.user_id == uid,
+                )
+            )
+            row = result.scalar_one_or_none()
+            return str(row) if row is not None else None
+    except Exception:  # noqa: BLE001
+        return None
 
 
 async def _make_run_service(

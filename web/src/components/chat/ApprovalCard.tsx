@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { apiRequest } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -25,54 +26,65 @@ export function ApprovalCard({
   onInvalidateQueries,
 }: ApprovalCardProps) {
   const { toast } = useToast();
+  const [isProcessing, setIsProcessing] = useState(false);
 
   const handleApprove = async () => {
+    if (isProcessing) return;
     const aid = pendingApproval.approval_id;
     const toolLabel = `${pendingApproval.tool}.${pendingApproval.function}`;
+
+    if (!aid) {
+      toast({
+        title: "Approval error",
+        description: "No approval ID — please dismiss and try again.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsProcessing(true);
     onSetStreaming(true);
     onAddStreamEvent({
       event: "step_started" as SSEEventType,
       data: { step: `Executing ${toolLabel} (approved)` },
     });
 
-    if (aid) {
-      try {
-        const res = await apiRequest<{
-          approval_id: string;
-          decision: string;
-          tool_result?: Record<string, unknown>;
-        }>(`/api/v1/approvals/${aid}/decide`, {
-          method: "POST",
-          body: JSON.stringify({ decision: "approved" }),
-        });
-        const toolResult = res.data?.tool_result;
-        onAddStreamEvent({
-          event: "tool_end" as SSEEventType,
-          data: {
-            tool_name: toolLabel,
-            result: toolResult ?? { status: "executed" },
-          },
-        });
-        const resultSummary = toolResult?.error
-          ? `Tool execution failed: ${toolResult.error}`
-          : `${toolLabel} executed successfully.`;
-        onApproved({
-          id: `optimistic-approval-${Date.now()}`,
-          thread_id: activeThreadRef.current || "",
-          role: "assistant",
-          content: resultSummary,
-          created_at: new Date().toISOString(),
-        });
-        onInvalidateQueries();
-        toast({ title: "Approved & Executed", description: resultSummary });
-      } catch (err) {
-        toast({
-          title: "Execution failed",
-          description:
-            err instanceof Error ? err.message : "Unknown error",
-          variant: "destructive",
-        });
-      }
+    try {
+      const res = await apiRequest<{
+        approval_id: string;
+        decision: string;
+        tool_result?: Record<string, unknown>;
+      }>(`/api/v1/approvals/${aid}/decide`, {
+        method: "POST",
+        body: JSON.stringify({ decision: "approved" }),
+      });
+      const toolResult = res.data?.tool_result;
+      onAddStreamEvent({
+        event: "tool_end" as SSEEventType,
+        data: {
+          tool_name: toolLabel,
+          result: toolResult ?? { status: "executed" },
+        },
+      });
+      const resultSummary = toolResult?.error
+        ? `Tool execution failed: ${toolResult.error}`
+        : `${toolLabel} executed successfully.`;
+      onApproved({
+        id: `optimistic-approval-${Date.now()}`,
+        thread_id: activeThreadRef.current || "",
+        role: "assistant",
+        content: resultSummary,
+        created_at: new Date().toISOString(),
+      });
+      onInvalidateQueries();
+      toast({ title: "Approved & Executed", description: resultSummary });
+    } catch (err) {
+      toast({
+        title: "Execution failed",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+      setIsProcessing(false);
     }
     onSetStreaming(false);
   };
@@ -125,14 +137,16 @@ export function ApprovalCard({
             size="sm"
             className="flex-1 bg-green-600 hover:bg-green-700 text-white"
             onClick={handleApprove}
+            disabled={isProcessing}
           >
-            Approve
+            {isProcessing ? "Executing…" : "Approve"}
           </Button>
           <Button
             size="sm"
             variant="outline"
             className="flex-1 border-destructive/50 text-destructive hover:bg-destructive/10"
             onClick={handleDeny}
+            disabled={isProcessing}
           >
             Deny
           </Button>

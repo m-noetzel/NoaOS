@@ -13,6 +13,7 @@ import {
 } from "@/hooks/useOptimisticMessages";
 import { Button } from "@/components/ui/button";
 import { CheckCircle2 } from "lucide-react";
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 
 export default function Chat() {
   const queryClient = useQueryClient();
@@ -117,14 +118,19 @@ export default function Chat() {
   };
 
   return (
-    <div className="flex h-[calc(100vh-3rem)]">
-      <ThreadSidebar
-        activeThread={activeThread}
-        onSelectThread={setActiveThread}
-        onThreadDeleted={() => setActiveThread(null)}
-      />
+    <ResizablePanelGroup direction="horizontal" className="h-[calc(100vh-3rem)]">
+      <ResizablePanel defaultSize={22} minSize={12} maxSize={40}>
+        <ThreadSidebar
+          activeThread={activeThread}
+          onSelectThread={setActiveThread}
+          onThreadDeleted={() => setActiveThread(null)}
+        />
+      </ResizablePanel>
 
-      <div className="flex-1 flex flex-col min-w-0">
+      <ResizableHandle withHandle />
+
+      <ResizablePanel defaultSize={78} minSize={40}>
+      <div className="flex-1 flex flex-col min-w-0 h-full">
         <ChatMessages
           messageGroups={messageGroups}
           isStreaming={isStreaming}
@@ -196,6 +202,7 @@ export default function Chat() {
           }}
         />
       </div>
-    </div>
+      </ResizablePanel>
+    </ResizablePanelGroup>
   );
 }

@@ -52,11 +52,19 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
                     "properties": {
                         "start_date": {
                             "type": "string",
-                            "description": "Start date (ISO format).",
+                            "description": (
+                                "Start date/time in ISO 8601 format with "
+                                "timezone offset, e.g. "
+                                "'2026-03-18T00:00:00+01:00'."
+                            ),
                         },
                         "end_date": {
                             "type": "string",
-                            "description": "End date (ISO format).",
+                            "description": (
+                                "End date/time in ISO 8601 format with "
+                                "timezone offset, e.g. "
+                                "'2026-03-19T00:00:00+01:00'."
+                            ),
                         },
                     },
                     "required": ["start_date", "end_date"],
@@ -75,11 +83,21 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
                         },
                         "start": {
                             "type": "string",
-                            "description": "Start time (ISO format).",
+                            "description": (
+                                "Start time in ISO 8601 format with "
+                                "timezone offset, e.g. "
+                                "'2026-03-18T20:00:00+01:00'. "
+                                "Always include the user's UTC offset."
+                            ),
                         },
                         "end": {
                             "type": "string",
-                            "description": "End time (ISO format).",
+                            "description": (
+                                "End time in ISO 8601 format with "
+                                "timezone offset, e.g. "
+                                "'2026-03-18T21:00:00+01:00'. "
+                                "Always include the user's UTC offset."
+                            ),
                         },
                         "description": {
                             "type": "string",

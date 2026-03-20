@@ -132,9 +132,21 @@ class OrchestratorRunner:
             # appended as operational metadata.
             sp = system_prompt or ""
             tool_ctx = self._build_tool_context(avail_tools)
-            # Inject current date/time so the model knows "now"
-            now_str = datetime.now(UTC).strftime("%A, %B %d, %Y at %H:%M UTC")
-            time_ctx = f"Current date and time: {now_str}"
+            # Inject current date/time in the user's local timezone so
+            # the model generates timezone-aware ISO strings for tools.
+            local_now = datetime.now().astimezone()
+            tz_offset = local_now.strftime("%z")  # e.g. "+0100"
+            tz_fmt = f"{tz_offset[:3]}:{tz_offset[3:]}"  # "+01:00"
+            tz_name = local_now.strftime("%Z")
+            now_str = local_now.strftime(
+                f"%A, %B %d, %Y at %H:%M ({tz_name}, UTC{tz_fmt})"
+            )
+            ex = f"2026-03-18T20:00:00{tz_fmt}"
+            time_ctx = (
+                f"Current date and time: {now_str}\n"
+                f"User timezone: UTC{tz_fmt} — always include this offset "
+                f"in ISO datetime strings for calendar tools (e.g. {ex})."
+            )
             parts = [p for p in (sp, time_ctx, tool_ctx) if p]
             combined = "\n\n".join(parts)
             if combined:

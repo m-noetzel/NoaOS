@@ -96,7 +96,7 @@ export function ThreadSidebar({
   };
 
   return (
-    <div className="w-60 border-r border-border/50 flex flex-col shrink-0 bg-muted/20">
+    <div className="h-full border-r border-border/50 flex flex-col bg-muted/20">
       <div className="p-3 flex items-center justify-between border-b border-border/30">
         <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
           Threads
@@ -117,7 +117,7 @@ export function ThreadSidebar({
             <div
               key={thread.id}
               className={cn(
-                "group relative w-full text-left px-3 py-2.5 rounded-lg text-sm transition-all duration-200 animate-fade-in cursor-pointer",
+                "group w-full text-left px-3 py-2.5 rounded-lg text-sm transition-all duration-200 animate-fade-in cursor-pointer",
                 activeThread === thread.id
                   ? "bg-accent text-accent-foreground font-medium glow-sm border border-border/50"
                   : "hover:bg-accent/40 text-muted-foreground hover:text-foreground"
@@ -160,12 +160,14 @@ export function ThreadSidebar({
                   </button>
                 </div>
               ) : (
-                <>
-                  <p className="truncate text-[13px] pr-12">{thread.title}</p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">
-                    {thread.message_count} messages
-                  </p>
-                  <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-all">
+                <div className="flex items-center gap-1 min-w-0">
+                  <div className="flex-1 min-w-0">
+                    <p className="truncate text-[13px]">{thread.title}</p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      {thread.message_count} messages
+                    </p>
+                  </div>
+                  <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity shrink-0 bg-inherit pl-1">
                     <button
                       className="p-1 rounded hover:bg-accent/60 hover:text-primary transition-all"
                       onClick={(e) => startRename(thread.id, thread.title, e)}
@@ -186,7 +188,7 @@ export function ThreadSidebar({
                       <Trash2 className="h-3 w-3" />
                     </button>
                   </div>
-                </>
+                </div>
               )}
             </div>
           ))}

@@ -132,6 +132,7 @@ services:
       - PRIVATE_WORKER_HEALTH_URL=http://private-worker-dev:8001/health
       - EXTERNAL_WORKER_HEALTH_URL=http://external-worker-dev:8002/health
       - LOG_LEVEL=DEBUG
+      - TZ=${TZ:-Europe/Berlin}
     volumes:
       - ./src:/app/src:rw
     networks:
