@@ -219,7 +219,7 @@
 | W24-AUDIT-H2 | High | Test fixture `_make_agent_state()` in `tests/unit/test_orchestrator.py` missing `run_id` field added by EV1. Causes `test_state_factory_produces_valid_state` to fail — CI gate regression. | Open | — |
 | W24-AUDIT-H3 | High | 43 ruff errors in Wave 24 test files (I001 import sorting, F401 unused imports) — CI ruff gate would fail on push. All auto-fixable. | Open | — |
 
-**Open:** 24 | **Partially Resolved:** 0 | **Resolved:** 181 | **Total:** 206
+**Open:** 24 | **Partially Resolved:** 0 | **Resolved:** 183 | **Total:** 207
 
 ---
 
