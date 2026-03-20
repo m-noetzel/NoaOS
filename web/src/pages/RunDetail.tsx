@@ -15,7 +15,7 @@ import { ReplayActions } from "@/components/runs/ReplayActions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, Clock, Cpu, DollarSign, Zap, Hash, Wrench, RotateCcw } from "lucide-react";
+import { ArrowLeft, Clock, Cpu, DollarSign, Zap, Hash, Wrench, RotateCcw, Activity } from "lucide-react";
 
 export default function RunDetail() {
   const { runId } = useParams();
@@ -84,6 +84,15 @@ export default function RunDetail() {
           </p>
         </div>
         <ReplayActions runId={run.id} selectedNodeLabel={selectedNodeLabel} />
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-1.5 text-xs"
+          onClick={() => navigate(`/traces?traceId=${run.id}`)}
+        >
+          <Activity className="h-3.5 w-3.5" />
+          View Trace
+        </Button>
       </div>
 
       {/* Replay provenance */}

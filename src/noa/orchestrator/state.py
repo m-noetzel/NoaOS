@@ -53,3 +53,17 @@ class AgentState(TypedDict):
     user_id: str | None
     # CQ1: Task-level tool scope (None = all tools allowed)
     tool_scope: str | None
+    # DI1: Task type classification
+    # Values: "simple_utility" | "execution" | "research" | "decision_intelligence"
+    task_type: str | None
+    # OI1: Planning node fields
+    plan: str | None  # Planner's output (injected as system context)
+    archetype: str | None  # e.g. "comparative_selection", "execution", "research"
+    thoughts: list[dict[str, Any]]  # ReAct thought steps
+    use_react: bool  # Whether to use ReAct mode
+    # Run identity (for evaluation persistence)
+    run_id: str | None
+    # EV1: Evaluator node fields
+    eval_scores: dict[str, float] | None  # {dimension: score}
+    eval_verdict: str | None  # "pass" | "reroute" | "flag"
+    eval_cycle: int  # Number of reroute cycles completed

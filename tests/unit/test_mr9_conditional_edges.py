@@ -83,14 +83,14 @@ class TestGraphCompilationMR9:
         assert compiled is not None
 
     def test_graph_has_four_nodes(self):
-        """Graph must have exactly 4 core nodes: router, agent, tools, responder."""
+        """Graph must have at least the core nodes: router, agent, tools, responder."""
         from noa.orchestrator.graph import build_graph
 
         graph = build_graph()
         compiled = graph.compile()
         node_names = {n.name for n in compiled.get_graph().nodes.values()}
         core_nodes = node_names - {"__start__", "__end__"}
-        assert core_nodes == {"router", "agent", "tools", "responder"}
+        assert {"router", "agent", "tools", "responder"}.issubset(core_nodes)
 
 
 # ===========================================================================
@@ -292,35 +292,39 @@ class TestBackwardCompat:
         edge_pairs = {(e.source, e.target) for e in graph_repr.edges}
         assert ("__start__", "router") in edge_pairs
 
-    def test_graph_ends_at_responder(self):
-        """Graph must still end at responder."""
+    def test_graph_ends_at_evaluator(self):
+        """Graph ends at evaluator (EV1: responder -> evaluator -> __end__)."""
         from noa.orchestrator.graph import build_graph
 
         graph = build_graph()
         compiled = graph.compile()
         graph_repr = compiled.get_graph()
         edge_pairs = {(e.source, e.target) for e in graph_repr.edges}
-        assert ("responder", "__end__") in edge_pairs
+        assert ("responder", "evaluator") in edge_pairs
+        assert ("evaluator", "__end__") in edge_pairs
 
     def test_router_to_agent_edge_exists(self):
-        """Router -> agent edge must still exist."""
+        """Router must eventually reach agent (via classifier in DI1)."""
         from noa.orchestrator.graph import build_graph
 
         graph = build_graph()
         compiled = graph.compile()
         graph_repr = compiled.get_graph()
         edge_pairs = {(e.source, e.target) for e in graph_repr.edges}
-        assert ("router", "agent") in edge_pairs
+        # OI1: router -> classifier -> planner -> agent
+        assert ("router", "classifier") in edge_pairs
+        assert ("classifier", "planner") in edge_pairs
+        assert ("planner", "agent") in edge_pairs
 
     def test_existing_orchestrator_tests_unbroken(self):
-        """Verify the graph still has the same 4 core nodes (regression check)."""
+        """Verify the graph still has all required core nodes (regression check)."""
         from noa.orchestrator.graph import build_graph
 
         graph = build_graph()
         compiled = graph.compile()
         node_names = {n.name for n in compiled.get_graph().nodes.values()}
         core_nodes = node_names - {"__start__", "__end__"}
-        assert core_nodes == {"router", "agent", "tools", "responder"}
+        assert {"router", "agent", "tools", "responder"}.issubset(core_nodes)
 
 
 # ===========================================================================

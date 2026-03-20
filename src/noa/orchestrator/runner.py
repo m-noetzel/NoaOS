@@ -5,10 +5,13 @@ Spec refs: SPEC.md §2.1, §22.1, §22.2, §22.4
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from typing import Any
+
+from noa.observability.langfuse_client import TraceContext
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +56,7 @@ class OrchestratorRunner:
         approvals_enabled: bool = True,
         private_available: bool = True,
         tool_scope: str | None = None,
+        node_models: dict[str, str] | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Execute the graph and yield structured events.
 
@@ -69,6 +73,8 @@ class OrchestratorRunner:
             max_retries: Max tool-execution rounds (W22-H1).
             timeout_seconds: Orchestrator timeout in seconds (W22-H1).
             approvals_enabled: Whether human approval checks are enforced (W22-H2).
+            node_models: MC1 per-node model overrides
+                (keys: classifier, planner, agent, evaluator).
 
         Yields:
             Event dicts with event_type, payload, timestamp.
@@ -87,6 +93,17 @@ class OrchestratorRunner:
             privacy_mode,
             model or "default",
             extra=log_ctx,
+        )
+
+        # LF1: Create Langfuse trace for this run (no-ops when Langfuse unavailable)
+        lf_trace = TraceContext(
+            run_id=run_id,
+            user_id=user_id,
+            metadata={
+                "privacy_mode": privacy_mode,
+                "model": model or "default",
+                "provider": provider or "default",
+            },
         )
 
         # 1. message_received
@@ -174,7 +191,10 @@ class OrchestratorRunner:
                 "response": None,
                 "total_cost": 0.0,
                 "llm_usage": [],
-                "model_config": {},
+                # MC1: Seed model_config with user-configured node models.
+                # The router node will merge its computed config on top,
+                # but user preferences for non-agent nodes are preserved.
+                "model_config": node_models or {},
                 "tool_rounds": 0,
                 "available_tools": avail_tools,
                 "temperature": temperature,
@@ -188,8 +208,20 @@ class OrchestratorRunner:
                 # MVP-H3: Private domain availability (for router node)
                 "private_available": private_available,
                 "user_id": user_id,
+                "run_id": run_id,
                 # CQ1: Task-level tool scope (None = all tools allowed)
                 "tool_scope": tool_scope,
+                # DI1: Task type (populated by classifier node)
+                "task_type": None,
+                # OI1: Planning node fields
+                "plan": None,
+                "archetype": None,
+                "thoughts": [],
+                "use_react": False,
+                # EV1: Evaluator node fields
+                "eval_scores": None,
+                "eval_verdict": None,
+                "eval_cycle": 0,
             }
 
             # A4: Load checkpoint if available (resume support)
@@ -206,6 +238,21 @@ class OrchestratorRunner:
                 extra=log_ctx,
             )
 
+            # LS1: Set up a token queue so the agent node can push tokens
+            # while the runner's async for loop drains them as SSE events.
+            # We wire a module-level callback in agent.py before graph
+            # execution and clear it after to avoid cross-request leakage.
+            token_queue: asyncio.Queue[str] = asyncio.Queue()
+
+            async def _token_cb(token: str) -> None:
+                await token_queue.put(token)
+
+            try:
+                from noa.orchestrator.nodes.agent import set_stream_callback
+                set_stream_callback(_token_cb)
+            except ImportError:
+                pass  # graceful: streaming is additive
+
             # Stream node-by-node so the frontend sees events in real-time
             # instead of waiting for the entire graph to complete.
             result: dict[str, Any] = dict(initial_state)
@@ -218,6 +265,22 @@ class OrchestratorRunner:
                         continue
                     # Merge node output into accumulated result
                     result.update(node_output)
+
+                    # LS1: Drain token queue — the agent node accumulated
+                    # tokens via the callback while it was running.
+                    # We drain here (after the node completes) and yield
+                    # token_stream SSE events before step_started so tokens
+                    # appear to stream before the step completion notice.
+                    while not token_queue.empty():
+                        try:
+                            token = token_queue.get_nowait()
+                        except asyncio.QueueEmpty:
+                            break
+                        token_event = self._make_event(
+                            "token_stream",
+                            {"token": token, "run_id": run_id},
+                        )
+                        yield token_event
 
                     # Emit step_started for each node as it completes
                     step_event = self._make_event(
@@ -260,6 +323,16 @@ class OrchestratorRunner:
                                 continue
                             tr_name = tr.get("name", tr.get("tool_name", ""))
 
+                            # LF1: Record tool span
+                            lf_trace.span(
+                                name=f"tool/{tr_name}" if tr_name else "tool",
+                                input=tr.get("args", {}),
+                                output={
+                                    "result": tr.get("result", tr.get("output", "")),
+                                },
+                                metadata={"tool_name": tr_name},
+                            )
+
                             # Emit tool_end for completed tools
                             end_event = self._make_event(
                                 "tool_end",
@@ -291,12 +364,68 @@ class OrchestratorRunner:
                                 await self._persist_event(run_service, run_id, tr_event)
                                 yield tr_event
 
+            # LS1: Clear stream callback after graph execution
+            try:
+                from noa.orchestrator.nodes.agent import set_stream_callback
+                set_stream_callback(None)
+            except ImportError:
+                pass
+
             # A4: Save checkpoint after successful execution
             if self._checkpointer is not None:
                 await self._checkpointer.save(run_id=run_id, state=result)
 
-            # 7. result_ready
+            # LF1: Record one generation span per LLM call from llm_usage
+            llm_usage: list[dict[str, Any]] = result.get("llm_usage", [])
+            for usage_entry in llm_usage:
+                if not isinstance(usage_entry, dict):
+                    continue
+                lf_trace.generation(
+                    name=usage_entry.get("node", "agent"),
+                    model=usage_entry.get("model", model or "unknown"),
+                    input_messages=[],  # messages not re-captured at this point
+                    output="",
+                    usage={
+                        "prompt_tokens": usage_entry.get("prompt_tokens", 0),
+                        "completion_tokens": usage_entry.get("completion_tokens", 0),
+                    },
+                    metadata={
+                        "cost": usage_entry.get("cost", 0.0),
+                        "provider": usage_entry.get("provider", ""),
+                    },
+                )
+
+            # EV1: Attach evaluation scores to Langfuse trace
+            eval_scores: dict[str, float] = result.get("eval_scores") or {}
+            eval_verdict = result.get("eval_verdict") or "pass"
+            if eval_scores:
+                for dim_name, dim_score in eval_scores.items():
+                    lf_trace.score(dim_name, dim_score)
+                overall_score = (
+                    sum(eval_scores.values()) / len(eval_scores)
+                    if eval_scores
+                    else 0.0
+                )
+                lf_trace.score("overall", overall_score)
+                lf_trace.score(
+                    "verdict",
+                    1.0 if eval_verdict == "pass" else 0.0,
+                )
+
+            # LF1: Update trace with final output + flush
             response = result.get("response", "")
+            lf_trace.update(
+                output=response,
+                metadata={
+                    "total_cost": result.get("total_cost", 0.0),
+                    "privacy_mode": privacy_mode,
+                    "model": model or "default",
+                    "eval_verdict": eval_verdict,
+                },
+            )
+            lf_trace.flush()
+
+            # 7. result_ready
             event = self._make_event(
                 "result_ready",
                 {
@@ -326,6 +455,22 @@ class OrchestratorRunner:
                 )
 
         except Exception as exc:  # noqa: BLE001
+            # LS1: Always clear stream callback on error to prevent leakage
+            try:
+                from noa.orchestrator.nodes.agent import set_stream_callback
+                set_stream_callback(None)
+            except ImportError:
+                pass
+
+            # LF1: Update trace with error info + flush
+            lf_trace.update(
+                metadata={
+                    "error": type(exc).__name__,
+                    "privacy_mode": privacy_mode,
+                },
+            )
+            lf_trace.flush()
+
             logger.error(
                 "Run failed: run_id=%s user_id=%s trace_id=%s error=%s",
                 run_id,
@@ -392,11 +537,14 @@ class OrchestratorRunner:
                 "Search, read, and create Notion pages"
             ),
             "memory": (
-                "Remember facts about the user (remember)"
-                " or recall previously stored facts (recall)."
-                " Use remember when the user shares preferences,"
-                " habits, or important personal information."
-                " Use recall to retrieve stored knowledge"
+                "Remember facts about the user (remember),"
+                " recall previously stored facts (recall),"
+                " or proactively extract facts alongside"
+                " your response (auto_extract)."
+                " Use remember when the user explicitly asks."
+                " Use auto_extract when the user incidentally"
+                " shares preferences, habits, or personal info."
+                " Use recall to retrieve stored knowledge."
             ),
         }
         lines = []

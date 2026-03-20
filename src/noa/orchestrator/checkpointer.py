@@ -8,7 +8,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 logger = logging.getLogger(__name__)
@@ -29,16 +30,12 @@ class PostgresCheckpointer:
         from noa.db.models.checkpoint import Checkpoint
 
         async with self._session_factory() as session:
-            stmt = select(Checkpoint).where(Checkpoint.run_id == run_id)
-            result = await session.execute(stmt)
-            existing = result.scalar_one_or_none()
-
-            if existing is not None:
-                existing.state = state
-            else:
-                cp = Checkpoint(run_id=run_id, state=state)
-                session.add(cp)
-
+            stmt = pg_insert(Checkpoint).values(run_id=run_id, state=state)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["run_id"],
+                set_={"state": stmt.excluded.state, "updated_at": func.now()},
+            )
+            await session.execute(stmt)
             await session.commit()
             logger.debug("Checkpoint saved for run_id=%s", run_id)
 

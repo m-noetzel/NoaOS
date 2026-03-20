@@ -26,6 +26,8 @@ import ErrorBoundary from "@/components/ErrorBoundary";
 // UI-M10: Lazy-load heavy pages for code splitting
 const Cost = React.lazy(() => import("@/pages/Cost"));
 const Tools = React.lazy(() => import("@/pages/Tools"));
+const Traces = React.lazy(() => import("@/pages/Traces"));
+const Audit = React.lazy(() => import("@/pages/Audit"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -69,6 +71,8 @@ const App = () => (
                 <Route path="/cost" element={<ProtectedRoute><Cost /></ProtectedRoute>} />
                 <Route path="/tools" element={<ProtectedRoute><Tools /></ProtectedRoute>} />
                 <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+                <Route path="/traces" element={<ProtectedRoute><Traces /></ProtectedRoute>} />
+                <Route path="/audit" element={<ProtectedRoute><Audit /></ProtectedRoute>} />
                 <Route path="/auth/google/callback" element={<GoogleCallback />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>

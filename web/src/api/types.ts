@@ -194,6 +194,66 @@ export interface CostSummary {
   budget_limit_usd?: number;
 }
 
+// FB1: User feedback ratings
+export interface RatingRequest {
+  run_id: string;
+  rating: 1 | -1;
+}
+
+export interface RatingResponse {
+  run_id: string;
+  rating: 1 | -1;
+}
+
+export interface RatingSummary {
+  positive: number;
+  negative: number;
+  total: number;
+  score: number;
+  period: string;
+}
+
+// EV2: Analytics eval trends
+export interface EvalTrendItem {
+  key: string;
+  avg_score: number;
+  count: number;
+}
+
+export interface DivergenceAlert {
+  dimension: string;
+  eval_avg: number;
+  user_avg: number;
+  divergence: number;
+}
+
+export interface EvalTrends {
+  period: string;
+  group_by: string;
+  data: EvalTrendItem[];
+  overall_avg: number;
+  divergence_alerts: DivergenceAlert[];
+}
+
+export interface WorstDimension {
+  dimension: string;
+  avg_score: number;
+  count: number;
+}
+
+export interface WorstDimensions {
+  period: string;
+  worst: WorstDimension[];
+}
+
+// MC1: Per-node model configuration
+export interface NodeModelsConfig {
+  classifier?: string;
+  planner?: string;
+  agent?: string;
+  evaluator?: string;
+}
+
 export interface UserSettings {
   default_model: string;
   default_provider: string;
@@ -216,6 +276,10 @@ export interface UserSettings {
   max_tool_calls?: number;
   max_retries?: number;
   timeout_seconds?: number;
+  // MC1: Per-node model configuration
+  node_models?: NodeModelsConfig | null;
+  // PC1: User-configurable private keywords
+  private_keywords?: string[] | null;
 }
 
 // UX-M10: Tool scope
@@ -223,6 +287,45 @@ export interface ToolScope {
   name: string;
   tools: string[];
   is_custom: boolean;
+}
+
+// --- Audit ---
+
+export interface AuditEntry {
+  id: string;
+  timestamp: string;
+  user_id: string;
+  session_id: string;
+  device_id: string;
+  trace_id: string;
+  domain: string;
+  model_provider: string;
+  model_name: string;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: string;
+  tool_name: string | null;
+  tool_args: Record<string, unknown> | null;
+  tool_result_summary: string | null;
+  side_effects: Record<string, unknown> | null;
+  privacy_classification: string;
+  classification_confidence: number;
+  classification_reasoning: string | null;
+  previous_entry_hash: string | null;
+}
+
+export interface AuditEntriesResponse {
+  entries: AuditEntry[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface AuditVerifyResponse {
+  valid: boolean;
+  entries_checked: number;
+  broken_at_entry_id: string | null;
+  error?: string;
 }
 
 // --- SSE Events ---

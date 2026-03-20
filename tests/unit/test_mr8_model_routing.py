@@ -104,11 +104,10 @@ class TestModelConfigDefaults:
         cfg = ModelConfig()
         d = cfg.to_dict()
         assert isinstance(d, dict)
-        assert d == {
-            "router": "none",
-            "agent": DEFAULT_EXTERNAL_MODEL,
-            "responder": "none",
-        }
+        assert d["router"] == "none"
+        assert d["agent"] == DEFAULT_EXTERNAL_MODEL
+        assert d["responder"] == "none"
+        assert "classifier" in d
 
     def test_router_and_responder_always_none(self):
         """Router and responder models should be 'none' (no LLM cost)."""

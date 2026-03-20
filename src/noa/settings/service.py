@@ -48,7 +48,12 @@ _ALL_FIELDS = frozenset({
     "max_tool_calls",
     "max_retries",
     "timeout_seconds",
+    # PC1: custom privacy classifier keywords
+    "private_keywords",
 })
+
+# Fields stored as JSON blobs (TEXT column, decode on read)
+_JSON_FIELDS = frozenset({"node_models", "private_keywords"})
 
 _DEFAULTS: dict[str, Any] = {
     "default_model": "claude-sonnet-4-20250514",
@@ -70,6 +75,10 @@ _DEFAULTS: dict[str, Any] = {
     "max_tool_calls": 10,
     "max_retries": 3,
     "timeout_seconds": 120,
+    # MC1: Per-node model configuration (None = use ModelConfig defaults)
+    "node_models": None,
+    # PC1: User-configurable private keywords (None = use built-in defaults only)
+    "private_keywords": None,
 }
 
 
@@ -171,6 +180,27 @@ class SettingsService:
                 row_result[field] = val
         # Always from file, never DB
         row_result["system_prompt"] = read_system_prompt()
+
+        # MC1: node_models stored as JSON TEXT — decode and include
+        raw_node_models = getattr(row, "node_models", None)
+        if raw_node_models:
+            try:
+                row_result["node_models"] = json.loads(raw_node_models)
+            except (json.JSONDecodeError, TypeError):
+                row_result["node_models"] = None
+        else:
+            row_result["node_models"] = None
+
+        # PC1: private_keywords stored as JSON TEXT — decode and include
+        raw_private_keywords = getattr(row, "private_keywords", None)
+        if raw_private_keywords:
+            try:
+                row_result["private_keywords"] = json.loads(raw_private_keywords)
+            except (json.JSONDecodeError, TypeError):
+                row_result["private_keywords"] = None
+        else:
+            row_result["private_keywords"] = None
+
         return row_result
 
     async def get_scope_overrides(
@@ -232,6 +262,32 @@ class SettingsService:
             if key in _SECRET_FIELDS and value == "":
                 value = None
             filtered[key] = value
+
+        # MC1: handle node_models separately (JSON-encoded TEXT column).
+        # Strip None values so only explicitly-set models are stored.
+        if "node_models" in updates:
+            nm_value = updates["node_models"]
+            if nm_value is None:
+                filtered["node_models"] = None
+            elif isinstance(nm_value, dict):
+                # Remove None values — only store explicitly configured models
+                cleaned = {k: v for k, v in nm_value.items() if v is not None}
+                filtered["node_models"] = json.dumps(cleaned) if cleaned else None
+            # ignore non-dict values
+
+        # PC1: handle private_keywords (JSON-encoded TEXT column).
+        # Stores a list of user-defined keyword strings.
+        if "private_keywords" in updates:
+            kw_value = updates["private_keywords"]
+            if kw_value is None:
+                filtered["private_keywords"] = None
+            elif isinstance(kw_value, list):
+                # Store non-empty strings only
+                cleaned_kw = [str(k) for k in kw_value if k]
+                filtered["private_keywords"] = (
+                    json.dumps(cleaned_kw) if cleaned_kw else None
+                )
+            # ignore non-list values
 
         if filtered:
             await self._repo.upsert(user_id, filtered)

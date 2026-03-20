@@ -134,6 +134,8 @@ security find-* ... | ...
 /phase-planning → implement agent → verify → code-reviewer → fix → qa-review (MANDATORY) → findings sync → complete
 ```
 
+**Post-Implementation File Verification (CI-048 — blocking):** After every implement agent completes, the orchestrator MUST independently verify that key files were actually modified. Run `git diff --stat` and confirm expected files appear in the diff. If the agent reported changes but no files changed on disk, the implementation FAILED — do not proceed to QA. This gate exists because agents can report success without writing code.
+
 **Findings Sync (CI-015 — blocking):** Before marking a phase complete, update `Plan/FINDINGS.md` for every finding the phase resolves. Skipping this is a pipeline violation (same class as skipping QA).
 
 ### Wave Boundary
@@ -143,7 +145,7 @@ last phase complete → system-auditor → /retrospective → ci agent → human
 ```
 
 **Gates:**
-- **Verify**: All tests pass + `ruff check` + `mypy` + app loads + feature is wired and callable
+- **Verify**: All tests pass + `ruff check src/ tests/` + `mypy` + app loads + feature is wired and callable (CI-050: ruff must cover both src/ and tests/)
 - **Integration**: Data flows end-to-end (stored data is readable where needed, UI actions produce real backend effects). "Could you demo this to the user right now?"
 - **Code Review**: Fix Critical issues before QA
 - **QA Review (MANDATORY — never skip)**: Adversarial review against `Plan/QA_CHECKLIST.md` (M1-M8, S1-S5). Max 2 cycles; on 2nd FAIL write `Plan/RCA/rca_{phase-id}.md`. After verdict, generates `Plan/REVIEWS/health_{date}.md`

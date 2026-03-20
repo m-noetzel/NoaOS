@@ -28,6 +28,15 @@ _LLM_CREDENTIAL_FIELDS = frozenset({
 })
 
 
+class NodeModelsConfig(BaseModel):
+    """Per-node model overrides for the orchestrator (MC1)."""
+
+    classifier: str | None = None
+    planner: str | None = None
+    agent: str | None = None
+    evaluator: str | None = None
+
+
 class UpdateSettingsRequest(BaseModel):
     """Request body for updating user settings."""
 
@@ -50,6 +59,10 @@ class UpdateSettingsRequest(BaseModel):
     max_tool_calls: int | None = Field(default=None, ge=1, le=50)
     max_retries: int | None = Field(default=None, ge=1, le=10)
     timeout_seconds: int | None = Field(default=None, ge=10, le=600)
+    # MC1: Per-node model configuration
+    node_models: NodeModelsConfig | None = None
+    # PC1: User-configurable private keywords for the privacy classifier
+    private_keywords: list[str] | None = None
 
 
 def _reload_llm_pipeline_if_needed(

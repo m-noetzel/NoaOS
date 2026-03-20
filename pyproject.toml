@@ -27,6 +27,8 @@ api = [
     "pydantic[email]>=2.10,<3.0",
     "nh3>=0.2,<1.0",
     "python-multipart>=0.0.9,<1.0",
+    "pgvector>=0.3.0",
+    "langfuse>=2.0.0",
 ]
 orchestrator = [
     "langgraph>=0.2,<1.0",
@@ -107,6 +109,9 @@ markers = [
     "ios3: Phase iOS3 — Xcode Scaffold & Networking Layer",
     "ios4: Phase iOS4 — Keychain Storage & Auth Flow",
     "slow: marks tests as slow (deselect with '-m not slow')",
+    "vm1: Phase VM1 — Private Vector Memory (pgvector + Ollama embeddings)",
+    "lf1: Phase LF1 — Langfuse Self-Hosted + Backend Instrumentation",
+    "quality: QV1 — LLM Quality Evaluation Framework (rubric threshold CI gate)",
 ]
 asyncio_mode = "auto"
 
@@ -157,4 +162,12 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["jwt", "jwt.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["pgvector", "pgvector.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["langfuse", "langfuse.*"]
 ignore_missing_imports = true

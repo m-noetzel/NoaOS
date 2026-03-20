@@ -6,11 +6,13 @@ Spec refs: SPEC.md §19.1 (idempotency), §19.2 (dry-run previews),
 
 from __future__ import annotations
 
+import json as _json
 import logging
 import time
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol, runtime_checkable
 
 from noa.types import PrivacyMode
@@ -117,6 +119,106 @@ class ToolGateway:
 
     def list_tools(self) -> list[str]:
         return list(self._adapters.keys())
+
+    # -- idempotency persistence (CX1) --------------------------------------
+
+    @staticmethod
+    def _serialize_response(resp: ToolResponse) -> str:
+        """Serialize a ToolResponse to JSON string."""
+        return _json.dumps({
+            "result": resp.result,
+            "error": resp.error,
+            "latency_ms": resp.latency_ms,
+            "provider": resp.provider,
+        }, default=str)
+
+    @staticmethod
+    def _deserialize_response(json_str: str) -> ToolResponse:
+        """Deserialize a JSON string back to ToolResponse."""
+        data = _json.loads(json_str)
+        return ToolResponse(
+            result=data.get("result"),
+            error=data.get("error"),
+            latency_ms=data.get("latency_ms", 0.0),
+            provider=data.get("provider", ""),
+        )
+
+    async def _load_idempotency(self, key: str) -> ToolResponse | None:
+        """Load a cached response from DB, then in-memory fallback."""
+        # In-memory first (fast path)
+        cached = self._idempotency_cache.get(key)
+        if cached is not None:
+            return cached
+        # DB lookup
+        if self._session_factory is None:
+            return None
+        try:
+            from sqlalchemy import select
+
+            from noa.db.models.idempotency_key import IdempotencyKey
+            async with self._session_factory() as session:
+                stmt = select(IdempotencyKey).where(IdempotencyKey.key == key)
+                result = await session.execute(stmt)
+                row = result.scalar_one_or_none()
+                if row is None:
+                    return None
+                resp = self._deserialize_response(row.response_json)
+                self._idempotency_cache[key] = resp  # warm memory cache
+                return resp
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "Idempotency DB lookup failed for key=%s", key, exc_info=True,
+            )
+            return None
+
+    async def _store_idempotency(self, key: str, resp: ToolResponse) -> None:
+        """Store response in both memory cache and DB."""
+        self._idempotency_cache[key] = resp
+        if self._session_factory is None:
+            return
+        try:
+            from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+            from noa.db.models.idempotency_key import IdempotencyKey
+            async with self._session_factory() as session:
+                stmt = pg_insert(IdempotencyKey).values(
+                    key=key,
+                    response_json=self._serialize_response(resp),
+                ).on_conflict_do_nothing(index_elements=["key"])
+                await session.execute(stmt)
+                await session.commit()
+        except Exception:  # noqa: BLE001
+            logger.warning("Idempotency DB store failed for key=%s", key, exc_info=True)
+
+    async def sweep_idempotency_keys(self, max_age_hours: int = 24) -> int:
+        """Delete idempotency keys older than max_age_hours. Returns count deleted."""
+        if self._session_factory is None:
+            return 0
+        try:
+            from sqlalchemy import delete
+
+            from noa.db.models.idempotency_key import IdempotencyKey
+            cutoff = datetime.now(UTC) - timedelta(hours=max_age_hours)
+            async with self._session_factory() as session:
+                stmt = delete(IdempotencyKey).where(IdempotencyKey.created_at < cutoff)
+                result = await session.execute(stmt)
+                await session.commit()
+                count = int(result.rowcount or 0)
+                logger.info("Swept %d expired idempotency keys", count)
+                return count
+        except Exception:  # noqa: BLE001
+            logger.warning("Idempotency sweep failed", exc_info=True)
+            return 0
+
+    _last_sweep: float = 0.0
+
+    async def _maybe_sweep(self) -> None:
+        """Sweep at most once per hour."""
+        now = time.monotonic()
+        if now - ToolGateway._last_sweep < 3600:
+            return
+        ToolGateway._last_sweep = now
+        await self.sweep_idempotency_keys()
 
     # -- governance config --------------------------------------------------
 
@@ -241,9 +343,10 @@ class ToolGateway:
             await self._fire_audit(request, resp, "dry_run")
             return resp
 
-        # 3. Idempotency check (§19.1)
+        # 3. Idempotency check (§19.1) — DB-backed (CX1)
+        await self._maybe_sweep()
         if request.idempotency_key:
-            cached = self._idempotency_cache.get(request.idempotency_key)
+            cached = await self._load_idempotency(request.idempotency_key)
             if cached is not None:
                 resp = ToolResponse(
                     result=cached.result,
@@ -283,9 +386,9 @@ class ToolGateway:
             resp = ToolResponse(error=str(exc))
         resp.latency_ms = (time.monotonic() - t0) * 1000
 
-        # 6. Cache if idempotency key
+        # 6. Cache if idempotency key — DB-backed (CX1)
         if request.idempotency_key:
-            self._idempotency_cache[request.idempotency_key] = resp
+            await self._store_idempotency(request.idempotency_key, resp)
 
         status = "error" if resp.error else "ok"
         await self._record_telemetry(request, resp, status)

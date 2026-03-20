@@ -1,8 +1,67 @@
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState } from "react";
 import type { Message, Run, SSEEvent } from "@/api/types";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ActivityStream } from "@/components/chat/ActivityStream";
-import { Sparkles, User } from "lucide-react";
+import { Sparkles, User, ThumbsUp, ThumbsDown } from "lucide-react";
+import { apiRequest } from "@/api/client";
+
+/** Thumbs up/down rating buttons for an assistant message. */
+function RatingButtons({ runId }: { runId: string | undefined }) {
+  const [selected, setSelected] = useState<1 | -1 | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  if (!runId) return null;
+
+  const handleRate = async (rating: 1 | -1) => {
+    if (submitting || selected === rating) return;
+    setSubmitting(true);
+    try {
+      await apiRequest("/api/v1/ratings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ run_id: runId, rating }),
+      });
+      setSelected(rating);
+    } catch {
+      // Silently ignore rating failures — non-critical
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="flex gap-1 mt-1.5" data-testid={`rating-buttons-${runId}`}>
+      <button
+        type="button"
+        aria-label="Thumbs up"
+        disabled={submitting}
+        onClick={() => void handleRate(1)}
+        className={`p-1 rounded transition-colors ${
+          selected === 1
+            ? "text-green-500"
+            : "text-muted-foreground/40 hover:text-muted-foreground"
+        }`}
+        data-testid={`rating-up-${runId}`}
+      >
+        <ThumbsUp className={`h-3 w-3 ${selected === 1 ? "fill-green-500" : ""}`} />
+      </button>
+      <button
+        type="button"
+        aria-label="Thumbs down"
+        disabled={submitting}
+        onClick={() => void handleRate(-1)}
+        className={`p-1 rounded transition-colors ${
+          selected === -1
+            ? "text-red-500"
+            : "text-muted-foreground/40 hover:text-muted-foreground"
+        }`}
+        data-testid={`rating-down-${runId}`}
+      >
+        <ThumbsDown className={`h-3 w-3 ${selected === -1 ? "fill-red-500" : ""}`} />
+      </button>
+    </div>
+  );
+}
 
 /** Group messages by their run_id so we can show activity streams between exchanges */
 export interface MessageGroup {
@@ -114,14 +173,17 @@ export function ChatMessages({
                   <p className="text-sm leading-relaxed whitespace-pre-wrap">
                     {group.assistantMessage.content}
                   </p>
-                  <p className="text-[10px] mt-1.5 text-muted-foreground">
-                    {new Date(
-                      group.assistantMessage.created_at
-                    ).toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] mt-1.5 text-muted-foreground">
+                      {new Date(
+                        group.assistantMessage.created_at
+                      ).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </p>
+                    <RatingButtons runId={group.runId ?? group.assistantMessage.run_id} />
+                  </div>
                 </div>
               </div>
             )}

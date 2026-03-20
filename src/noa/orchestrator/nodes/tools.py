@@ -21,6 +21,35 @@ logger = logging.getLogger(__name__)
 # Max tool output size (1 MB) — matches validation pipeline default.
 _MAX_TOOL_OUTPUT_BYTES = 1 * 1024 * 1024
 
+# Doom loop detection: if the same (tool, args) signature appears this many
+# times in the last _DOOM_LOOP_WINDOW tool results, break the loop.
+_DOOM_LOOP_THRESHOLD = 3
+_DOOM_LOOP_WINDOW = 6
+
+
+class DoomLoopError(Exception):
+    """Raised when the same tool+args signature repeats too many times."""
+
+
+def _tool_signature(tool_name: str, args: dict[str, Any]) -> str:
+    """Stable signature for a tool call (order-independent)."""
+    return _json.dumps({"t": tool_name, "a": args}, sort_keys=True)
+
+
+def _check_doom_loop(
+    tool_name: str, args: dict[str, Any], prior_results: list[dict[str, Any]],
+) -> None:
+    """Raise DoomLoopError if the same signature appears >= threshold times."""
+    sig = _tool_signature(tool_name, args)
+    window = prior_results[-_DOOM_LOOP_WINDOW:]
+    count = sum(1 for r in window if r.get("_signature") == sig)
+    if count >= _DOOM_LOOP_THRESHOLD:
+        raise DoomLoopError(
+            f"Doom loop detected: tool '{tool_name}' called with identical "
+            f"arguments {count} times in last {_DOOM_LOOP_WINDOW} calls. "
+            f"Breaking loop."
+        )
+
 # Module-level gateway reference, set at startup via set_gateway().
 _gateway: ToolGateway | None = None
 
@@ -73,6 +102,8 @@ async def tool_node(state: AgentState) -> dict[str, Any]:
             )
             scope_allowlist = set()
 
+    prior_results: list[dict[str, Any]] = list(state.get("tool_results", []))
+
     results: list[dict[str, Any]] = []
     for call in tool_calls:
         # Support both registry-format and legacy-format tool calls.
@@ -95,6 +126,15 @@ async def tool_node(state: AgentState) -> dict[str, Any]:
                     })
                     continue
 
+            # CX1: Doom loop detection
+            qualified = f"{tool_name}.{function}"
+            try:
+                _check_doom_loop(qualified, args, prior_results)
+            except DoomLoopError as e:
+                sig = _tool_signature(qualified, args)
+                results.append({"name": qualified, "error": str(e), "_signature": sig})
+                continue
+
             if _gateway is not None:
                 result = await _dispatch_gateway(
                     tool_name, function, args,
@@ -106,7 +146,9 @@ async def tool_node(state: AgentState) -> dict[str, Any]:
                     "error": "ToolGateway not configured"
                     " — check app startup wiring",
                 }
-            results.append({"name": f"{tool_name}.{function}", **result})
+            sig = _tool_signature(qualified, args)
+            results.append({"name": qualified, "_signature": sig, **result})
+            prior_results.append({"name": qualified, "_signature": sig})
         else:
             # Legacy or LLM tool_use format:
             #   {"name": "web_search__web_search", "input": {...}}
@@ -120,6 +162,14 @@ async def tool_node(state: AgentState) -> dict[str, Any]:
                     "name": name,
                     "error": f"Tool {name} not allowed in scope '{tool_scope}'.",
                 })
+                continue
+
+            # CX1: Doom loop detection for legacy format
+            try:
+                _check_doom_loop(name, arguments, prior_results)
+            except DoomLoopError as e:
+                sig = _tool_signature(name, arguments)
+                results.append({"name": name, "error": str(e), "_signature": sig})
                 continue
 
             # Parse tool__function naming from definitions

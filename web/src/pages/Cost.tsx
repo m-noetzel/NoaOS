@@ -2,12 +2,13 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { apiRequest } from "@/api/client";
-import type { CostRecord, CostSummary } from "@/api/types";
+import type { CostRecord, CostSummary, RatingSummary, EvalTrends, WorstDimensions } from "@/api/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ThumbsUp, ThumbsDown, AlertTriangle } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, CartesianGrid } from "recharts";
 
 const COLORS = ["hsl(225, 60%, 55%)", "hsl(142, 60%, 40%)", "hsl(38, 80%, 50%)", "hsl(0, 72%, 51%)"];
 const PAGE_LIMIT = 20;
@@ -30,10 +31,13 @@ function getTimeRangeStart(range: TimeRange): string | null {
   return start.toISOString();
 }
 
+type QualityPeriod = "7d" | "30d";
+
 export default function Cost() {
   const navigate = useNavigate();
   const [offset, setOffset] = useState(0);
   const [timeRange, setTimeRange] = useState<TimeRange>("month");
+  const [qualityPeriod, setQualityPeriod] = useState<QualityPeriod>("7d");
 
   const { data: summaryRes, isLoading: summaryLoading } = useQuery({
     queryKey: ["costSummary"],
@@ -50,9 +54,27 @@ export default function Cost() {
     queryFn: () => apiRequest<CostRecord[]>(recordsUrl),
   });
 
+  const { data: qualityRes } = useQuery({
+    queryKey: ["ratingSummary", qualityPeriod],
+    queryFn: () => apiRequest<RatingSummary>(`/api/v1/ratings/summary?period=${qualityPeriod}`),
+  });
+
+  const { data: evalTrendsRes } = useQuery({
+    queryKey: ["evalTrends", qualityPeriod],
+    queryFn: () => apiRequest<EvalTrends>(`/api/v1/analytics/eval-trends?period=${qualityPeriod}&group_by=dimension`),
+  });
+
+  const { data: worstDimsRes } = useQuery({
+    queryKey: ["worstDimensions", qualityPeriod],
+    queryFn: () => apiRequest<WorstDimensions>(`/api/v1/analytics/worst-dimensions?period=${qualityPeriod}`),
+  });
+
   const isLoading = summaryLoading || recordsLoading;
   const summaries = summaryRes?.data || [];
   const records = recordsRes?.data || [];
+  const quality = qualityRes?.data ?? null;
+  const evalTrends = evalTrendsRes?.data ?? null;
+  const worstDims = worstDimsRes?.data ?? null;
 
   // Group costs by provider
   const byProvider = records.reduce<Record<string, number>>((acc, r) => {
@@ -136,6 +158,151 @@ export default function Cost() {
           </Card>
         ))}
       </div>
+
+      {/* Response Quality Widget */}
+      <Card data-testid="quality-widget">
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm">Response Quality</CardTitle>
+            <div className="flex gap-1">
+              {(["7d", "30d"] as QualityPeriod[]).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setQualityPeriod(p)}
+                  className={`px-2 py-0.5 rounded text-xs transition-colors ${
+                    qualityPeriod === p
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                  data-testid={`quality-period-${p}`}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {quality && quality.total > 0 ? (
+            <div className="space-y-3">
+              <div className="flex items-center gap-4">
+                <span className="text-3xl font-semibold">
+                  {Math.round(quality.score * 100)}%
+                </span>
+                <span className="text-sm text-muted-foreground">positive</span>
+              </div>
+              <div className="flex gap-4 text-xs">
+                <span className="flex items-center gap-1 text-green-600">
+                  <ThumbsUp className="h-3 w-3" />
+                  {quality.positive}
+                </span>
+                <span className="flex items-center gap-1 text-red-500">
+                  <ThumbsDown className="h-3 w-3" />
+                  {quality.negative}
+                </span>
+                <span className="text-muted-foreground">{quality.total} total</span>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              {quality ? "No ratings in this period" : "Loading..."}
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Quality Trends Section */}
+      {evalTrends && (
+        <div className="space-y-3" data-testid="quality-trends-section">
+          {/* Divergence alert banner */}
+          {evalTrends.divergence_alerts.length > 0 && (
+            <div
+              className="flex items-start gap-2 rounded-lg border border-yellow-400 bg-yellow-50 dark:bg-yellow-950/20 px-3 py-2"
+              data-testid="divergence-alert"
+            >
+              <AlertTriangle className="h-4 w-4 text-yellow-600 mt-0.5 shrink-0" />
+              <div className="text-xs text-yellow-800 dark:text-yellow-300 space-y-0.5">
+                <p className="font-medium">Rubric calibration needed</p>
+                {evalTrends.divergence_alerts.map((a) => (
+                  <p key={a.dimension}>
+                    <span className="font-mono">{a.dimension}</span>: eval avg{" "}
+                    {a.eval_avg.toFixed(1)} vs user avg {a.user_avg.toFixed(1)}{" "}
+                    (divergence {a.divergence.toFixed(1)})
+                  </p>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            {/* Dimension scores bar chart */}
+            {evalTrends.data.length > 0 && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">Quality by Dimension</CardTitle>
+                  <p className="text-xs text-muted-foreground">
+                    Overall avg: {evalTrends.overall_avg.toFixed(2)} / 5.0
+                  </p>
+                </CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={evalTrends.data} layout="vertical">
+                      <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                      <XAxis type="number" domain={[0, 5]} tick={{ fontSize: 11 }} />
+                      <YAxis
+                        type="category"
+                        dataKey="key"
+                        tick={{ fontSize: 10 }}
+                        width={100}
+                      />
+                      <Tooltip
+                        formatter={(v: number) => [v.toFixed(2), "Avg score"]}
+                      />
+                      <Bar
+                        dataKey="avg_score"
+                        fill="hsl(225, 60%, 55%)"
+                        radius={[0, 4, 4, 0]}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Worst dimension indicator */}
+            {worstDims && worstDims.worst.length > 0 && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">Lowest Scoring Dimensions</CardTitle>
+                  <p className="text-xs text-muted-foreground">
+                    Focus areas for prompt iteration
+                  </p>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {worstDims.worst.map((d, i) => (
+                    <div key={d.dimension} className="space-y-1">
+                      <div className="flex justify-between text-xs">
+                        <span className={i === 0 ? "font-medium text-red-600 dark:text-red-400" : ""}>
+                          {d.dimension}
+                        </span>
+                        <span className="font-mono text-muted-foreground">
+                          {d.avg_score.toFixed(2)} / 5.0
+                        </span>
+                      </div>
+                      <Progress
+                        value={(d.avg_score / 5) * 100}
+                        className={`h-1.5 ${i === 0 ? "[&>div]:bg-red-500" : ""}`}
+                      />
+                      <p className="text-xs text-muted-foreground">{d.count} evaluations</p>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* By model */}

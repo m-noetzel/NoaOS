@@ -124,33 +124,47 @@ class MemoryTool:
     async def auto_extract(
         self,
         *,
-        fact: str,
-        category: str = "preference",
+        facts: list[str],
         source_thread_id: str = "",
         user_id: str | None = None,
     ) -> dict[str, Any]:
-        """Auto-extract a fact (pending status, requires user approval).
+        """Auto-extract multiple facts (pending status, requires user approval).
 
-        Only callable when auto_extraction_enabled is True.
+        Stores each fact via the private worker RPC with auto_extracted=True
+        so they land in pending state for the user to review in Memory Audit.
 
         Args:
-            fact: The fact text to store.
-            category: Category tag.
+            facts: List of fact texts to store.
             source_thread_id: ID of the source thread.
-            user_id: Owner of the fact for scoped access.
+            user_id: Owner of the facts for scoped access.
 
         Returns:
-            RPC response dict.
+            Dict with stored count and any duplicates skipped.
         """
-        request = {
-            "idempotency_key": str(uuid.uuid4()),
-            "task_type": "remember",
-            "payload": {
-                "fact": fact,
-                "category": category,
-                "source_thread_id": source_thread_id,
-                "auto_extracted": True,
-                "user_id": user_id,
-            },
-        }
-        return await self._rpc(request)
+        if not facts:
+            return {"status": "ok", "stored": 0, "skipped": 0}
+
+        stored = 0
+        skipped = 0
+        for fact in facts:
+            if not fact or not fact.strip():
+                skipped += 1
+                continue
+            request = {
+                "idempotency_key": str(uuid.uuid4()),
+                "task_type": "remember",
+                "payload": {
+                    "fact": fact.strip(),
+                    "category": "general",
+                    "source_thread_id": source_thread_id,
+                    "auto_extracted": True,
+                    "user_id": user_id,
+                },
+            }
+            result = await self._rpc(request)
+            if result.get("result", {}).get("status") == "duplicate":
+                skipped += 1
+            else:
+                stored += 1
+
+        return {"status": "ok", "stored": stored, "skipped": skipped}

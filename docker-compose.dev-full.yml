@@ -70,7 +70,7 @@ services:
 
   # ── Postgres (dev-only data, separate from production) ───────────────
   postgres-dev:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: noa-postgres-dev
     environment:
       POSTGRES_USER: noa
@@ -186,6 +186,7 @@ services:
       - TAVILY_API_KEY=${TAVILY_API_KEY:-}
     volumes:
       - ./src:/app/src:rw
+      - dev-external-data:/data  # Persistent memory storage (W23-FIX)
     networks:
       - noa-dev-internal
       - noa-dev-net # internet access for LLM API calls and tool egress
@@ -237,5 +238,6 @@ volumes:
   dev-postgres-data:
     name: noa-dev-pgdata
   dev-private-data:
+  dev-external-data:
   vscode-server-data:
   vite-node-modules:

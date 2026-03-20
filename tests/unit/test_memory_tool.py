@@ -606,18 +606,15 @@ class TestAutoExtraction:
         from noa.tools.memory import MemoryTool
 
         mock_rpc = AsyncMock(return_value={
-            "request_id": "req-1",
-            "status": "success",
-            "result": {"answer": "stored"},
-            "sensitivity_label": "none",
+            "status": "ok",
+            "result": {"status": "stored"},
         })
         tool = MemoryTool(
             rpc_client=mock_rpc,
             auto_extraction_enabled=True,
         )
         await tool.auto_extract(
-            fact="User mentioned they like coffee",
-            category="preference",
+            facts=["User mentioned they like coffee"],
             source_thread_id="thread-abc",
         )
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections.abc import AsyncGenerator
 from typing import Any
 
 import httpx
@@ -207,3 +208,119 @@ class OpenAIClient:
             msg = "Timeout calling OpenAI API"
             raise ProviderError(msg) from exc
         return self._parse_response(response)
+
+    async def complete_stream(
+        self,
+        *,
+        messages: list[dict[str, Any]],
+        max_tokens: int,
+        temperature: float | None = None,
+        top_p: float | None = None,
+        model: str | None = None,
+        tools: list[dict[str, Any]] | None = None,
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Stream a completion request to OpenAI, yielding token chunks.
+
+        Yields dicts with ``{"type": "token", "content": str}`` for each
+        incremental chunk, then a final ``{"type": "complete", ...}`` with
+        the full accumulated response and usage stats.
+
+        Raises:
+            ProviderError: On upstream failure or timeout.
+        """
+        request = self.build_request(
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            tools=tools,
+        )
+        if model:
+            request["model"] = model
+        request["stream"] = True
+        request["stream_options"] = {"include_usage": True}
+
+        return self._stream_request(request)
+
+    async def _stream_request(
+        self,
+        request: dict[str, Any],
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Internal async generator that streams from OpenAI SSE."""
+        model_used = request.get("model", self._model)
+        accumulated_text = ""
+        input_tokens = 0
+        output_tokens = 0
+
+        try:
+            async with httpx.AsyncClient(
+                base_url=_API_BASE,
+                headers={
+                    "Authorization": f"Bearer {self._api_key}",
+                    "Content-Type": "application/json",
+                },
+                timeout=_TIMEOUT_SECONDS,
+            ) as client, client.stream(
+                "POST", "/v1/chat/completions", json=request,
+            ) as response:
+                if response.status_code == 401:
+                    msg = "OpenAI: invalid API key (401)"
+                    raise ProviderError(msg)
+                if response.status_code != 200:
+                    body_text = await response.aread()
+                    try:
+                        body = json.loads(body_text)
+                        detail = body.get("error", {}).get("message", "")
+                    except (json.JSONDecodeError, ValueError):
+                        detail = body_text.decode(errors="replace")
+                    msg = (
+                        f"OpenAI API error"
+                        f" {response.status_code}: {detail}"
+                    )
+                    raise ProviderError(msg)
+
+                async for raw_line in response.aiter_lines():
+                    line = raw_line.strip()
+                    if not line or line == "data: [DONE]":
+                        if line == "data: [DONE]":
+                            break
+                        continue
+                    if not line.startswith("data: "):
+                        continue
+                    payload = line[6:]
+                    try:
+                        chunk_data = json.loads(payload)
+                    except json.JSONDecodeError:
+                        continue
+
+                    # Capture usage from the final chunk
+                    if chunk_data.get("usage"):
+                        usage = chunk_data["usage"]
+                        input_tokens = usage.get("prompt_tokens", 0)
+                        output_tokens = usage.get("completion_tokens", 0)
+
+                    choices = chunk_data.get("choices", [])
+                    if not choices:
+                        continue
+                    delta = choices[0].get("delta", {})
+                    chunk = delta.get("content") or ""
+                    if chunk:
+                        accumulated_text += chunk
+                        yield {"type": "token", "content": chunk}
+                        model_used = chunk_data.get("model", model_used)
+
+        except httpx.TimeoutException as exc:
+            msg = "Timeout calling OpenAI API (streaming)"
+            raise ProviderError(msg) from exc
+
+        yield {
+            "type": "complete",
+            "content": accumulated_text,
+            "tool_calls": [],
+            "usage": {
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+            },
+            "provider": "openai",
+            "model": model_used,
+        }

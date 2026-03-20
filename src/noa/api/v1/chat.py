@@ -150,7 +150,9 @@ async def submit_chat(
         # Only runs when the client hasn't expressed a preference; an explicit
         # "external" from the client is respected as-is (Transparency Principle).
         from noa.privacy.classifier import PrivacyClassifier
-        _clf = PrivacyClassifier()
+        _user_settings_for_clf = await _load_user_settings(user.user_id)
+        _custom_keywords = _user_settings_for_clf.get("private_keywords") or []
+        _clf = PrivacyClassifier(custom_keywords=_custom_keywords)
         _clf_result = _clf.classify(
             {"messages": [{"role": "user", "content": body.message}]},
             private_available=private_available,
@@ -310,6 +312,7 @@ async def submit_chat(
                         approvals_enabled=user_settings.get("approvals_enabled", True),
                         private_available=private_available,
                         tool_scope=body.tool_scope,
+                        node_models=user_settings.get("node_models", {}),
                     ):
                         await event_queue.put(event)
                 finally:
@@ -420,12 +423,16 @@ async def _load_user_settings(user_id: Any) -> dict[str, Any]:
     if DB is unavailable so the chat pipeline always has valid values.
     W22-H1, W22-H2: Provides max_tool_calls, max_retries, timeout_seconds,
     approvals_enabled to the orchestrator runner.
+    MC1: Also provides node_models for per-node model configuration.
+    PC1: Also provides private_keywords for the privacy classifier.
     """
     defaults: dict[str, Any] = {
         "max_tool_calls": 10,
         "max_retries": 3,
         "timeout_seconds": 120,
         "approvals_enabled": True,
+        "node_models": {},
+        "private_keywords": [],
     }
     factory = _get_session_factory()
     if factory is None:
@@ -449,6 +456,10 @@ async def _load_user_settings(user_id: Any) -> dict[str, Any]:
                     data.get("timeout_seconds") or defaults["timeout_seconds"]
                 ),
                 "approvals_enabled": data.get("approvals_enabled", True),
+                # MC1: Per-node model overrides (empty dict = use defaults)
+                "node_models": data.get("node_models") or {},
+                # PC1: Custom private keywords (empty list = use built-in defaults)
+                "private_keywords": data.get("private_keywords") or [],
             }
     except Exception:  # noqa: BLE001
         logger.warning("Failed to load user settings for agent limits")

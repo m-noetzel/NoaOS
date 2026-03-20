@@ -18,6 +18,9 @@ from typing import Any
 from langgraph.graph import StateGraph
 
 from noa.orchestrator.nodes.agent import agent_node
+from noa.orchestrator.nodes.classifier import classifier_node
+from noa.orchestrator.nodes.evaluator import evaluator_node
+from noa.orchestrator.nodes.planner import planner_node
 from noa.orchestrator.nodes.responder import responder_node
 from noa.orchestrator.nodes.router import router_node
 from noa.orchestrator.nodes.tools import tool_node
@@ -61,27 +64,49 @@ def route_after_tools(state: dict[str, Any]) -> str:
     return "agent"
 
 
+def route_after_evaluator(state: dict[str, Any]) -> str:
+    """Decide next node after evaluator: __end__ or agent (reroute).
+
+    - "pass" or "flag" -> __end__
+    - "reroute" and eval_cycle < 2 -> "agent" (with feedback already injected)
+    - "reroute" and eval_cycle >= 2 -> __end__ (max cycles reached)
+    """
+    verdict = state.get("eval_verdict", "pass")
+    eval_cycle = int(state.get("eval_cycle") or 0)
+
+    if verdict == "reroute" and eval_cycle < 2:
+        return "agent"
+    return "__end__"
+
+
 def build_graph() -> StateGraph[AgentState]:
     """Build the orchestrator graph with conditional edges.
 
     Topology:
-        __start__ -> router -> agent --(conditional)--> tools | responder
+        __start__ -> router -> classifier -> planner -> agent
+        agent --(conditional)--> tools | responder
         tools --(conditional)--> agent | responder
-        responder -> __end__
+        responder -> evaluator
+        evaluator --(conditional)--> __end__ | agent (reroute, max 2 cycles)
     """
     graph = StateGraph(AgentState)
 
     # Add nodes
     graph.add_node("router", router_node)
+    graph.add_node("classifier", classifier_node)
+    graph.add_node("planner", planner_node)
     graph.add_node("agent", agent_node)
     graph.add_node("tools", tool_node)
     graph.add_node("responder", responder_node)
+    graph.add_node("evaluator", evaluator_node)
 
     # Set entry point
     graph.set_entry_point("router")
 
-    # Fixed edge: router -> agent
-    graph.add_edge("router", "agent")
+    # Fixed edges: router -> classifier -> planner -> agent
+    graph.add_edge("router", "classifier")
+    graph.add_edge("classifier", "planner")
+    graph.add_edge("planner", "agent")
 
     # Conditional edge: agent -> tools or agent -> responder
     graph.add_conditional_edges(
@@ -97,7 +122,14 @@ def build_graph() -> StateGraph[AgentState]:
         {"agent": "agent", "responder": "responder"},
     )
 
-    # Set finish point
-    graph.set_finish_point("responder")
+    # Fixed edge: responder -> evaluator
+    graph.add_edge("responder", "evaluator")
+
+    # Conditional edge: evaluator -> __end__ or evaluator -> agent (reroute)
+    graph.add_conditional_edges(
+        "evaluator",
+        route_after_evaluator,
+        {"__end__": "__end__", "agent": "agent"},
+    )
 
     return graph

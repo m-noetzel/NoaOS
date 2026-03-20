@@ -58,11 +58,25 @@ def router_node(state: AgentState) -> dict[str, Any]:
     else:
         selected_model = _EXTERNAL_MODEL
 
+    # Build default model_config from privacy mode.
     model_config = ModelConfig.for_privacy_mode(privacy_mode)
     # Override agent model to match the selected model.
     model_config.agent = selected_model
+
+    # MC1: Merge with user-configured node_models (already in state.model_config).
+    # User preferences seed the initial state; router only overrides "agent"
+    # (since privacy_mode drives that choice). Classifier and other nodes
+    # use whatever the user configured if present, otherwise router defaults.
+    existing_config: dict[str, str] = state.get("model_config") or {}
+    router_config = model_config.to_dict()
+    # Start from router defaults, then let user settings override non-agent keys.
+    # Router always enforces the "agent" model (privacy_mode is authoritative).
+    merged: dict[str, str] = {**router_config, **existing_config}
+    # Always enforce router's agent model (privacy_mode is authoritative for agent)
+    merged["agent"] = router_config["agent"]
+
     return {
         "privacy_mode": privacy_mode,
         "selected_model": selected_model,
-        "model_config": model_config.to_dict(),
+        "model_config": merged,
     }

@@ -92,6 +92,16 @@ class UserSettings(Base):
     # None means "no overrides — use registry defaults".
     scope_overrides: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # Per-node model configuration (MC1): JSON blob mapping node name → model id.
+    # Keys: classifier, planner, agent, evaluator.
+    # None means "use defaults from ModelConfig".
+    node_models: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # PC1: User-defined private keywords (JSON array stored as TEXT).
+    # Merged with built-in defaults in the privacy classifier.
+    # None means "use built-in defaults only".
+    private_keywords: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC),

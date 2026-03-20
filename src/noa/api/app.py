@@ -14,6 +14,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.cors import CORSMiddleware
 
 from noa.api.middleware import RequestIDMiddleware, register_error_handlers
+from noa.api.v1.analytics import router as analytics_router
 from noa.api.v1.approvals import router as approvals_router
 from noa.api.v1.artifacts import router as artifacts_router
 from noa.api.v1.audit import router as audit_router
@@ -24,6 +25,7 @@ from noa.api.v1.devices import router as devices_router
 from noa.api.v1.health import router as health_router
 from noa.api.v1.memory import router as memory_router
 from noa.api.v1.queue import router as queue_router
+from noa.api.v1.ratings import router as ratings_router
 from noa.api.v1.runs import router as runs_router
 from noa.api.v1.settings import router as settings_router
 from noa.api.v1.tasks import router as tasks_router
@@ -529,6 +531,8 @@ def create_app() -> FastAPI:
     app.include_router(queue_router)
     app.include_router(cost_router)
     app.include_router(devices_router)
+    app.include_router(ratings_router)
+    app.include_router(analytics_router)
     app.include_router(voice_router, prefix="/api/v1/voice")
 
     return app

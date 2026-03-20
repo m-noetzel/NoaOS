@@ -91,6 +91,10 @@ services:
       - GOOGLE_REDIRECT_URI=http://${NOA_DOMAIN:-localhost:8000}/api/v1/auth/google/callback
       - FRONTEND_URL=${FRONTEND_URL:-}
       - TZ=${TZ:-Europe/Berlin}
+      # Langfuse observability (LF1)
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_HOST=http://langfuse:3000
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -130,7 +134,7 @@ services:
     restart: unless-stopped
 
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     networks:
       - noa-internal
     environment:
@@ -213,6 +217,7 @@ services:
       - no-new-privileges:true
     volumes:
       - coding-workspace:/workspace  # Only writable volume
+      - external-data:/data          # Persistent memory storage (W23-FIX)
     tmpfs:
       - /tmp:size=256M
     deploy:
@@ -257,6 +262,35 @@ services:
           memory: 512m
     restart: unless-stopped
 
+  langfuse-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: langfuse
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: langfuse
+    volumes:
+      - langfuse-db-data:/var/lib/postgresql/data
+    networks:
+      - noa-external
+    restart: unless-stopped
+
+  langfuse:
+    image: langfuse/langfuse:2
+    depends_on:
+      langfuse-db:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgresql://langfuse:langfuse@langfuse-db:5432/langfuse
+      NEXTAUTH_URL: http://localhost:3001
+      NEXTAUTH_SECRET: langfuse-nextauth-secret
+      SALT: langfuse-salt
+      TELEMETRY_ENABLED: "false"
+    ports:
+      - "3001:3000"
+    networks:
+      - noa-external
+    restart: unless-stopped
+
 networks:
   noa-internal:
     driver: bridge
@@ -272,5 +306,8 @@ volumes:
     name: noa-private-data
   coding-workspace:
   backups:
+  external-data:
+    name: noa-external-data
   caddy-data:    # Caddy TLS certificates and ACME state
   caddy-config:  # Caddy runtime configuration cache
+  langfuse-db-data:

@@ -15,6 +15,9 @@ from noa.db.models.conversation import Conversation, Message  # noqa: E402, F401
 from noa.db.models.custom_tool import CustomTool  # noqa: E402, F401
 from noa.db.models.device_token import DevicePushToken  # noqa: E402, F401
 from noa.db.models.google_credential import GoogleCredential  # noqa: E402, F401
+from noa.db.models.idempotency_key import IdempotencyKey  # noqa: E402, F401
+from noa.db.models.memory_fact import MemoryFact  # noqa: E402, F401
+from noa.db.models.response_evaluation import ResponseEvaluation  # noqa: E402, F401
 from noa.db.models.run import Run, RunEvent  # noqa: E402, F401
 from noa.db.models.session import AuthSession  # noqa: E402, F401
 from noa.db.models.task_queue import TaskQueue  # noqa: E402, F401

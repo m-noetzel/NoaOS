@@ -321,6 +321,29 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
                 "risk_tier": "low",
                 "domain": "private",
             },
+            "auto_extract": {
+                "description": (
+                    "Extract and save personal facts, preferences, or "
+                    "scheduling patterns from the conversation. Call this "
+                    "alongside your normal response when the user shares "
+                    "information worth remembering."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "facts": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": (
+                                "List of facts to save for future reference."
+                            ),
+                        },
+                    },
+                    "required": ["facts"],
+                },
+                "risk_tier": "low",
+                "domain": "private",
+            },
         },
     },
     "external_memory": {

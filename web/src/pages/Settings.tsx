@@ -7,6 +7,8 @@ import type { UserSettings } from "@/api/types";
 import { useToast } from "@/hooks/use-toast";
 import { GeneralSettings } from "@/components/settings/GeneralSettings";
 import { GoogleSettings } from "@/components/settings/GoogleSettings";
+import { IntelligenceSettings } from "@/components/settings/IntelligenceSettings";
+import { PrivacySettings } from "@/components/settings/PrivacySettings";
 
 // Re-export PROVIDER_MODELS so existing imports from @/pages/Settings still work
 export { PROVIDER_MODELS } from "@/components/settings/providerModels";
@@ -57,6 +59,10 @@ export default function Settings() {
           // No-op — GeneralSettings handles its own dirty state
         }}
       />
+
+      <IntelligenceSettings settings={settings} />
+
+      <PrivacySettings settings={settings} />
 
       <GoogleSettings />
     </div>

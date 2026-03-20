@@ -1,7 +1,7 @@
 import {
   MessageSquare, Play, ShieldCheck, ListOrdered,
   Brain, FileBox, DollarSign, Settings, LogOut,
-  Sparkles, Wrench,
+  Sparkles, Wrench, Activity, ScrollText,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -33,6 +33,8 @@ const navItems = [
   { title: "Artifacts", url: "/artifacts", icon: FileBox },
   { title: "Cost", url: "/cost", icon: DollarSign },
   { title: "Tools", url: "/tools", icon: Wrench },
+  { title: "Traces", url: "/traces", icon: Activity },
+  { title: "Audit", url: "/audit", icon: ScrollText },
 ];
 
 export function AppSidebar() {

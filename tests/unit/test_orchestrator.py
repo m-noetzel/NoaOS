@@ -68,7 +68,19 @@ def _make_agent_state(
         # MVP-H3: private domain availability
         "private_available": True,
         "user_id": None,
+        "run_id": None,
         "tool_scope": None,
+        # DI1: task type classification
+        "task_type": None,
+        # OI1: planning node fields
+        "plan": None,
+        "archetype": None,
+        "thoughts": [],
+        "use_react": False,
+        # EV1: evaluator node fields
+        "eval_scores": None,
+        "eval_verdict": None,
+        "eval_cycle": 0,
     }
 
 
@@ -175,9 +187,15 @@ class TestGraphTopology:
         # Verify the required edge sequence exists
         edge_pairs = {(e.source, e.target) for e in edges}
 
-        # router -> agent
-        assert ("router", "agent") in edge_pairs, (
-            "Missing edge: router -> agent"
+        # router -> classifier -> planner -> agent (OI1: planner node inserted)
+        assert ("router", "classifier") in edge_pairs, (
+            "Missing edge: router -> classifier"
+        )
+        assert ("classifier", "planner") in edge_pairs, (
+            "Missing edge: classifier -> planner"
+        )
+        assert ("planner", "agent") in edge_pairs, (
+            "Missing edge: planner -> agent"
         )
         # agent -> tools
         assert ("agent", "tools") in edge_pairs, (
@@ -204,8 +222,9 @@ class TestGraphTopology:
             "Graph must start at the router node"
         )
 
-    def test_graph_ends_at_responder(self):
-        """The graph must terminate after the responder node.
+    def test_graph_ends_at_evaluator(self):
+        """The graph must terminate after the evaluator node (EV1).
+        responder -> evaluator -> __end__ is the new terminal path.
         (SPEC.md §2.1 — workflow topology is fixed)
         """
         from noa.orchestrator.graph import build_graph
@@ -215,8 +234,11 @@ class TestGraphTopology:
         graph_repr = compiled.get_graph()
 
         edge_pairs = {(e.source, e.target) for e in graph_repr.edges}
-        assert ("responder", "__end__") in edge_pairs, (
-            "Graph must end after the responder node"
+        assert ("responder", "evaluator") in edge_pairs, (
+            "Graph must have responder -> evaluator edge (EV1)"
+        )
+        assert ("evaluator", "__end__") in edge_pairs, (
+            "Graph must end after the evaluator node"
         )
 
 
@@ -808,11 +830,11 @@ class TestDeterministicExecution:
         compiled = graph.compile()
         node_names = {n.name for n in compiled.get_graph().nodes.values()}
 
-        # The node set must be exactly the expected set (plus __start__/__end__)
+        # The node set must contain at least the required nodes (DI1 adds classifier)
         expected_core = {"router", "agent", "tools", "responder"}
         core_nodes = node_names - {"__start__", "__end__"}
-        assert core_nodes == expected_core, (
-            f"Graph must contain exactly {expected_core}, got {core_nodes}"
+        assert expected_core.issubset(core_nodes), (
+            f"Graph must contain at least {expected_core}, got {core_nodes}"
         )
 
 

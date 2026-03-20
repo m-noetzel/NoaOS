@@ -6,7 +6,8 @@ Spec refs: SPEC.md Section 14.1, Section 14.2, Section 14.3, Section 14.4
 from __future__ import annotations
 
 import logging
-from typing import Any
+from collections.abc import AsyncGenerator
+from typing import Any, cast
 
 from noa.external_worker.exceptions import (
     PrivacyViolationError,
@@ -178,6 +179,70 @@ class ProviderRouter:
             complete_kwargs["tools"] = provider_tools
         result = await client.complete(**complete_kwargs)
         return result
+
+    async def complete_stream(
+        self,
+        *,
+        messages: list[dict[str, Any]],
+        max_tokens: int,
+        privacy_mode: str = "external",
+        provider: str | None = None,
+        model: str | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        **kwargs: Any,
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Stream a completion request to the appropriate provider.
+
+        Yields ``{"type": "token", "content": str}`` dicts for each chunk,
+        then a final ``{"type": "complete", ...}`` dict.
+
+        Args:
+            messages: Conversation messages.
+            max_tokens: Maximum tokens to generate.
+            privacy_mode: ``"external"`` or ``"private"``.
+            provider: Optional explicit provider override.
+            model: Optional model override.
+            tools: Optional tool definitions (ignored in streaming path
+                   — tools are not supported with streaming).
+            **kwargs: Provider-specific parameters (temperature, top_p, etc.).
+
+        Raises:
+            PrivacyViolationError: If privacy constraints are violated.
+            ProviderError: If the selected provider is unavailable or fails.
+        """
+        selected = self.select(
+            privacy_mode=privacy_mode, user_selected=provider,
+        )
+
+        client = self._clients.get(selected)
+        if client is None:
+            msg = f"Provider '{selected}' is not configured"
+            raise ProviderError(msg)
+
+        if selected == "ollama":
+            ollama_model = model or _DEFAULT_MODELS["ollama"]
+            return cast(
+                AsyncGenerator[dict[str, Any], None],
+                client.complete_stream(
+                    messages=messages,
+                    model=ollama_model,
+                    max_tokens=max_tokens,
+                    **kwargs,
+                ),
+            )
+
+        # External providers (Anthropic, OpenAI, Google AI)
+        stream_kwargs: dict[str, Any] = {
+            "messages": messages,
+            "max_tokens": max_tokens,
+            **kwargs,
+        }
+        if model:
+            stream_kwargs["model"] = model
+        return cast(
+            AsyncGenerator[dict[str, Any], None],
+            client.complete_stream(**stream_kwargs),
+        )
 
     @staticmethod
     def _format_tools(
