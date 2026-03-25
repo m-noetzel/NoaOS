@@ -35,10 +35,6 @@ _IDEMPOTENCY_TTL_SECONDS = 300  # 5 minutes
 # during long-running tool calls (e.g. Calendar API calls can take >30s).
 _SSE_KEEPALIVE_INTERVAL = 15  # seconds
 
-# Marker the LLM includes at the end of its response when the task is done.
-# Stripped before persisting/sending to the UI.
-_TASK_COMPLETE_MARKER = "[TASK_COMPLETE]"
-
 
 class ChatRequest(BaseModel):
     """Request body for chat submission."""
@@ -407,24 +403,13 @@ async def submit_chat(
         if llm_usage:
             await _record_usage(user_id, run_id, llm_usage)
         await _persist_run_events(run_id, collected_events)
-        # Check if the LLM signalled task completion via [TASK_COMPLETE]
-        task_complete = _TASK_COMPLETE_MARKER in response_text
-        if task_complete:
-            response_text = response_text.replace(
-                _TASK_COMPLETE_MARKER, "",
-            ).strip()
-
-        # Run lifecycle: a run stays "running" between messages unless
-        # the LLM signals completion or an error/approval occurs.
+        # Run lifecycle: mark completed unless an error or approval is pending.
         if has_pending_approval:
             final_status = "awaiting_approval"
         elif not response_text:
             final_status = "failed"
-        elif task_complete:
-            final_status = "completed"
         else:
-            # Keep running — the task continues with the next message.
-            final_status = "running"
+            final_status = "completed"
         await _update_run_status(
             run_id, final_status,
             summary=_build_run_summary(collected_events, response_text),

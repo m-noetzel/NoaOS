@@ -237,6 +237,20 @@ ReAct mode (Thought→Action→Observation loop) active for research + decision_
 
 ---
 
+### Wave 26: Stability & Analytics Completion
+
+Fixes the 3 open Highs and 5 Mediums. No new architecture — pure correctness fixes.
+
+| ID | Phase | Status | Tests | Branch | Est. | Actual | Notes |
+|----|-------|--------|-------|--------|------|--------|-------|
+| **ST1** | Run Lifecycle Fixes | **Complete** | pass | main | ~60 min | — | CHAT-H2: system-based run completion (replace LLM marker); TECH-M4: startup recovery for orphaned runs |
+| **ST2** | Chat History & Tool Persistence | Planned | — | — | ~60 min | — | CHAT-H1: persist tool_calls+tool_results as messages in DB, include in subsequent-turn history |
+| **ST3** | Evaluator run_id Fix | Planned | — | — | ~30 min | — | W24-H2: add run_id to AgentState, populate in runner.py, read in evaluator_node — unbreaks analytics |
+| **ST4** | Streaming & Callback Fixes | Planned | — | — | ~45 min | — | W24-M1: concurrent token draining; W24-M2: per-request stream callback (not module-global) |
+| **ST5** | VM1 Completion & Quick Fixes | Planned | — | — | ~45 min | — | W24-M4: OllamaEmbedder class + pgvector test; W24-M5: source_thread_id in rag_ingest; W24-M6: IdempotencyKey in __init__; W25B-L1: Kimi context windows |
+
+---
+
 ## Deployment Roadmap
 
 ### Stage 1 — Local Development (current)

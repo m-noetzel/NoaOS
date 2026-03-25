@@ -5484,3 +5484,51 @@ Add Postgres RLS policies on all domain-sensitive tables for DB-enforced isolati
 - `alembic/versions/027_kimi_api_key.py` — Migration
 - `web/src/components/settings/providerModels.ts` — frontend models
 - `tests/unit/test_km1_kimi_provider.py`
+- `tests/unit/test_km1_kimi_provider.py`
+
+---
+
+## ST1: Run Lifecycle Fixes
+
+**Wave:** 26
+**Findings resolved:** CHAT-H2, TECH-M4
+
+### Problem
+
+Two related bugs cause runs to stay permanently in `"running"` status:
+
+1. **CHAT-H2**: `runner.py` completion is gated on the LLM emitting a `[TASK_COMPLETE]` marker string (chat.py:386). The system prompt never instructs the LLM to emit this marker, so it never fires. Additionally, after an approval resolves and `_execute_approved_tool` runs, the run is set to `"running"` but never finalized to `"completed"` or `"failed"`.
+
+2. **TECH-M4**: If the API container crashes mid-graph-execution, the Run row stays in `status="running"` permanently. On restart, there is no cleanup sweep.
+
+### Solution
+
+**Part A — System-based completion (CHAT-H2):**
+- Remove the `[TASK_COMPLETE]` marker dependency from `runner.py` and `chat.py`
+- After the responder node emits a `result_ready` event, the runner marks the run `"completed"`
+- After `_execute_approved_tool` runs the tool and the result is back in the graph, the runner finalizes the run status based on success/failure (not waiting for LLM text)
+- Keep the existing `"failed"` path for unhandled exceptions
+
+**Part B — Orphan recovery on startup (TECH-M4):**
+- In `app.py` lifespan startup (after DB init), query all runs with `status="running"` where `created_at < now() - timeout_seconds` (use `OrchestratorConfig.timeout_seconds`, default 300s)
+- Mark them `status="failed"`, `error="orphaned: process restarted"`
+- Log count at INFO level
+- Add 1 integration test: create a run row with `status="running"` and old timestamp, start app, verify it was marked failed
+
+### Acceptance Criteria
+
+- [ ] After a normal chat turn completes, the run row has `status="completed"`
+- [ ] After an approved tool executes, the run row has `status="completed"` (or `"failed"` if tool errored)
+- [ ] `[TASK_COMPLETE]` marker removed from all code paths
+- [ ] On startup with orphaned running runs, they are marked `"failed"` with reason
+- [ ] `ruff check src/ tests/` passes
+- [ ] `mypy src/` passes (0 errors)
+- [ ] ≥1 integration test per fix (real ASGI + real DB)
+
+### Files
+
+- `src/noa/orchestrator/runner.py` — remove marker logic, add completion after responder
+- `src/noa/api/v1/chat.py` — remove `[TASK_COMPLETE]` detection
+- `src/noa/api/app.py` — orphan recovery in lifespan startup
+- `tests/unit/test_st1_run_lifecycle.py` — unit tests for runner completion
+- `tests/integration/test_st1_integration.py` — orphan recovery + approval finalization

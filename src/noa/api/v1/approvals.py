@@ -223,10 +223,29 @@ async def decide_approval(
     # fact to MemoryStore so it becomes available for recall.
     _handle_memory_approval(approval=approval, decision=body.decision)
 
-    # Execute the approved tool and complete the run
+    # Execute the approved tool; finalize the run regardless of decision.
+    # CHAT-H2: run must leave "awaiting_approval" on both approve and deny.
     tool_result = None
     if body.decision == "approved":
         tool_result = await _execute_approved_tool(approval, str(user.user_id))
+    else:
+        # Denied: finalize run as failed so it doesn't stay in "awaiting_approval".
+        try:
+            from noa.api.app_state import get_session_factory as _gsf
+            sf = _gsf()
+            if sf:
+                async with sf() as _db:
+                    from noa.db.models.run import Run as _Run
+                    _res = await _db.execute(
+                        select(_Run).where(_Run.id == approval.run_id)
+                    )
+                    _run = _res.scalar_one_or_none()
+                    if _run and _run.status == "awaiting_approval":
+                        _run.status = "failed"
+                        _run.updated_at = datetime.now(UTC)
+                        await _db.commit()
+        except Exception:  # noqa: BLE001
+            logger.warning("Failed to finalize run after denial", exc_info=True)
 
     data: dict[str, Any] = {
         "approval_id": str(approval_id),
@@ -293,8 +312,9 @@ async def _execute_approved_tool(
 
         response = await gateway.dispatch(request, approvals_enabled=False)
 
-        # Resume run — set back to "running" so the next message continues
-        # the same run (a Run = full task lifecycle, not a single action).
+        # Finalize the run: completed on success, failed on error.
+        # CHAT-H2: never leave a run in "running" after approval resolves.
+        final_status = "failed" if response.error else "completed"
         try:
             session_factory = get_session_factory()
             if session_factory:
@@ -306,12 +326,13 @@ async def _execute_approved_tool(
                     )
                     run = result.scalar_one_or_none()
                     if run and run.status == "awaiting_approval":
-                        run.status = "running"
+                        run.status = final_status
                         run.updated_at = datetime.now(UTC)
                         await db_session.commit()
                         logger.info(
-                            "Run %s resumed after approval %s",
+                            "Run %s finalized as '%s' after approval %s",
                             approval.run_id,
+                            final_status,
                             approval.id,
                         )
         except Exception:  # noqa: BLE001

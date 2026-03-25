@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -238,6 +240,45 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             exc_info=True,
         )
 
+    # TECH-M4: Recover runs left in "running" state by a previous process crash.
+    async def _recover_orphaned_runs() -> None:
+        from datetime import timedelta
+
+        from sqlalchemy import update
+
+        from noa.api.app_state import get_session_factory
+        from noa.db.models.run import Run
+
+        # Default: runner.run() default is 120s; use 300s grace margin for recovery.
+        _orphan_timeout_seconds = 300
+
+        sf = get_session_factory()
+        if sf is None:
+            return
+        try:
+            timeout_seconds = _orphan_timeout_seconds
+            async with sf() as session, session.begin():
+                timeout_cutoff = datetime.now(UTC) - timedelta(seconds=timeout_seconds)
+                result = await session.execute(
+                    update(Run)
+                    .where(Run.status == "running", Run.created_at < timeout_cutoff)
+                    .values(
+                        status="failed",
+                        summary="orphaned: process restarted",
+                        updated_at=datetime.now(UTC),
+                    )
+                    .returning(Run.id)
+                )
+                rows = result.fetchall()
+                if rows:
+                    logger.info(
+                        "TECH-M4: Recovered %d orphaned runs on startup", len(rows)
+                    )
+        except Exception:  # noqa: BLE001
+            logger.warning("Failed to recover orphaned runs on startup", exc_info=True)
+
+    await _recover_orphaned_runs()
+
     # Start private-container health checker (§17.1)
     from noa.api.app_state import set_health_checker
     from noa.queue.health import HealthChecker
@@ -440,10 +481,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Shutdown: cancel blacklist cleanup task
     if _cleanup_task is not None:
         _cleanup_task.cancel()
-        try:
+        with contextlib.suppress(_asyncio.CancelledError):
             await _cleanup_task
-        except _asyncio.CancelledError:
-            pass
 
     # Shutdown: stop queue drain worker
     if drain_worker is not None:
