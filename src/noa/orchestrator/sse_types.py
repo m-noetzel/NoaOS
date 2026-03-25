@@ -35,18 +35,19 @@ class MetaEvent(TypedDict):
 
 
 class TokenEvent(TypedDict):
-    """Incremental LLM token for streaming responses (future use).
+    """Incremental LLM token for streaming responses (LS1).
 
-    Not currently emitted by OrchestratorRunner but reserved for
-    streaming token delivery.
+    Emitted by OrchestratorRunner for each token chunk during streaming.
+    event_type is ``token_stream``; payload carries the token text and run_id.
     """
 
-    event_type: Literal["token"]
+    event_type: Literal["token_stream"]
     payload: _TokenPayload
 
 
 class _TokenPayload(TypedDict):
-    content: str
+    token: str
+    run_id: str
 
 
 class DoneEvent(TypedDict):
@@ -243,7 +244,7 @@ SSEEvent = (
 VALID_SSE_EVENT_TYPES: frozenset[str] = frozenset(
     {
         "meta",
-        "token",
+        "token_stream",
         "done",
         "error",
         "tool_called",

@@ -440,9 +440,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Shutdown: cancel blacklist cleanup task
     if _cleanup_task is not None:
         _cleanup_task.cancel()
-        import contextlib as _contextlib  # noqa: PLC0415
-        async with _contextlib.suppress(_asyncio.CancelledError):
+        try:
             await _cleanup_task
+        except _asyncio.CancelledError:
+            pass
 
     # Shutdown: stop queue drain worker
     if drain_worker is not None:
