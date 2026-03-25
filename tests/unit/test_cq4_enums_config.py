@@ -188,7 +188,12 @@ class TestGatewayDomainIsolation:
             asyncio.run(gw.dispatch(req))
 
     def test_external_tool_blocked_in_private_mode(self) -> None:
-        """External-domain tool raises PermissionError when request is private."""
+        """External-domain tool in private mode returns approval_required (OI7).
+
+        OI7 changed the behavior from raising PermissionError to returning a
+        structured approval_required response so the user can approve the
+        cross-domain action instead of having it silently blocked.
+        """
         import asyncio
 
         from noa.tools.gateway import ToolGateway, ToolRequest
@@ -206,5 +211,7 @@ class TestGatewayDomainIsolation:
             tool="external_tool", function="call", args={},
             privacy_mode="private",
         )
-        with __import__("pytest").raises(PermissionError):
-            asyncio.run(gw.dispatch(req))
+        resp = asyncio.run(gw.dispatch(req))
+        assert resp.result is not None
+        assert resp.result.get("approval_required") is True
+        assert resp.result.get("cross_domain") is True

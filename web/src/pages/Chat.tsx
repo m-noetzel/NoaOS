@@ -79,6 +79,11 @@ export default function Chat() {
     setCurrentRunId,
     setPendingApproval,
     setOptimisticMessage,
+    // OI8: Switch the active thread when backend auto-redirects to a new domain thread
+    onDomainRedirect: (newThreadId) => {
+      setActiveThread(newThreadId);
+      queryClient.invalidateQueries({ queryKey: ["threads"] });
+    },
   });
 
   // Auto-select first thread on load

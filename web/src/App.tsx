@@ -8,22 +8,26 @@ import { ThemeProvider } from "next-themes";
 import { AuthProvider } from "@/auth/AuthContext";
 import { AuthGuard } from "@/auth/AuthGuard";
 import { AppLayout } from "@/components/layout/AppLayout";
-import Login from "@/pages/Login";
-import Register from "@/pages/Register";
-import ForgotPassword from "@/pages/ForgotPassword";
-import Chat from "@/pages/Chat";
-import Runs from "@/pages/Runs";
-import RunDetail from "@/pages/RunDetail";
-import Approvals from "@/pages/Approvals";
-import Queue from "@/pages/Queue";
-import Memory from "@/pages/Memory";
-import Artifacts from "@/pages/Artifacts";
-import Settings from "@/pages/Settings";
-import GoogleCallback from "@/pages/GoogleCallback";
-import NotFound from "@/pages/NotFound";
 import ErrorBoundary from "@/components/ErrorBoundary";
 
-// UI-M10: Lazy-load heavy pages for code splitting
+// BU1: Lazy-load all page-level routes for code splitting.
+// Auth pages (Login, Register, ForgotPassword) are kept in a separate
+// lazy group so they load quickly without pulling in the full app shell.
+const Login = React.lazy(() => import("@/pages/Login"));
+const Register = React.lazy(() => import("@/pages/Register"));
+const ForgotPassword = React.lazy(() => import("@/pages/ForgotPassword"));
+const GoogleCallback = React.lazy(() => import("@/pages/GoogleCallback"));
+const NotFound = React.lazy(() => import("@/pages/NotFound"));
+
+// Protected app pages — each becomes its own chunk
+const Chat = React.lazy(() => import("@/pages/Chat"));
+const Runs = React.lazy(() => import("@/pages/Runs"));
+const RunDetail = React.lazy(() => import("@/pages/RunDetail"));
+const Approvals = React.lazy(() => import("@/pages/Approvals"));
+const Queue = React.lazy(() => import("@/pages/Queue"));
+const Memory = React.lazy(() => import("@/pages/Memory"));
+const Artifacts = React.lazy(() => import("@/pages/Artifacts"));
+const Settings = React.lazy(() => import("@/pages/Settings"));
 const Cost = React.lazy(() => import("@/pages/Cost"));
 const Tools = React.lazy(() => import("@/pages/Tools"));
 const Traces = React.lazy(() => import("@/pages/Traces"));

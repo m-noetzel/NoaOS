@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from noa.api.middleware import idempotency_key_ctx, trace_id_ctx
 from noa.auth.middleware import AuthUser, require_auth
+from noa.db.rls import set_domain_context
 from noa.orchestrator.runner import OrchestratorRunner
 from noa.queue.health import HealthChecker
 from noa.types import PrivacyMode, RiskTier
@@ -140,11 +141,16 @@ async def submit_chat(
     # 3. New thread → content-classify the message so that private content
     #    (journal, diary, etc.) is queued when the private worker is unavailable.
     #    The frontend default of "external" must not suppress this detection.
-    if body.privacy_mode == PrivacyMode.PRIVATE:
+    # Cache _get_thread_domain result to avoid a second DB round-trip at the
+    # OI8 domain-redirect check below (Fix: suggested-4).
+    _cached_thread_domain: str | None = None
+    if body.privacy_mode == "private":
         privacy_mode: str = PrivacyMode.PRIVATE
     elif body.thread_id is not None:
-        thread_domain = await _get_thread_domain(body.thread_id, user_id)
-        privacy_mode = thread_domain or body.privacy_mode or PrivacyMode.EXTERNAL
+        _cached_thread_domain = await _get_thread_domain(body.thread_id, user_id)
+        privacy_mode = (
+            _cached_thread_domain or body.privacy_mode or PrivacyMode.EXTERNAL
+        )
     elif body.privacy_mode is None:
         # No explicit mode and no thread — classify the message content.
         # Only runs when the client hasn't expressed a preference; an explicit
@@ -237,28 +243,47 @@ async def submit_chat(
             },
         )
 
-    # BE-C3: Verify existing thread belongs to the correct domain
+    # OI8: Smart domain redirect — instead of returning a 403 DOMAIN_MISMATCH
+    # error, auto-create a new thread in the correct domain and route the
+    # message there.  The meta event signals the frontend so it can switch
+    # context and show a toast notification.
+    redirected = False
+    original_thread_id: str | None = None
     if body.thread_id is not None:
-        domain_error = await _check_thread_domain(
-            body.thread_id, user_id, privacy_mode,
+        # Reuse cached result from the privacy_mode determination above to
+        # avoid a second DB round-trip (OI8 suggested-4).
+        thread_domain = (
+            _cached_thread_domain
+            if _cached_thread_domain is not None
+            else await _get_thread_domain(body.thread_id, user_id)
         )
-        if domain_error is not None:
-            return JSONResponse(
-                status_code=403,
-                content={
-                    "ok": False,
-                    "error": {"code": "DOMAIN_MISMATCH", "message": domain_error},
-                },
+        if thread_domain is not None and thread_domain != privacy_mode:
+            # Mismatch confirmed — create a fresh thread in the requested domain.
+            original_thread_id = thread_id
+            thread_id = str(uuid.uuid4())
+            run_id = str(uuid.uuid4())
+            is_new_run = True
+            redirected = True
+            logger.info(
+                "OI8 domain redirect: thread %s (%s) → new thread %s (%s)",
+                original_thread_id,
+                thread_domain,
+                thread_id,
+                privacy_mode,
             )
 
     async def event_stream() -> Any:
         """Generate SSE events from the runner."""
         # Initial metadata event with run_id and thread_id
-        meta = {
+        meta: dict[str, Any] = {
             "event_type": "meta",
             "run_id": run_id,
             "thread_id": thread_id,
         }
+        if redirected:
+            meta["redirected"] = True
+            meta["original_thread_id"] = original_thread_id
+            meta["redirect_reason"] = "domain_mismatch"
         yield f"data: {json.dumps(meta)}\n\n"
 
         if runner is None:
@@ -466,58 +491,6 @@ async def _load_user_settings(user_id: Any) -> dict[str, Any]:
         return defaults
 
 
-async def _check_thread_domain(
-    thread_id: str,
-    user_id: str,
-    privacy_mode: str,
-) -> str | None:
-    """Verify the thread's domain matches the current privacy_mode.
-
-    BE-C3: Returns an error message string if there is a mismatch, None if OK.
-    Missing threads are allowed through (will be created with the correct domain).
-    """
-    factory = _get_session_factory()
-    if factory is None:
-        # fail-closed: if we can't verify domain, block the request
-        return "Domain check unavailable — DB factory not configured"
-
-    try:
-        tid = uuid.UUID(thread_id)
-    except ValueError:
-        return f"Invalid thread_id format: {thread_id!r}"
-
-    try:
-        uid = uuid.UUID(user_id)
-    except ValueError:
-        return f"Invalid user_id format: {user_id!r}"
-
-    try:
-        from sqlalchemy import select
-
-        from noa.db.models.conversation import Conversation
-
-        async with factory() as session:
-            result = await session.execute(
-                select(Conversation).where(
-                    Conversation.id == tid,
-                    Conversation.user_id == uid,
-                )
-            )
-            conversation = result.scalar_one_or_none()
-            if conversation is None:
-                # Thread doesn't exist yet — will be created with correct domain
-                return None
-            if conversation.domain != privacy_mode:
-                return (
-                    f"Thread {thread_id} belongs to domain '{conversation.domain}' "
-                    f"but request is in domain '{privacy_mode}'"
-                )
-    except Exception:  # noqa: BLE001
-        logger.warning("Failed to check thread domain for %s", thread_id)
-        return None
-
-    return None
-
 
 async def _get_thread_domain(thread_id: str, user_id: str) -> str | None:
     """Return the domain of an existing thread, or None if not found."""
@@ -580,6 +553,8 @@ async def _make_run_service(
             uid = uuid.UUID(user_id)
 
             async with factory() as session:
+                # RLS1: set domain context so Postgres RLS policies apply
+                await set_domain_context(session, privacy_mode)
                 # Ensure conversation exists (FK for runs.thread_id)
                 result = await session.execute(
                     select(Conversation).where(Conversation.id == tid)

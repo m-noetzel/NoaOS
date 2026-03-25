@@ -32,6 +32,7 @@ _DEFAULT_MODELS: dict[str, str] = {
     "anthropic": "claude-sonnet-4-20250514",
     "openai": "gpt-4.1",
     "google_ai": "gemini-pro",
+    "kimi": "kimi-k2",
     "ollama": "llama3.1",
 }
 
@@ -42,7 +43,7 @@ _DEFAULT_OLLAMA_MANIFEST: dict[str, str] = {
     "qwen3": "approved",
 }
 
-_EXTERNAL_PROVIDERS = {"anthropic", "openai", "google_ai"}
+_EXTERNAL_PROVIDERS = {"anthropic", "openai", "google_ai", "kimi"}
 
 
 class ProviderRouter:
@@ -167,7 +168,7 @@ class ProviderRouter:
             )
             return result
 
-        # External providers (Anthropic, OpenAI, Google AI)
+        # External providers (Anthropic, OpenAI, Google AI, Kimi)
         complete_kwargs: dict[str, Any] = {
             "messages": messages,
             "max_tokens": max_tokens,
@@ -231,7 +232,7 @@ class ProviderRouter:
                 ),
             )
 
-        # External providers (Anthropic, OpenAI, Google AI)
+        # External providers (Anthropic, OpenAI, Google AI, Kimi)
         stream_kwargs: dict[str, Any] = {
             "messages": messages,
             "max_tokens": max_tokens,
@@ -258,7 +259,7 @@ class ProviderRouter:
             tool_names = [t["name"] for t in registered_tools]
             return get_anthropic_tools(tool_names)
 
-        if provider_name == "openai":
+        if provider_name in ("openai", "kimi"):
             from noa.tools.definitions import get_openai_tools
             tool_names = [t["name"] for t in registered_tools]
             return get_openai_tools(tool_names)
@@ -304,6 +305,16 @@ def build_llm_clients(settings: Any) -> dict[str, Any]:
         clients["google_ai"] = GoogleAIClient(
             api_key=google_key,
             model=_DEFAULT_MODELS["google_ai"],
+        )
+
+    # Kimi (Moonshot AI — OpenAI-compatible)
+    kimi_key = getattr(settings, "kimi_api_key", None)
+    if kimi_key:
+        from noa.external_worker.llm.kimi import KimiClient
+
+        clients["kimi"] = KimiClient(
+            api_key=kimi_key,
+            model=_DEFAULT_MODELS["kimi"],
         )
 
     # Ollama (always available — local service)

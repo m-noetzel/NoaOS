@@ -149,6 +149,26 @@
 - This is a side-effect-in-body pattern that SwiftUI may re-trigger on redraws or identity changes.
 - Preferred: use `.onChange(of: viewModel.state)` in the parent or an `@Observable` sink.
 
+## Wave 25 — Key Patterns (2026-03-24)
+
+### SEC1: Token blacklist fail-open is intentional but documented
+- `middleware.py` line 135: `except Exception: # noqa: BLE001` in the blacklist check deliberately
+  fails open on DB outage. The comment is explicit. QA must decide if this is acceptable for the threat model.
+- `auth.py` logout line 270: `_secret = settings.secret_key or ""` violates L11 (no fallback on
+  secrets). If secret_key is unset, `decode_token` will succeed against an empty-key signed token — this
+  is the bypass vector. Fix: raise if secret_key is falsy, same as the earlier guard at line 79.
+
+### KM1: Kimi tools silently dropped by router
+- `router.py._format_tools` handles `anthropic`, `google_ai`, `openai` but falls through to `return None`
+  for `kimi`. Since Kimi is OpenAI-compatible, it should use `get_openai_tools`. Any tool call attempt
+  via Kimi will silently receive no tool definitions — no error, wrong behavior.
+
+### IS1: `/api/v1/chat/sync` endpoint used by Shortcut — must be verified to exist
+- `SendMessageIntent.swift` calls `client.post("/api/v1/chat/sync", ...)`. Verify this endpoint is
+  registered in the backend. If it's missing, every Shortcut invocation will get a 404.
+- `IntentTokenProvider` is duplicated verbatim across `SendMessageIntent.swift` and
+  `ListThreadsIntent.swift`. Should be a shared internal struct to avoid drift.
+
 ## iOS PR3 Critical Fixes — Patterns & Pitfalls (2026-03-11)
 
 ### weak capture in onUnauthorized closure (composition root)

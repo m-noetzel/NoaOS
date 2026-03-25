@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from typing import Any
@@ -222,6 +223,8 @@ class OrchestratorRunner:
                 "eval_scores": None,
                 "eval_verdict": None,
                 "eval_cycle": 0,
+                # CC1: Context compaction boundary flag
+                "is_compaction_boundary": False,
             }
 
             # A4: Load checkpoint if available (resume support)
@@ -257,6 +260,11 @@ class OrchestratorRunner:
             # instead of waiting for the entire graph to complete.
             result: dict[str, Any] = dict(initial_state)
             seen_tools: set[str] = set()
+
+            # LS2: Timeout watchdog — track wall-clock time and break after
+            # each node completes if the budget has been exceeded.
+            _run_start = time.monotonic()
+            _timed_out = False
 
             async for chunk in self._graph.astream(initial_state):
                 # astream yields {node_name: state_update} per completed node
@@ -343,14 +351,19 @@ class OrchestratorRunner:
 
                             # Emit approval_requested for actions needing approval
                             if tr.get("approval_required"):
+                                approval_payload: dict[str, Any] = {
+                                    "tool": tr.get("tool", ""),
+                                    "function": tr.get("function", ""),
+                                    "args": tr.get("args", {}),
+                                    "risk_tier": tr.get("risk_tier", "medium"),
+                                }
+                                # OI7: Include cross-domain context when present
+                                if tr.get("cross_domain"):
+                                    approval_payload["cross_domain"] = True
+                                    approval_payload["reason"] = tr.get("reason", "")
                                 approval_event = self._make_event(
                                     "approval_requested",
-                                    {
-                                        "tool": tr.get("tool", ""),
-                                        "function": tr.get("function", ""),
-                                        "args": tr.get("args", {}),
-                                        "risk_tier": tr.get("risk_tier", "medium"),
-                                    },
+                                    approval_payload,
                                 )
                                 await self._persist_event(
                                     run_service, run_id, approval_event,
@@ -364,12 +377,97 @@ class OrchestratorRunner:
                                 await self._persist_event(run_service, run_id, tr_event)
                                 yield tr_event
 
+                # LS2: Timeout watchdog — check after each chunk (node)
+                elapsed = time.monotonic() - _run_start
+                if elapsed > timeout_seconds:
+                    logger.warning(
+                        "Orchestrator timeout: run_id=%s elapsed=%.1fs limit=%ds",
+                        run_id,
+                        elapsed,
+                        timeout_seconds,
+                        extra=log_ctx,
+                    )
+                    timeout_event = self._make_event(
+                        "error",
+                        {
+                            "message": (
+                                f"Orchestrator timeout after {timeout_seconds}s"
+                            ),
+                            "code": "TIMEOUT",
+                        },
+                    )
+                    await self._persist_event(run_service, run_id, timeout_event)
+                    yield timeout_event
+                    _timed_out = True
+                    break
+
+            # LS2: Mark run as failed if timed out
+            if _timed_out:
+                try:
+                    await run_service.update_status(run_id, "failed")
+                except Exception:  # noqa: BLE001
+                    logger.warning(
+                        "Failed to update run status to failed (timeout): run_id=%s",
+                        run_id,
+                        extra=log_ctx,
+                    )
+                # LS1: Always clear stream callback on timeout
+                try:
+                    from noa.orchestrator.nodes.agent import set_stream_callback
+                    set_stream_callback(None)
+                except ImportError:
+                    pass
+                return
+
             # LS1: Clear stream callback after graph execution
             try:
                 from noa.orchestrator.nodes.agent import set_stream_callback
                 set_stream_callback(None)
             except ImportError:
                 pass
+
+            # CC1: Context window compaction — check if accumulated messages
+            # exceed the threshold and compact if needed.  Compaction runs
+            # after graph execution so it doesn't interrupt the LangGraph
+            # node loop; the compacted messages are then checkpointed so
+            # the next turn starts from a shorter history.
+            result["is_compaction_boundary"] = False
+            _current_messages: list[dict[str, Any]] = result.get("messages", [])
+            _compaction_model = result.get("selected_model") or model or "gpt-4.1"
+            from noa.orchestrator.token_budget import needs_compaction
+            if needs_compaction(_current_messages, _compaction_model):
+                from noa.orchestrator.nodes.agent import invoke_llm
+                from noa.orchestrator.nodes.compactor import (
+                    COMPACTION_MODEL,
+                    compact_messages,
+                )
+                _compacted, _did_compact = await compact_messages(
+                    _current_messages,
+                    invoke_llm,
+                    model=COMPACTION_MODEL,
+                )
+                if _did_compact:
+                    result["messages"] = _compacted
+                    result["is_compaction_boundary"] = True
+                    compaction_event = self._make_event(
+                        "compaction",
+                        {
+                            "messages_before": len(_current_messages),
+                            "messages_after": len(_compacted),
+                            "model": _compaction_model,
+                        },
+                    )
+                    await self._persist_event(
+                        run_service, run_id, compaction_event,
+                    )
+                    yield compaction_event
+                    logger.info(
+                        "Context compacted: run_id=%s before=%d after=%d",
+                        run_id,
+                        len(_current_messages),
+                        len(_compacted),
+                        extra=log_ctx,
+                    )
 
             # A4: Save checkpoint after successful execution
             if self._checkpointer is not None:

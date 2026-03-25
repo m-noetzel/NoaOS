@@ -15,6 +15,7 @@ from noa.api.middleware import trace_id_ctx
 from noa.api.schemas.common import success_envelope
 from noa.auth.middleware import AuthUser, require_auth
 from noa.db.models.conversation import Conversation, Message
+from noa.db.rls import set_domain_context
 
 router = APIRouter(prefix="/api/v1/threads", tags=["threads"])
 
@@ -39,6 +40,8 @@ async def list_threads(
     private threads are never exposed in external mode and vice versa.
     """
     rid = trace_id_ctx.get("")
+    # RLS1: set domain context so Postgres RLS policies apply
+    await set_domain_context(session, privacy_mode)
 
     # Subquery for message count per thread
     msg_count_sub = (
@@ -124,6 +127,8 @@ async def list_messages(
     returning messages. Returns 403 on domain mismatch.
     """
     rid = trace_id_ctx.get("")
+    # RLS1: set domain context so Postgres RLS policies apply
+    await set_domain_context(session, privacy_mode)
 
     # Verify thread exists and belongs to the authenticated user
     result = await session.execute(
@@ -247,6 +252,8 @@ async def delete_thread(
     BE-C3: Domain check prevents cross-domain deletion.
     """
     rid = trace_id_ctx.get("")
+    # RLS1: set domain context so Postgres RLS policies apply
+    await set_domain_context(session, privacy_mode)
 
     result = await session.execute(
         select(Conversation).where(

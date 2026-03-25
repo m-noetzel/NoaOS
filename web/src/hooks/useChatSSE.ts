@@ -22,6 +22,8 @@ export interface UseChatSSEOptions {
   setCurrentRunId: React.Dispatch<React.SetStateAction<string | null>>;
   setPendingApproval: React.Dispatch<React.SetStateAction<PendingApproval | null>>;
   setOptimisticMessage: (msg: Message | null) => void;
+  /** OI8: Called when the backend auto-redirected the message to a new thread. */
+  onDomainRedirect?: (newThreadId: string, originalThreadId: string) => void;
 }
 
 export function useChatSSE({
@@ -32,6 +34,7 @@ export function useChatSSE({
   setCurrentRunId,
   setPendingApproval,
   setOptimisticMessage,
+  onDomainRedirect,
 }: UseChatSSEOptions) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -44,6 +47,20 @@ export function useChatSSE({
         case "meta":
           if (event.data.run_id) {
             setCurrentRunId(asString(event.data.run_id));
+          }
+          // OI8: Smart domain redirect — backend created a new thread in the
+          // correct domain.  Update the active thread and show a toast.
+          if (event.data.redirected === true) {
+            const newThreadId = asString(event.data.thread_id);
+            const originalThreadId = asString(event.data.original_thread_id);
+            if (newThreadId && onDomainRedirect) {
+              onDomainRedirect(newThreadId, originalThreadId);
+            }
+            toast({
+              title: "Message redirected",
+              description:
+                "Your message was sent to a new thread in the correct domain.",
+            });
           }
           break;
         case "token_stream":
@@ -99,6 +116,7 @@ export function useChatSSE({
       setCurrentRunId,
       setPendingApproval,
       setOptimisticMessage,
+      onDomainRedirect,
       toast,
     ]
   );

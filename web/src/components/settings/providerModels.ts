@@ -12,6 +12,10 @@ export const PROVIDER_MODELS: Record<string, { value: string; label: string }[]>
   google_ai: [
     { value: "gemini-2.0-flash", label: "Gemini 2.0 Flash" },
   ],
+  kimi: [
+    { value: "kimi-k2", label: "Kimi K2" },
+    { value: "moonshot-v1-128k", label: "Moonshot v1 128K" },
+  ],
   ollama: [
     { value: "llama-3.1-70b", label: "Llama 3.1 70B (Local)" },
   ],

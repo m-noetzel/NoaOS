@@ -10,7 +10,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, exists, select
 
 from noa.auth.jwt import (
     TokenError,
@@ -21,6 +21,7 @@ from noa.auth.jwt import (
 from noa.auth.password import hash_password, verify_password
 from noa.config import Settings
 from noa.db.models.session import AuthSession
+from noa.db.models.token_blacklist import TokenBlacklist
 from noa.db.models.user import User
 
 
@@ -151,6 +152,75 @@ class AuthService:
         if auth_session is not None:
             auth_session.is_active = False
             await self._session.commit()
+
+    async def revoke_token(
+        self,
+        jti: str,
+        user_id: uuid.UUID,
+        expires_at: datetime,
+        reason: str | None = None,
+    ) -> None:
+        """Add a jti to the blacklist.
+
+        Idempotent — if the jti is already revoked this is a no-op.
+        """
+        from sqlalchemy.exc import IntegrityError  # noqa: PLC0415
+
+        entry = TokenBlacklist(
+            id=uuid.uuid4(),
+            jti=jti,
+            user_id=user_id,
+            expires_at=expires_at,
+            revoked_at=datetime.now(UTC),
+            reason=reason,
+        )
+        self._session.add(entry)
+        try:
+            await self._session.flush()
+        except IntegrityError:
+            # Already revoked (unique constraint on jti) — idempotent
+            await self._session.rollback()
+
+    async def is_token_revoked(self, jti: str) -> bool:
+        """Return True if the given jti is in the blacklist."""
+        stmt = select(exists().where(TokenBlacklist.jti == jti))
+        result = await self._session.execute(stmt)
+        return bool(result.scalar())
+
+    async def cleanup_expired_blacklist(self) -> int:
+        """Delete blacklist entries whose token has naturally expired.
+
+        Returns the number of rows deleted.
+        """
+        stmt = delete(TokenBlacklist).where(
+            TokenBlacklist.expires_at < datetime.now(UTC)
+        )
+        result = await self._session.execute(stmt)
+        await self._session.commit()
+        return int(result.rowcount or 0)
+
+    async def revoke_all_user_tokens(
+        self,
+        user_id: uuid.UUID,
+        reason: str | None = None,
+    ) -> None:
+        """Bulk-revoke all active sessions for a user.
+
+        Used on password change. Since we cannot enumerate all in-flight JWTs,
+        this marks all sessions inactive so refresh is denied. For in-flight
+        access tokens, callers should also add known jtis explicitly via
+        revoke_token().
+        """
+        from sqlalchemy import update as sa_update  # noqa: PLC0415
+
+        stmt = (
+            sa_update(AuthSession)
+            .where(AuthSession.user_id == user_id)
+            .where(AuthSession.is_active == True)  # noqa: E712
+            .values(is_active=False)
+        )
+        await self._session.execute(stmt)
+        await self._session.commit()
 
     async def request_password_reset(
         self,

@@ -29,6 +29,8 @@ VALID_EVENT_TYPES = frozenset(
         "artifact_created",
         "result_ready",
         "error",
+        "compaction",
+        "queued",
     ]
 )
 

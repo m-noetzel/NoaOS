@@ -61,6 +61,24 @@ PRICING_TABLE: dict[tuple[str, str], ModelPricing] = {
         input_per_million=Decimal("15.00"),
         output_per_million=Decimal("75.00"),
     ),
+    # Google AI
+    ("google_ai", "gemini-2.0-flash"): ModelPricing(
+        input_per_million=Decimal("0.10"),
+        output_per_million=Decimal("0.40"),
+    ),
+    ("google_ai", "gemini-pro"): ModelPricing(
+        input_per_million=Decimal("1.25"),
+        output_per_million=Decimal("5.00"),
+    ),
+    # Kimi (Moonshot AI)
+    ("kimi", "kimi-k2"): ModelPricing(
+        input_per_million=Decimal("2.00"),
+        output_per_million=Decimal("8.00"),
+    ),
+    ("kimi", "moonshot-v1-128k"): ModelPricing(
+        input_per_million=Decimal("0.84"),
+        output_per_million=Decimal("0.84"),
+    ),
     # Local (Ollama) — free
     ("ollama", "llama3.1"): ModelPricing(
         input_per_million=Decimal("0"),

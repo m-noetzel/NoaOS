@@ -10,7 +10,7 @@ The plan is organized into **waves** — groups of related phases that deliver a
 
 ## Key Documents
 
-- **[FINDINGS.md](FINDINGS.md)** — 207 audit findings (183 resolved, 24 open). Updated inline when findings are resolved.
+- **[FINDINGS.md](FINDINGS.md)** — 213 audit findings (189 resolved, 24 open). Updated inline when findings are resolved.
 - **[PHASE_DETAILS.md](PHASE_DETAILS.md)** — Detailed phase descriptions (search by phase ID).
 - **[QA_CHECKLIST.md](QA_CHECKLIST.md)** — QA criteria (M1-M8 must-haves, S1-S5 should-haves).
 
@@ -215,21 +215,22 @@ ReAct mode (Thought→Action→Observation loop) active for research + decision_
 ### Wave 24B: Architecture & Security
 | ID | Phase | Status | Tests | Branch | Est. | Actual | Notes |
 |----|-------|--------|-------|--------|------|--------|-------|
-| **CC1** | Context Window Compaction | **Planned** | — | — | ~60 min | — | Noa currently has no strategy when conversations approach the LLM context limit — sessions silently degrade or crash. After each `finish-step` event in the runner, check `estimated_tokens > context_budget_threshold` (80% of model max). On trigger: (1) fire pre-compaction flush via OI6's `auto_extract` to save user facts before context is lost; (2) invoke a dedicated compaction LLM call (cheap model) that summarises `messages[:-N]` into a single summary message; (3) replace the old messages with `[summary_message] + messages[-N:]`; (4) mark summary with `is_compaction_boundary: true` in AgentState so future pruning stops there; (5) update the LangGraph checkpoint. Token estimation uses a fast tiktoken approximation per message. The compaction agent receives only the messages to summarise, not tools. Depends on OI6 (pre-compaction flush). |
-| **OI7** | Cross-Domain Step-Up Approval | **Planned** | — | — | ~60 min | — | Private-by-default with per-action consent for external tools. When in private mode and LLM requests an external tool (Gmail, Calendar, web search), trigger approval prompt instead of hiding/blocking the tool. Flow: private LLM (Ollama) reasons locally → needs external tool → approval prompt ("This requires Gmail. Allow?") → user approves → DLP scans outbound payload → tool executes externally → result returns to private LLM. Only the specific tool call crosses the domain boundary, not conversation history. |
-| **OI8** | Smart Domain Redirect (cross-domain UX) | **Planned** | — | — | ~45 min | — | Replace 403 DOMAIN_MISMATCH with intelligent handling. Auto-create thread in correct domain, route message there, return SSE meta event with new thread_id so frontend switches context with a toast. |
-| **LS2** | Orchestrator Timeout Watchdog | **Planned** | — | — | ~30 min | — | Fixes TECH-M2. Wrap `runner.run()` in `asyncio.wait_for(timeout=settings.timeout_seconds)`. On timeout: emit `error` SSE event, mark run `failed`, cancel pending tool tasks. |
-| **RLS1** | Postgres Row-Level Security | **Planned** | — | — | ~90 min | — | Add RLS policies on all domain-sensitive tables. Postgres enforces `WHERE domain = current_setting('app.domain')` at DB level — eliminates reliance on application-level WHERE clauses. Intermediate step before Phase 2 physical DB separation. |
+| **CC1** | Context Window Compaction | **Complete** | 28 | main | ~60 min | ~45 min | token_budget.py (model context windows, 80% threshold), compactor.py (cheap LLM summary, keep_recent=6), runner wired, CompactionEvent SSE type, checkpoint save after compaction |
+| **OI7** | Cross-Domain Step-Up Approval | **Complete** | 15 | main | ~60 min | ~30 min | Gateway returns approval_required instead of PermissionError for cross-domain, privacy_mode wired through tool_node, runner emits cross_domain+reason in approval event |
+| **OI8** | Smart Domain Redirect (cross-domain UX) | **Complete** | 6 | main | ~45 min | ~20 min | 403 DOMAIN_MISMATCH replaced with auto-redirect, new thread created in correct domain, meta event includes redirected/original_thread_id, frontend toast + thread switch |
+| **LS2** | Orchestrator Timeout Watchdog | **Complete** | 7 | main | ~30 min | ~15 min | time.monotonic() check after each node, error SSE with TIMEOUT code, run marked failed, stream callback cleared |
+| **RLS1** | Postgres Row-Level Security | **Complete** | 16 | main | ~90 min | ~30 min | Migration 025: RLS on 6 tables (conversations, approvals, memory_facts, audit_log, custom_tools, runs), transaction-local set_config, SQLite-safe skip, rls.py helpers |
+| **W24B-FIX** | Audit Finding Fixes | **Complete** | — | main | — | ~5 min | W24-AUDIT-H1: Langfuse env vars in dev-full compose. H2+H3 already resolved. Mypy chat.py comparison-overlap fix. |
 
 ### Wave 25: Polish & Extended Capabilities
 
 | ID | Phase | Status | Tests | Branch | Est. | Actual | Notes |
 |----|-------|--------|-------|--------|------|--------|-------|
-| **SEC1** | JWT Token Revocation | **Planned** | — | — | ~45 min | — | Token blacklist table in Postgres (token_jti + expires_at), checked on every request, background sweeper purges expired entries. |
-| **MS1** | Microsoft Outlook Mail + Calendar | **Planned** | — | — | ~120 min | — | OAuth2 + Microsoft Graph API. Mail read/send + Calendar events. Parallel with other tool integrations. |
-| **BU1** | Frontend Bundle Optimization | **Planned** | — | — | ~45 min | — | Tree-shaking audit, lazy routes review, bundle size regression CI step. |
-| **VX1** | Voice UX Refinement | **Planned** | — | — | ~60 min | — | Streaming transcription (real-time partial results from Whisper), inline playback controls in chat. |
-| **IS1** | iOS Widget & Shortcuts Integration | **Planned** | — | — | ~90 min | — | iOS home screen widget (last thread summary), Siri Shortcuts for quick send. |
+| **SEC1** | JWT Token Revocation | **Complete** | 16 | main | ~45 min | ~20 min | TokenBlacklist table, middleware check, logout revocation, hourly sweeper. Resolves TECH-M1. |
+| **KM1** | Kimi 2.5 LLM Provider (Moonshot AI) | **Complete** | 19 | main | ~60 min | ~15 min | KimiClient (OpenAI-compatible), router registration, config + DB + frontend. Models: kimi-k2, moonshot-v1-128k. |
+| **BU1** | Frontend Bundle Optimization | **Complete** | — | main | ~45 min | ~10 min | 13 lazy routes, manualChunks (react/router/charts/radix/query), check-bundle-size.sh (500KB gate). |
+| **VX1** | Voice UX Refinement | **Complete** | 7 TS | main | ~60 min | ~15 min | useVoiceRecorder hook, mic button in ChatComposer, recording bar, transcription via /voice/transcribe. |
+| **IS1** | iOS Widget & Shortcuts Integration | **Complete** | 19 Swift | main | ~90 min | ~30 min | WidgetKit widget (small/medium, last thread), SharedDataManager (App Groups), SendMessage+ListThreads AppIntents, Siri phrases. |
 
 **Deferred (Phase 2):** TECH-M3 Egress control — external egress proxy (squid/mitmproxy) sidecar enforcing `noa.egress.allowlist` labels.
 **Deferred (long-term):** TECH-L1 Privacy classifier full ML — conversation-context-aware routing (PC1 covers the practical improvement).

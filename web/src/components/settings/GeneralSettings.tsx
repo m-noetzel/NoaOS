@@ -293,6 +293,7 @@ export function GeneralSettings({
                 <SelectItem value="anthropic">Anthropic</SelectItem>
                 <SelectItem value="openai">OpenAI</SelectItem>
                 <SelectItem value="google_ai">Google AI</SelectItem>
+                <SelectItem value="kimi">Kimi (Moonshot AI)</SelectItem>
                 <SelectItem value="ollama">Ollama (Local)</SelectItem>
               </SelectContent>
             </Select>
@@ -396,6 +397,9 @@ export function GeneralSettings({
         <CardContent className="space-y-3">
           <code className="block text-xs bg-muted p-3 rounded-lg font-mono">
             ./tools/keychain_store.sh set ANTHROPIC_API_KEY &quot;sk-ant-...&quot;
+          </code>
+          <code className="block text-xs bg-muted p-3 rounded-lg font-mono">
+            ./tools/keychain_store.sh set KIMI_API_KEY &quot;sk-...&quot;
           </code>
           <p className="text-xs text-muted-foreground">
             Keys are loaded at startup and never stored on disk or in the

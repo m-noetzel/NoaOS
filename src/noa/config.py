@@ -70,6 +70,7 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = None
     openai_api_key: str | None = None
     google_ai_api_key: str | None = None
+    kimi_api_key: str | None = None
     google_client_id: str | None = None
     google_client_secret: str | None = None
     notion_token: str | None = None

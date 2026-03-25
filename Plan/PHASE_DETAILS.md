@@ -5351,3 +5351,136 @@ except asyncio.TimeoutError:
 3. Run row status set to `"failed"` in DB
 4. Fast runs unaffected (timeout not triggered)
 5. `timeout_seconds=0` or `None` → use 120s default
+
+---
+
+## CC1 — Context Window Compaction
+
+### Overview
+When conversations approach the LLM context limit (80% of model max), automatically summarize older messages using a cheap LLM call while preserving recent context and key facts.
+
+### Files
+- `src/noa/orchestrator/token_budget.py` — Model context window registry, token estimation (chars/3), `needs_compaction()` threshold check
+- `src/noa/orchestrator/nodes/compactor.py` — `compact_messages()`: summarizes old messages via cheap LLM, keeps `keep_recent=6` most recent, marks summary with `is_compaction_boundary=True`
+- `src/noa/orchestrator/state.py` — Added `is_compaction_boundary: bool` to AgentState
+- `src/noa/orchestrator/sse_types.py` — Added `CompactionEvent` TypedDict + `"compaction"` to VALID_SSE_EVENT_TYPES
+- `src/noa/orchestrator/runner.py` — Post-execution compaction check, checkpoint save after compaction
+- `tests/unit/test_cc1_compaction.py` — 28 tests
+
+### Design decisions
+- Token estimation uses chars/3 (conservative) rather than tiktoken dependency
+- Compaction runs after graph execution, not mid-stream, to avoid state complexity
+- Summary injected as system message so LLM treats it as context, not conversation
+
+---
+
+## OI7 — Cross-Domain Step-Up Approval
+
+### Overview
+When in private mode, external tool requests trigger an approval prompt instead of raising PermissionError. User can approve specific cross-domain tool calls without exposing conversation history.
+
+### Files
+- `src/noa/tools/gateway.py` — Cross-domain PermissionError replaced with approval_required response (cross_domain=True, risk_tier="high")
+- `src/noa/orchestrator/nodes/tools.py` — `privacy_mode` wired through `_dispatch_gateway()` from state
+- `src/noa/orchestrator/runner.py` — Approval event payload includes `cross_domain` and `reason` fields
+- `tests/unit/test_oi7_cross_domain.py` — 15 tests
+
+### Design decisions
+- Cross-domain always classified as "high" risk (requires both approval + step-up auth)
+- Only external-from-private triggers approval; private-from-external remains PermissionError (shouldn't happen)
+- `approved=True` flag on ToolRequest bypasses the domain check for approved re-execution
+
+---
+
+## OI8 — Smart Domain Redirect
+
+### Overview
+Replace 403 DOMAIN_MISMATCH with intelligent redirect: auto-create thread in correct domain, route message there, SSE meta event tells frontend to switch.
+
+### Files
+- `src/noa/api/v1/chat.py` — Domain mismatch → new thread_id + run_id in correct domain, meta event includes `redirected`, `original_thread_id`, `redirect_reason`
+- `src/noa/orchestrator/sse_types.py` — MetaEvent extended with NotRequired redirect fields
+- `web/src/hooks/useChatSSE.ts` — `onDomainRedirect` callback on meta event, toast notification
+- `web/src/pages/Chat.tsx` — Passes `onDomainRedirect` to switch activeThread + invalidate queries
+- `tests/unit/test_oi8_domain_redirect.py` — 6 tests
+
+### Design decisions
+- New thread auto-created via existing `_make_run_service` (no new API needed)
+- Frontend uses toast notification for UX clarity when redirect occurs
+- Original thread_id preserved in meta event for audit trail
+
+---
+
+## RLS1 — Postgres Row-Level Security
+
+### Overview
+Add Postgres RLS policies on all domain-sensitive tables for DB-enforced isolation. Defense-in-depth alongside application-level WHERE clauses.
+
+### Files
+- `alembic/versions/025_row_level_security.py` — Migration: RLS on conversations, approvals, memory_facts, audit_log, custom_tools, runs (6 tables). SELECT/INSERT/UPDATE/DELETE policies per table.
+- `src/noa/db/rls.py` — `set_domain_context(session, domain)` and `clear_domain_context(session)` helpers. Transaction-local `set_config('noa.domain', ..., true)`. SQLite-safe no-op.
+- `tests/unit/test_rls1_row_level_security.py` — 16 tests
+
+### Design decisions
+- Empty-string domain = see all rows (backward compatible; callers adopt incrementally)
+- Transaction-local `set_config` prevents domain leakage across pool connections
+- SQLite dialect skips all RLS SQL (tests unaffected)
+- `runs` table uses `privacy_mode` column (functionally equivalent to domain)
+
+---
+
+## SEC1: JWT Token Revocation
+
+**Spec refs:** SPEC §7 (auth), §36 (build order)
+
+**Goal:** Add a token blacklist table so access tokens can be immediately revoked on logout. Resolves TECH-M1 finding.
+
+### Scope
+
+1. `token_blacklist` table: jti (unique indexed), user_id FK, expires_at, revoked_at, reason
+2. Migration 026
+3. `require_auth()` middleware checks blacklist before accepting token
+4. `logout()` inserts current token's jti into blacklist
+5. Background sweeper purges expired entries hourly
+6. `revoke_all_user_tokens()` for password change scenarios
+
+### Files
+- `src/noa/db/models/token_blacklist.py` — TokenBlacklist model
+- `alembic/versions/026_token_blacklist.py` — Migration
+- `src/noa/auth/service.py` — revoke/check/cleanup methods
+- `src/noa/auth/middleware.py` — blacklist check in require_auth
+- `src/noa/api/app.py` — periodic cleanup task
+- `tests/unit/test_sec1_token_revocation.py`
+
+---
+
+## KM1: Kimi 2.5 LLM Provider (Moonshot AI)
+
+**Spec refs:** SPEC §8 (LLM providers), §36 (build order)
+
+**Goal:** Add Moonshot AI's Kimi 2.5 as an LLM provider. Kimi uses an OpenAI-compatible API (same endpoints, same request/response format).
+
+### API Details
+- Base URL: `https://api.moonshot.cn/v1`
+- Auth: Bearer token
+- Chat completions: `POST /v1/chat/completions` (OpenAI-compatible)
+- Models: `kimi-k2` (latest), `moonshot-v1-128k`, `moonshot-v1-32k`, `moonshot-v1-8k`
+- Streaming: SSE (same as OpenAI)
+- Tool calling: OpenAI function calling format
+
+### Scope
+
+1. `KimiClient` — thin OpenAI-compatible client with Moonshot base URL
+2. Router registration — `kimi` provider with `kimi-k2` default
+3. Config — `kimi_api_key` env var + DB column
+4. Frontend — provider models list + settings API key field
+5. Migration for kimi_api_key column in user_settings
+
+### Files
+- `src/noa/external_worker/llm/kimi.py` — KimiClient
+- `src/noa/external_worker/llm/router.py` — registration
+- `src/noa/config.py` — kimi_api_key field
+- `src/noa/settings/models.py` — DB column
+- `alembic/versions/027_kimi_api_key.py` — Migration
+- `web/src/components/settings/providerModels.ts` — frontend models
+- `tests/unit/test_km1_kimi_provider.py`

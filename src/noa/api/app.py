@@ -399,7 +399,50 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception:  # noqa: BLE001
         logger.warning("Failed to start QueueDrainWorker")
 
+    # SEC1: Start periodic blacklist cleanup task (hourly)
+    import asyncio as _asyncio
+
+    _cleanup_task: _asyncio.Task[None] | None = None
+    try:
+        from noa.api.app_state import get_session_factory as _get_sf_for_cleanup
+
+        _cleanup_sf = _get_sf_for_cleanup()
+        if _cleanup_sf is not None:
+            async def _blacklist_cleanup_loop() -> None:
+                from noa.auth.service import AuthService  # noqa: PLC0415
+                from noa.config import Settings as _Settings  # noqa: PLC0415
+
+                _settings = _Settings()
+                while True:
+                    await _asyncio.sleep(3600)  # 1 hour
+                    try:
+                        async with _cleanup_sf() as _s:
+                            svc = AuthService(session=_s, settings=_settings)
+                            deleted = await svc.cleanup_expired_blacklist()
+                            if deleted:
+                                logger.info(
+                                    "Blacklist cleanup: removed %d expired entries",
+                                    deleted,
+                                )
+                    except Exception:  # noqa: BLE001
+                        logger.warning(
+                            "Blacklist cleanup iteration failed",
+                            exc_info=True,
+                        )
+
+            _cleanup_task = _asyncio.create_task(_blacklist_cleanup_loop())
+            logger.info("Token blacklist cleanup task started (interval: 1h)")
+    except Exception:  # noqa: BLE001
+        logger.warning("Failed to start blacklist cleanup task")
+
     yield
+
+    # Shutdown: cancel blacklist cleanup task
+    if _cleanup_task is not None:
+        _cleanup_task.cancel()
+        import contextlib as _contextlib  # noqa: PLC0415
+        async with _contextlib.suppress(_asyncio.CancelledError):
+            await _cleanup_task
 
     # Shutdown: stop queue drain worker
     if drain_worker is not None:

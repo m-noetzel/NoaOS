@@ -9,7 +9,7 @@ Spec refs: SPEC.md §22.1, §22.2, §22.4
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Literal, NotRequired
 
 from typing_extensions import TypedDict
 
@@ -18,11 +18,20 @@ class MetaEvent(TypedDict):
     """First event in every SSE stream — identifies the run and thread.
 
     Emitted by the chat endpoint before the runner starts.
+
+    OI8: When a domain mismatch is detected, the endpoint auto-creates a new
+    thread in the correct domain instead of returning a 403.  In that case the
+    meta event includes the redirect fields below so the frontend can update
+    its active thread and show a toast.
     """
 
     event_type: Literal["meta"]
     run_id: str
     thread_id: str
+    # OI8: Optional redirect fields — present only when a domain redirect occurred
+    redirected: NotRequired[bool]
+    original_thread_id: NotRequired[str]
+    redirect_reason: NotRequired[str]
 
 
 class TokenEvent(TypedDict):
@@ -191,6 +200,25 @@ class _QueuedPayload(TypedDict):
     message: str
 
 
+class CompactionEvent(TypedDict):
+    """Emitted when context window compaction occurs (CC1).
+
+    Signals the frontend that older messages were summarised to free up
+    context space.  The ``messages_before`` / ``messages_after`` counts
+    give the frontend enough information to show a visual indicator.
+    """
+
+    event_type: Literal["compaction"]
+    payload: _CompactionPayload
+    timestamp: str
+
+
+class _CompactionPayload(TypedDict):
+    messages_before: int
+    messages_after: int
+    model: str
+
+
 # Union type for all valid SSE events emitted by the chat pipeline.
 # Used for type narrowing in tests and consumers.
 SSEEvent = (
@@ -208,6 +236,7 @@ SSEEvent = (
     | ClassificationDoneEvent
     | StepStartedEvent
     | QueuedEvent
+    | CompactionEvent
 )
 
 # All valid event_type literals (kept in sync with SSEEvent union above).
@@ -227,5 +256,6 @@ VALID_SSE_EVENT_TYPES: frozenset[str] = frozenset(
         "classification_done",
         "step_started",
         "queued",
+        "compaction",
     }
 )

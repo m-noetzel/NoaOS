@@ -262,11 +262,31 @@ class ToolGateway:
             if (
                 adapter_domain == PrivacyMode.EXTERNAL
                 and request.privacy_mode == PrivacyMode.PRIVATE
+                and not request.approved
             ):
-                raise PermissionError(
-                    f"External-domain tool '{tool}' cannot be dispatched "
-                    f"for private-domain request"
+                # OI7: Cross-domain step-up — require approval instead of blocking.
+                # The private LLM may legitimately need an external tool; let the user
+                # approve rather than hard-failing.
+                resp = ToolResponse(
+                    result={
+                        "approval_required": True,
+                        "cross_domain": True,
+                        "risk_tier": "high",
+                        "tool": request.tool,
+                        "function": request.function,
+                        "args": request.args,
+                        "reason": (
+                            f"Tool '{request.tool}.{request.function}' is "
+                            f"external-domain but the current request is private. "
+                            f"User approval required for cross-domain access."
+                        ),
+                    },
+                    error="Cross-domain approval required",
+                    provider="domain_isolation",
                 )
+                await self._record_telemetry(request, resp, "cross_domain_approval")
+                await self._fire_audit(request, resp, "cross_domain_approval")
+                return resp
 
         # 1b. Capability check (MR5)
         if (

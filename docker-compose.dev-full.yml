@@ -124,6 +124,7 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - GOOGLE_AI_API_KEY=${GOOGLE_AI_API_KEY:-}
+      - KIMI_API_KEY=${KIMI_API_KEY:-}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
       - NOTION_TOKEN=${NOTION_TOKEN:-}
@@ -133,6 +134,10 @@ services:
       - EXTERNAL_WORKER_HEALTH_URL=http://external-worker-dev:8002/health
       - LOG_LEVEL=DEBUG
       - TZ=${TZ:-Europe/Berlin}
+      # Langfuse observability (LF1)
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse:3000}
     volumes:
       - ./src:/app/src:rw
     networks:
@@ -183,6 +188,7 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - GOOGLE_AI_API_KEY=${GOOGLE_AI_API_KEY:-}
+      - KIMI_API_KEY=${KIMI_API_KEY:-}
       - TAVILY_API_KEY=${TAVILY_API_KEY:-}
     volumes:
       - ./src:/app/src:rw

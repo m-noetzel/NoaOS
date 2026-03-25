@@ -23,11 +23,13 @@ public final class ThreadListViewModel {
     // MARK: - Private
 
     private let chatService: ChatService
+    private let sharedDataManager: SharedDataManager
 
     // MARK: - Init
 
-    public init(chatService: ChatService) {
+    public init(chatService: ChatService, sharedDataManager: SharedDataManager = SharedDataManager()) {
         self.chatService = chatService
+        self.sharedDataManager = sharedDataManager
     }
 
     // MARK: - Actions
@@ -38,10 +40,32 @@ public final class ThreadListViewModel {
         errorMessage = nil
         do {
             threads = try await chatService.listThreads()
+            // Update the App Group shared storage so the home screen widget
+            // can display the most recent thread without making network calls.
+            updateSharedSnapshot()
         } catch {
             errorMessage = error.localizedDescription
         }
         isLoading = false
+    }
+
+    // MARK: - Shared data
+
+    /// Writes the most recent thread snapshot to the App Group UserDefaults
+    /// so the WidgetKit extension can read it without network access.
+    private func updateSharedSnapshot() {
+        guard let latestThread = threads.first else {
+            return
+        }
+        // We store the thread title from the list endpoint. The last message
+        // preview is written separately by ChatViewModel when messages arrive
+        // (see updateSharedSnapshotWithMessage). Here we just ensure the
+        // widget title is always current after a thread list refresh.
+        sharedDataManager.saveLastThreadSnapshot(
+            threadTitle: latestThread.title,
+            lastMessagePreview: nil,
+            lastMessageDate: latestThread.updatedAt ?? latestThread.createdAt
+        )
     }
 
     /// Creates a new thread with the given title and reloads the list.
@@ -50,6 +74,12 @@ public final class ThreadListViewModel {
         do {
             let thread = try await chatService.createThread(title: title)
             threads.insert(thread, at: 0)
+            // Update widget snapshot so it shows the new thread immediately
+            sharedDataManager.saveLastThreadSnapshot(
+                threadTitle: thread.title,
+                lastMessagePreview: nil,
+                lastMessageDate: thread.createdAt
+            )
             return thread
         } catch {
             errorMessage = error.localizedDescription

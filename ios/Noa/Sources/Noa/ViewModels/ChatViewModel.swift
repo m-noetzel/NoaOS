@@ -67,17 +67,21 @@ public final class ChatViewModel {
     // MARK: - Private
 
     private let chatService: ChatService
+    private let sharedDataManager: SharedDataManager
     private var streamTask: Task<Void, Never>?
     /// iOS-M2: Active history-load task. Cancelled before starting a new load
     /// so that rapid thread switching cannot deliver stale messages.
     private var loadTask: Task<Void, Never>?
     /// Index of the optimistic user message (for rollback on failure).
     private var optimisticIndex: Int?
+    /// The title of the currently loaded thread (used to update the widget).
+    public var currentThreadTitle: String?
 
     // MARK: - Init
 
-    public init(chatService: ChatService) {
+    public init(chatService: ChatService, sharedDataManager: SharedDataManager = SharedDataManager()) {
         self.chatService = chatService
+        self.sharedDataManager = sharedDataManager
     }
 
     // MARK: - Actions
@@ -217,6 +221,15 @@ public final class ChatViewModel {
                 messages[assistantIndex].content = text
             }
             currentIndicator = nil
+            // Update the widget shared storage with the latest assistant response
+            // so the home screen widget shows fresh content after each conversation.
+            if !text.isEmpty {
+                sharedDataManager.saveLastThreadSnapshot(
+                    threadTitle: currentThreadTitle,
+                    lastMessagePreview: text,
+                    lastMessageDate: .now
+                )
+            }
 
         case .error:
             let msg = event.payload?["message"]?.value as? String ?? "Unknown error"

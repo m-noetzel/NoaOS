@@ -15,6 +15,7 @@ import os
 import secrets
 import time
 import uuid
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
@@ -232,6 +233,7 @@ async def refresh(
 
 @router.post("/logout")
 async def logout(
+    request: Request,
     response: Response,
     payload: Any = Depends(require_auth),  # noqa: B008
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
@@ -246,12 +248,43 @@ async def logout(
     session cookie remains, making it appear the user is still logged in.
     """
     rid = trace_id_ctx.get("")
+    # SEC1: Extract the raw access token so we can blacklist its jti
+    raw_token: str | None = None
+    if request.cookies.get("noa_access_token"):
+        raw_token = request.cookies.get("noa_access_token")
+    elif request.headers.get("Authorization", "").startswith("Bearer "):
+        raw_token = request.headers["Authorization"][7:]
+
     if payload.session_id:
         try:
             service = AuthService(session=session, settings=settings)
             await service.logout(session_id=uuid.UUID(payload.session_id))
-        except Exception:  # noqa: BLE001
-            logger.warning("Best-effort logout failed — token may be invalid/expired")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Best-effort logout failed: %s", exc)
+
+    # SEC1: Revoke the access token's jti so it cannot be reused after logout
+    if raw_token is not None and settings.secret_key:
+        try:
+            from noa.auth.jwt import TokenError, decode_token  # noqa: PLC0415
+
+            _payload = decode_token(raw_token, secret_key=settings.secret_key)
+            _jti = _payload.get("jti")
+            _exp = _payload.get("exp")
+            _sub = _payload.get("sub")
+            if _jti and _exp and _sub:
+                _expires_at = datetime.fromtimestamp(_exp, tz=UTC)
+                _service = AuthService(session=session, settings=settings)
+                await _service.revoke_token(
+                    jti=_jti,
+                    user_id=uuid.UUID(_sub),
+                    expires_at=_expires_at,
+                    reason="logout",
+                )
+                await session.commit()
+        except TokenError:
+            pass  # Already expired — nothing to revoke
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Best-effort token revocation failed: %s", exc)
 
     # C6: Clear httpOnly cookies on logout.
     # Attributes must match _set_auth_cookies() exactly for browsers to honour

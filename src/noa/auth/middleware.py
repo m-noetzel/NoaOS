@@ -11,6 +11,7 @@ from typing import Any
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from noa.auth.jwt import ALGORITHM
 from noa.config import Settings
@@ -36,6 +37,19 @@ def _get_settings() -> Settings:
     return Settings()
 
 
+def _get_optional_db_session() -> Any:
+    """Return a DB session factory callable, or None if not available.
+
+    Imported lazily to avoid circular imports at module load time.
+    """
+    try:
+        from noa.api.app_state import get_session_factory  # noqa: PLC0415
+
+        return get_session_factory()
+    except Exception:  # noqa: BLE001
+        return None
+
+
 async def require_auth(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),  # noqa: B008
@@ -45,6 +59,9 @@ async def require_auth(
 
     Accepts Bearer token from Authorization header or httpOnly cookie (C6).
     Returns an AuthUser on success, raises 401 otherwise.
+
+    SEC1: After JWT signature validation, checks the token blacklist so that
+    revoked tokens (e.g. after logout) are immediately rejected.
     """
     token: str | None = None
     if credentials:
@@ -99,5 +116,42 @@ async def require_auth(
             headers={"WWW-Authenticate": "Bearer"},
         ) from exc
 
+    # SEC1: Check token blacklist — reject if jti has been revoked
+    jti = payload.get("jti")
+    if not jti:
+        logger.warning(
+            "Access token for user=%s has no jti — blacklist skipped", sub,
+        )
+    if jti:
+        factory = _get_optional_db_session()
+        if factory is not None:
+            try:
+                async with factory() as session:
+                    revoked = await _check_blacklist(session, jti)
+                if revoked:
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Token has been revoked",
+                        headers={"WWW-Authenticate": "Bearer"},
+                    )
+            except HTTPException:
+                raise
+            except Exception:  # noqa: BLE001
+                # DB unavailable — fail open (don't block auth on DB outage)
+                logger.warning(
+                    "Token blacklist check failed for jti=%s — failing open", jti
+                )
+
     session_id = payload.get("sid")
     return AuthUser(user_id=user_id, session_id=session_id)
+
+
+async def _check_blacklist(session: AsyncSession, jti: str) -> bool:
+    """Return True if jti is in the token blacklist."""
+    from sqlalchemy import exists, select  # noqa: PLC0415
+
+    from noa.db.models.token_blacklist import TokenBlacklist  # noqa: PLC0415
+
+    stmt = select(exists().where(TokenBlacklist.jti == jti))
+    result = await session.execute(stmt)
+    return bool(result.scalar())

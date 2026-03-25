@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/api/client";
 import type { ChatRequest, Provider, PrivacyMode, UserSettings } from "@/api/types";
@@ -10,8 +10,9 @@ import { Label } from "@/components/ui/label";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { Send, Settings2 } from "lucide-react";
+import { Send, Settings2, Mic, MicOff, Square } from "lucide-react";
 import type { SSEClient } from "@/api/sse";
+import { useVoiceRecorder } from "@/hooks/useVoiceRecorder";
 
 /** Derive a thread title from the first message content */
 function deriveThreadTitle(message: string): string {
@@ -47,6 +48,25 @@ export function ChatComposer({
 
   const [input, setInput] = useState("");
   const [advancedOpen, setAdvancedOpen] = useState(false);
+
+  // VX1: Voice recording — insert transcription into text input
+  const handleTranscription = useCallback((text: string) => {
+    setInput((prev) => {
+      const trimmed = prev.trimEnd();
+      return trimmed ? `${trimmed} ${text}` : text;
+    });
+    toast({
+      title: "Voice transcribed",
+      description: "Transcription inserted into message.",
+    });
+  }, [toast]);
+
+  const { state: recordingState, elapsedSeconds, errorMessage: recordingError, startRecording, stopRecording, cancelRecording } = useVoiceRecorder(handleTranscription);
+
+  const isRecording = recordingState === "recording";
+  const isProcessing = recordingState === "processing";
+  const isRequesting = recordingState === "requesting";
+  const hasRecordingError = recordingState === "error";
   const [temperature, setTemperature] = useState<number | null>(null);
   const [maxTokens, setMaxTokens] = useState<number | null>(null);
   const [systemPrompt, setSystemPrompt] = useState<string | null>(null);
@@ -197,6 +217,59 @@ export function ChatComposer({
             </div>
           </CollapsibleContent>
 
+          {/* VX1: Recording error banner */}
+          {hasRecordingError && recordingError && (
+            <div className="mb-2 px-3 py-2 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-xs flex items-center gap-2" data-testid="voice-error-banner">
+              <MicOff className="h-3 w-3 shrink-0" />
+              <span>{recordingError}</span>
+              <button
+                type="button"
+                onClick={cancelRecording}
+                className="ml-auto text-destructive/70 hover:text-destructive"
+                aria-label="Dismiss error"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
+          {/* VX1: Recording indicator bar */}
+          {(isRecording || isProcessing || isRequesting) && (
+            <div className="mb-2 px-3 py-2 rounded-lg bg-muted/40 border border-border/30 flex items-center gap-2 text-xs" data-testid="voice-recording-bar">
+              {isRequesting && (
+                <>
+                  <span className="h-2 w-2 rounded-full bg-muted-foreground animate-pulse" />
+                  <span className="text-muted-foreground">Requesting microphone access…</span>
+                </>
+              )}
+              {isRecording && (
+                <>
+                  <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" data-testid="voice-recording-dot" />
+                  <span className="text-foreground font-medium">Recording</span>
+                  <span className="text-muted-foreground tabular-nums" data-testid="voice-elapsed">
+                    {String(Math.floor(elapsedSeconds / 60)).padStart(2, "0")}:
+                    {String(elapsedSeconds % 60).padStart(2, "0")}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={cancelRecording}
+                    className="ml-auto text-muted-foreground hover:text-foreground text-xs"
+                    aria-label="Cancel recording"
+                    data-testid="voice-cancel"
+                  >
+                    Cancel
+                  </button>
+                </>
+              )}
+              {isProcessing && (
+                <>
+                  <span className="h-2 w-2 rounded-full bg-primary animate-pulse" />
+                  <span className="text-muted-foreground">Transcribing…</span>
+                </>
+              )}
+            </div>
+          )}
+
           <div className="flex gap-2 items-end">
             <CollapsibleTrigger asChild>
               <Button
@@ -220,16 +293,48 @@ export function ChatComposer({
                 onKeyDown={(e) =>
                   e.key === "Enter" && !e.shiftKey && handleSend()
                 }
-                placeholder="Message Noa…"
+                placeholder={isRecording ? "Recording… click stop when done" : "Message Noa…"}
                 className="h-10 pr-12 rounded-xl bg-muted/40 border-border/40 focus:border-primary/40 focus:glow-sm transition-all placeholder:text-muted-foreground/50"
-                disabled={isStreaming}
+                disabled={isStreaming || isRecording || isProcessing}
                 data-testid="chat-input"
               />
             </div>
+
+            {/* VX1: Microphone button — toggles recording */}
+            {isRecording ? (
+              <Button
+                onClick={stopRecording}
+                variant="ghost"
+                size="icon"
+                aria-label="Stop recording"
+                className="h-10 w-10 shrink-0 rounded-xl bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-all duration-200"
+                data-testid="voice-stop"
+              >
+                <Square className="h-4 w-4 fill-red-500" />
+              </Button>
+            ) : (
+              <Button
+                onClick={() => void startRecording()}
+                variant="ghost"
+                size="icon"
+                aria-label="Record voice message"
+                disabled={isStreaming || isProcessing || isRequesting}
+                className={cn(
+                  "h-10 w-10 shrink-0 rounded-xl transition-all duration-200",
+                  hasRecordingError
+                    ? "text-destructive hover:bg-destructive/10"
+                    : "hover:bg-accent/60 text-muted-foreground hover:text-foreground"
+                )}
+                data-testid="voice-mic"
+              >
+                <Mic className="h-4 w-4" />
+              </Button>
+            )}
+
             {/* UX-H2: Send is enabled at all times (only disabled during streaming) */}
             <Button
               onClick={handleSend}
-              disabled={isStreaming}
+              disabled={isStreaming || isRecording || isProcessing}
               size="icon"
               aria-label="Send message"
               className="h-10 w-10 shrink-0 rounded-xl gradient-primary shadow-md hover:shadow-lg hover:brightness-110 transition-all duration-200 disabled:opacity-30"

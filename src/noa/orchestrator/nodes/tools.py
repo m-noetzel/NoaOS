@@ -79,6 +79,8 @@ async def tool_node(state: AgentState) -> dict[str, Any]:
     # W22-H2: Read approvals_enabled from state (default True = enforce approvals)
     approvals_enabled: bool = bool(state.get("approvals_enabled", True))
     user_id: str | None = state.get("user_id")
+    # OI7: Pass privacy_mode through to gateway for cross-domain detection
+    privacy_mode: str = state.get("privacy_mode", "external") or "external"
     # CQ1: Task-level tool scope filtering
     tool_scope: str | None = state.get("tool_scope")
 
@@ -140,6 +142,7 @@ async def tool_node(state: AgentState) -> dict[str, Any]:
                     tool_name, function, args,
                     approvals_enabled=approvals_enabled,
                     user_id=user_id,
+                    privacy_mode=privacy_mode,
                 )
             else:
                 result = {
@@ -180,6 +183,7 @@ async def tool_node(state: AgentState) -> dict[str, Any]:
                     parsed_tool, parsed_func, arguments,
                     approvals_enabled=approvals_enabled,
                     user_id=user_id,
+                    privacy_mode=privacy_mode,
                 )
                 results.append({"name": name, **result})
                 continue
@@ -266,6 +270,7 @@ async def _dispatch_gateway(
     *,
     approvals_enabled: bool = True,
     user_id: str | None = None,
+    privacy_mode: str = "external",
 ) -> dict[str, Any]:
     """Dispatch through the ToolGateway."""
     import uuid as _uuid
@@ -276,6 +281,7 @@ async def _dispatch_gateway(
         function=function,
         args=args,
         user_id=_uuid.UUID(user_id) if user_id else None,
+        privacy_mode=privacy_mode,
     )
     try:
         resp = await _gateway.dispatch(req, approvals_enabled=approvals_enabled)

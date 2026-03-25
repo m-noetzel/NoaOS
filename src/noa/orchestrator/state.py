@@ -67,3 +67,5 @@ class AgentState(TypedDict):
     eval_scores: dict[str, float] | None  # {dimension: score}
     eval_verdict: str | None  # "pass" | "reroute" | "flag"
     eval_cycle: int  # Number of reroute cycles completed
+    # CC1: Context compaction flag — True when context was compacted this turn
+    is_compaction_boundary: bool

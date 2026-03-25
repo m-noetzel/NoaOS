@@ -315,6 +315,8 @@ class TestValidEventTypes:
             "result_ready",
             "error",
             "meta",
+            "compaction",
+            "queued",
         ]
     )
 
