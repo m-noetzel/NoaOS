@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from noa.db.models.base import Base
@@ -43,7 +44,11 @@ class Message(Base):
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False,
     )
     role: Mapped[str] = mapped_column(String(16), nullable=False)
-    content: Mapped[str] = mapped_column(Text, nullable=False)
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # ST2: Tool persistence columns
+    tool_calls: Mapped[list[Any] | None] = mapped_column(JSON, nullable=True)
+    tool_call_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    tool_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     timestamp: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),

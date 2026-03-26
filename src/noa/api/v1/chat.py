@@ -396,9 +396,14 @@ async def submit_chat(
             collected_events.append(err_event)
             yield f"data: {json.dumps(err_event)}\n\n"
 
+        # ST2: Extract tool-aware turn messages from collected SSE events so
+        # tool_calls and tool results are persisted for multi-turn context.
+        turn_messages = _extract_turn_messages(collected_events)
+
         # Persist messages, usage, events, and run status to DB (best-effort)
         await _persist_messages(
             user_id, thread_id, run_id, body.message, response_text, privacy_mode,
+            turn_messages=turn_messages,
         )
         if llm_usage:
             await _record_usage(user_id, run_id, llm_usage)
@@ -619,15 +624,117 @@ async def _load_thread_history(
                 .limit(20)
             )
             rows = result.scalars().all()
-            # Reverse to chronological order
-            return [
-                {"role": m.role, "content": m.content}
-                for m in reversed(rows)
-                if m.role in ("user", "assistant") and m.content
-            ]
+            # Reverse to chronological order; reconstruct full message dicts
+            # including tool_calls and tool-role messages for ST2 (CHAT-H1).
+            msgs: list[dict[str, Any]] = []
+            for m in reversed(rows):
+                if m.role == "tool":
+                    msgs.append({
+                        "role": "tool",
+                        "tool_call_id": m.tool_call_id or "",
+                        "name": m.tool_name or "",
+                        "content": m.content or "",
+                    })
+                elif m.role == "assistant":
+                    msg: dict[str, Any] = {
+                        "role": "assistant",
+                        "content": m.content or "",
+                    }
+                    if m.tool_calls:
+                        msg["tool_calls"] = m.tool_calls
+                    msgs.append(msg)
+                elif m.role == "user" and m.content:
+                    msgs.append({"role": "user", "content": m.content})
+            return msgs
     except Exception:  # noqa: BLE001
         logger.warning("Failed to load thread history for %s", thread_id)
         return []
+
+
+def _extract_turn_messages(
+    collected_events: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Reconstruct tool-aware turn messages from SSE events.
+
+    ST2 (CHAT-H1): Builds a list of message dicts for persistence by extracting
+    tool_call data from ``tool_called`` events and tool results from
+    ``tool_result``/``tool_end`` events.
+
+    Returns a list that may include:
+    - ``{"role": "assistant", "content": None, "tool_calls": [...]}`` — when
+      the assistant made tool calls during this turn
+    - ``{"role": "tool", "tool_call_id": "...", "name": "...", "content": "..."}``
+      — one entry per tool result
+    """
+    # Collect all tool_called events for this turn (may span multiple rounds)
+    all_tool_calls: list[dict[str, Any]] = []
+    # Map tool_call id -> result content for assembling tool-role messages
+    tool_results_by_call_id: dict[str, dict[str, Any]] = {}
+    # Ordered list of tool_call_ids to preserve result order
+    result_order: list[str] = []
+
+    for event in collected_events:
+        event_type = event.get("event_type", "")
+        payload = event.get("payload", {})
+
+        if event_type == "tool_called":
+            tc = payload.get("tool_call", {})
+            if tc and isinstance(tc, dict):
+                all_tool_calls.append(tc)
+
+        elif event_type in ("tool_result", "tool_end"):
+            # tool_result carries full result; tool_end also has result field
+            tr = payload.get("tool_result") or payload.get("result") or {}
+            if not isinstance(tr, dict):
+                continue
+            tool_name = payload.get("tool_name") or tr.get("name", "")
+            # Find matching tool_call_id by name (best-effort)
+            call_id = ""
+            for tc in all_tool_calls:
+                if tc.get("name") == tool_name and tc.get("id"):
+                    # Match first unused tool call with this name
+                    cid = tc["id"]
+                    if cid not in tool_results_by_call_id:
+                        call_id = cid
+                        break
+            import json as _json_mod
+            content = tr.get("error") or _json_mod.dumps(
+                {k: v for k, v in tr.items() if k != "name"},
+                default=str,
+            )
+            key = call_id or tool_name or str(len(result_order))
+            tool_results_by_call_id[key] = {
+                "tool_call_id": call_id,
+                "name": tool_name,
+                "content": content,
+            }
+            if key not in result_order:
+                result_order.append(key)
+
+    if not all_tool_calls and not tool_results_by_call_id:
+        return []
+
+    turn_msgs: list[dict[str, Any]] = []
+
+    # Emit one assistant message carrying all tool_calls
+    if all_tool_calls:
+        turn_msgs.append({
+            "role": "assistant",
+            "content": None,
+            "tool_calls": all_tool_calls,
+        })
+
+    # Emit one tool-role message per result
+    for key in result_order:
+        tr_data = tool_results_by_call_id[key]
+        turn_msgs.append({
+            "role": "tool",
+            "tool_call_id": tr_data["tool_call_id"],
+            "name": tr_data["name"],
+            "content": tr_data["content"],
+        })
+
+    return turn_msgs
 
 
 async def _persist_messages(
@@ -637,11 +744,19 @@ async def _persist_messages(
     user_message: str,
     assistant_response: str,
     privacy_mode: str = "external",
+    turn_messages: list[dict[str, Any]] | None = None,
 ) -> None:
     """Persist user + assistant messages to the messages table.
 
     Creates the Conversation row if it doesn't exist yet (new thread from chat).
     BE-C3: New conversations are created with the correct domain.
+    ST2: Also persists tool_calls on assistant messages and tool-role messages
+    so multi-turn conversations retain full tool context (CHAT-H1).
+
+    Args:
+        turn_messages: Optional list of message dicts from this turn, ordered
+            as [assistant_with_tool_calls, tool_result, ...]. When provided,
+            these are persisted in addition to the user/assistant text messages.
     """
     factory = _get_session_factory()
     if factory is None:
@@ -680,6 +795,37 @@ async def _persist_messages(
                 role="user",
                 content=user_message,
             ))
+
+            # ST2: Persist tool-aware turn messages (assistant with tool_calls
+            # and tool-role messages) before the final assistant text response.
+            if turn_messages:
+                for tm in turn_messages:
+                    role = tm.get("role", "")
+                    if role == "assistant":
+                        tcs = tm.get("tool_calls") or None
+                        # Only persist if there are tool_calls (intermediate
+                        # assistant turns); the final text response is persisted
+                        # separately below.
+                        if tcs:
+                            session.add(Message(
+                                id=uuid.uuid4(),
+                                thread_id=tid,
+                                user_id=uid,
+                                role="assistant",
+                                content=tm.get("content") or None,
+                                tool_calls=tcs,
+                            ))
+                    elif role == "tool":
+                        session.add(Message(
+                            id=uuid.uuid4(),
+                            thread_id=tid,
+                            user_id=uid,
+                            role="tool",
+                            content=tm.get("content") or None,
+                            tool_call_id=tm.get("tool_call_id") or None,
+                            tool_name=tm.get("name") or None,
+                        ))
+
             # Assistant message (if we got a response)
             if assistant_response:
                 session.add(Message(

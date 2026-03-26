@@ -170,13 +170,29 @@ class OrchestratorRunner:
             if combined:
                 messages.append({"role": "system", "content": combined})
 
-            # Include conversation history for multi-turn context
+            # Include conversation history for multi-turn context.
+            # ST2: Pass through tool-role messages and assistant tool_calls so
+            # the LLM retains full tool context on follow-up turns (CHAT-H1).
             if history:
                 for h in history:
                     role = h.get("role", "user")
-                    content = h.get("content", "")
-                    if role in ("user", "assistant") and content:
-                        messages.append({"role": role, "content": content})
+                    if role == "tool":
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": h.get("tool_call_id", ""),
+                            "name": h.get("name", ""),
+                            "content": h.get("content", ""),
+                        })
+                    elif role == "assistant":
+                        msg: dict[str, Any] = {
+                            "role": "assistant",
+                            "content": h.get("content", ""),
+                        }
+                        if h.get("tool_calls"):
+                            msg["tool_calls"] = h["tool_calls"]
+                        messages.append(msg)
+                    elif role == "user" and h.get("content"):
+                        messages.append({"role": "user", "content": h["content"]})
 
             messages.append({"role": "user", "content": message})
 
