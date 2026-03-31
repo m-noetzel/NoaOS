@@ -244,10 +244,10 @@ Fixes the 3 open Highs and 5 Mediums. No new architecture — pure correctness f
 | ID | Phase | Status | Tests | Branch | Est. | Actual | Notes |
 |----|-------|--------|-------|--------|------|--------|-------|
 | **ST1** | Run Lifecycle Fixes | **Complete** | pass | main | ~60 min | — | CHAT-H2: system-based run completion (replace LLM marker); TECH-M4: startup recovery for orphaned runs |
-| **ST2** | Chat History & Tool Persistence | Planned | — | — | ~60 min | — | CHAT-H1: persist tool_calls+tool_results as messages in DB, include in subsequent-turn history |
-| **ST3** | Evaluator run_id Fix | Planned | — | — | ~30 min | — | W24-H2: add run_id to AgentState, populate in runner.py, read in evaluator_node — unbreaks analytics |
-| **ST4** | Streaming & Callback Fixes | Planned | — | — | ~45 min | — | W24-M1: concurrent token draining; W24-M2: per-request stream callback (not module-global) |
-| **ST5** | VM1 Completion & Quick Fixes | Planned | — | — | ~45 min | — | W24-M4: OllamaEmbedder class + pgvector test; W24-M5: source_thread_id in rag_ingest; W24-M6: IdempotencyKey in __init__; W25B-L1: Kimi context windows |
+| **ST2** | Chat History & Tool Persistence | **Complete** | 12 | main | ~60 min | — | CHAT-H1: persist tool_calls+tool_results as messages in DB, include in subsequent-turn history |
+| **ST3** | Evaluator run_id Fix | **Complete** | 6 | main | ~30 min | ~5 min | W24-H2: run_id already in AgentState+runner+evaluator; 6 verification tests added |
+| **ST4** | Streaming & Callback Fixes | **Complete** | 7 | main | ~45 min | ~15 min | W24-M1/M2: per-run token_callback in AgentState replaces module-global _stream_callback; no cross-run contamination |
+| **ST5** | VM1 Completion & Quick Fixes | **Complete** | 8 | main | ~45 min | ~10 min | W24-M4: OllamaEmbedder class; W24-M5/M6: already done; W25B-L1: Kimi context windows (131072) added |
 
 ---
 

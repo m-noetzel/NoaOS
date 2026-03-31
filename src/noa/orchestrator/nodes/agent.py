@@ -314,7 +314,8 @@ async def agent_node(state: AgentState) -> dict[str, Any]:
 
     # Use streaming when a token callback is registered and no tools are
     # requested (streaming does not support tool calls).
-    cb = _stream_callback
+    # ST4: Prefer per-run callback from state; fall back to module global
+    cb = state.get("token_callback") or _stream_callback
     use_streaming = cb is not None and not available_tools
     if use_streaming:
         response = await invoke_llm_stream(

@@ -586,9 +586,8 @@ class TestRunnerTokenStreamEvents:
         token_cb_holder: list[Any] = [None]
 
         async def mock_graph_astream(initial_state: dict) -> AsyncGenerator:
-            # After the runner wires the callback, simulate the agent pushing
-            # tokens through it.
-            cb = agent_mod.get_stream_callback()
+            # ST4: callback is now in state, not module global
+            cb = initial_state.get("token_callback") or agent_mod.get_stream_callback()
             if cb is not None:
                 token_cb_holder[0] = cb
                 await cb("Hello")

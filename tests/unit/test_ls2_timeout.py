@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -240,30 +240,20 @@ async def test_timeout_update_status_failure_is_handled_gracefully() -> None:
 
 
 @pytest.mark.asyncio
-async def test_stream_callback_cleared_after_timeout() -> None:
-    """Stream callback is cleared (set to None) when timeout fires."""
+async def test_stream_callback_scoped_to_run_after_timeout() -> None:
+    """ST4: Token callback is scoped to run state, no global cleanup needed."""
     chunk = {"agent": {"response": None, "tool_calls": [], "tool_results": []}}
     graph = _make_slow_graph(chunks=[chunk], delay_per_chunk=0.05)
     runner = OrchestratorRunner(graph=graph)
     svc = _make_run_service()
 
-    cleared_to_none: list[Any] = []
-
-    def _fake_set_stream_callback(cb: Any) -> None:
-        cleared_to_none.append(cb)
-
-    with patch(
-        "noa.orchestrator.nodes.agent.set_stream_callback",
-        side_effect=_fake_set_stream_callback,
-    ):
-        await _collect(
-            runner,
-            run_service=svc,
-            timeout_seconds=0.01,
-            **_BASE_KWARGS,
-        )
-
-    # The last call to set_stream_callback should have been None (cleanup)
-    assert None in cleared_to_none, (
-        f"Expected set_stream_callback(None) call, got calls with: {cleared_to_none}"
+    events = await _collect(
+        runner,
+        run_service=svc,
+        timeout_seconds=0.01,
+        **_BASE_KWARGS,
     )
+
+    # Run should still complete (with timeout error) without needing global cleanup
+    event_types = [e["event_type"] for e in events]
+    assert "error" in event_types

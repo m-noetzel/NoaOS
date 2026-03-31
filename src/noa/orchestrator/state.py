@@ -61,6 +61,9 @@ class AgentState(TypedDict):
     archetype: str | None  # e.g. "comparative_selection", "execution", "research"
     thoughts: list[dict[str, Any]]  # ReAct thought steps
     use_react: bool  # Whether to use ReAct mode
+    # ST4: Per-run token streaming callback (avoids module-global race).
+    # Typed as Any because TypedDict doesn't support Callable directly.
+    token_callback: Any
     # Run identity (for evaluation persistence)
     run_id: str | None
     # EV1: Evaluator node fields

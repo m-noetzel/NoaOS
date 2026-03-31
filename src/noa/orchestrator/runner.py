@@ -226,6 +226,8 @@ class OrchestratorRunner:
                 "private_available": private_available,
                 "user_id": user_id,
                 "run_id": run_id,
+                # ST4: Per-run token callback — set after token_queue init below
+                "token_callback": None,
                 # CQ1: Task-level tool scope (None = all tools allowed)
                 "tool_scope": tool_scope,
                 # DI1: Task type (populated by classifier node)
@@ -257,20 +259,14 @@ class OrchestratorRunner:
                 extra=log_ctx,
             )
 
-            # LS1: Set up a token queue so the agent node can push tokens
-            # while the runner's async for loop drains them as SSE events.
-            # We wire a module-level callback in agent.py before graph
-            # execution and clear it after to avoid cross-request leakage.
+            # LS1/ST4: Per-run token queue + callback injected into state
+            # so concurrent runs never share a module-global callback.
             token_queue: asyncio.Queue[str] = asyncio.Queue()
 
             async def _token_cb(token: str) -> None:
                 await token_queue.put(token)
 
-            try:
-                from noa.orchestrator.nodes.agent import set_stream_callback
-                set_stream_callback(_token_cb)
-            except ImportError:
-                pass  # graceful: streaming is additive
+            initial_state["token_callback"] = _token_cb
 
             # Stream node-by-node so the frontend sees events in real-time
             # instead of waiting for the entire graph to complete.
@@ -427,20 +423,8 @@ class OrchestratorRunner:
                         run_id,
                         extra=log_ctx,
                     )
-                # LS1: Always clear stream callback on timeout
-                try:
-                    from noa.orchestrator.nodes.agent import set_stream_callback
-                    set_stream_callback(None)
-                except ImportError:
-                    pass
+                # ST4: No cleanup needed — callback is scoped to this run's state
                 return
-
-            # LS1: Clear stream callback after graph execution
-            try:
-                from noa.orchestrator.nodes.agent import set_stream_callback
-                set_stream_callback(None)
-            except ImportError:
-                pass
 
             # CC1: Context window compaction — check if accumulated messages
             # exceed the threshold and compact if needed.  Compaction runs
@@ -569,12 +553,7 @@ class OrchestratorRunner:
                 )
 
         except Exception as exc:  # noqa: BLE001
-            # LS1: Always clear stream callback on error to prevent leakage
-            try:
-                from noa.orchestrator.nodes.agent import set_stream_callback
-                set_stream_callback(None)
-            except ImportError:
-                pass
+            # ST4: No global cleanup needed — callback is scoped to this run's state
 
             # LF1: Update trace with error info + flush
             lf_trace.update(

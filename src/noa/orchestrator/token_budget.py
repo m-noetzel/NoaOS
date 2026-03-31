@@ -21,6 +21,9 @@ MODEL_CONTEXT_WINDOWS: dict[str, int] = {
     "llama3.1": 8192,
     "llama3.1:70b": 131072,
     "nomic-embed-text": 8192,
+    # Kimi / Moonshot AI models (W25B-L1)
+    "kimi-k2": 131072,
+    "moonshot-v1-128k": 131072,
 }
 
 # Trigger compaction when estimated token usage exceeds this fraction of the

@@ -69,6 +69,8 @@ def _make_agent_state(
         "private_available": True,
         "user_id": None,
         "run_id": None,
+        # ST4: per-run token callback
+        "token_callback": None,
         "tool_scope": None,
         # DI1: task type classification
         "task_type": None,

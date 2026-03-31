@@ -5532,3 +5532,179 @@ Two related bugs cause runs to stay permanently in `"running"` status:
 - `src/noa/api/app.py` — orphan recovery in lifespan startup
 - `tests/unit/test_st1_run_lifecycle.py` — unit tests for runner completion
 - `tests/integration/test_st1_integration.py` — orphan recovery + approval finalization
+
+---
+
+## ST2: Chat History & Tool Persistence
+
+**Wave:** 26
+**Findings resolved:** CHAT-H1
+
+### Problem
+
+Tool calls and tool results are not saved to the DB after a turn completes, so follow-up turns never see what the LLM did. Specifically:
+
+- `_persist_messages()` (`chat.py:633`) saves only `role=user` and `role=assistant` messages — no `tool_calls` field, no `role=tool` messages.
+- `_load_thread_history()` (`chat.py:593`) returns only `{role, content}` dicts filtered to user/assistant — no tool context.
+- The `Message` model (`db/models/conversation.py:32`) has no `tool_calls`, `tool_call_id`, or `tool_name` columns.
+- Result: on turn 2, the LLM has no memory of what tools it called or their results → email confirmation loop (CHAT-H1).
+
+### Solution
+
+**Step 1 — DB model changes** (`src/noa/db/models/conversation.py`):
+Add to `Message`:
+- `tool_calls`: `Column(JSON, nullable=True)` — stores the list of tool call dicts from assistant messages
+- `tool_call_id`: `Column(String(255), nullable=True)` — for tool-role messages, the call ID being responded to
+- `tool_name`: `Column(String(255), nullable=True)` — for tool-role messages, the tool name
+
+**Step 2 — Alembic migration** (`alembic/versions/`):
+Generate and write a migration that adds these 3 columns with nullable defaults.
+
+**Step 3 — `_persist_messages()`** (`chat.py:633`):
+After the turn completes, the messages list in the SSE event stream has the full conversation state. Persist:
+- Assistant messages: save `tool_calls` field if present in message dict
+- Tool messages (`role="tool"`): save with `role="tool"`, `tool_call_id`, `tool_name`, `content`
+- Keep existing user/assistant text saving
+
+**Step 4 — `_load_thread_history()`** (`chat.py:593`):
+Load all message roles (user, assistant, tool). Reconstruct the correct format:
+```python
+for m in rows:
+    if m.role == "tool":
+        msgs.append({"role": "tool", "tool_call_id": m.tool_call_id or "", "name": m.tool_name or "", "content": m.content or ""})
+    elif m.role == "assistant":
+        msg: dict[str, Any] = {"role": "assistant", "content": m.content or ""}
+        if m.tool_calls:
+            msg["tool_calls"] = m.tool_calls
+        msgs.append(msg)
+    else:
+        msgs.append({"role": m.role, "content": m.content or ""})
+```
+
+### Acceptance Criteria
+
+- [ ] Three new columns added to Message model with migration
+- [ ] `_persist_messages()` saves tool_calls and tool-role messages
+- [ ] `_load_thread_history()` returns full message history including tool context
+- [ ] Follow-up turns after tool use receive full context
+- [ ] `ruff check src/ tests/` passes
+- [ ] `mypy src/` passes
+- [ ] ≥1 unit test verifying tool message round-trip (save + load)
+- [ ] ≥1 integration test with real DB
+
+### Files
+
+- `src/noa/db/models/conversation.py` — add 3 columns
+- `src/noa/api/v1/chat.py` — update `_persist_messages` and `_load_thread_history`
+- `alembic/versions/<hash>_st2_tool_message_columns.py` — migration
+- `tests/unit/test_st2_tool_persistence.py`
+- `tests/integration/test_st2_integration.py`
+
+---
+
+## ST3: Evaluator run_id Fix
+
+**Wave:** 26
+**Findings resolved:** W24-H2
+
+### Problem
+
+`evaluator_node` reads `state["run_id"]` but `run_id` is never added to `AgentState`. It falls back to `None`, so `response_evaluations` rows are stored with `run_id=NULL` — breaking `GET /analytics/eval-trends` and `GET /analytics/worst-dimensions` since they join/filter on `run_id`.
+
+### Solution
+
+1. Add `run_id: str | None` field to `AgentState` in `src/noa/orchestrator/state.py`.
+2. In `src/noa/orchestrator/runner.py`, populate `run_id` in the initial state dict before graph invocation (`state["run_id"] = run.id`).
+3. In `src/noa/orchestrator/nodes/evaluator_node.py`, read `run_id` from state (already present, just ensure no KeyError).
+4. Verify the `response_evaluations` migration already has the `run_id` column (migration 024).
+
+### Acceptance Criteria
+
+- [ ] `AgentState` has `run_id: str | None`
+- [ ] Runner populates `run_id` at start of each run
+- [ ] Evaluator node stores the correct run_id in DB
+- [ ] `GET /analytics/eval-trends` returns data with non-null run_ids
+- [ ] `ruff check src/ tests/` passes
+- [ ] `mypy src/` passes
+- [ ] ≥1 unit test verifying run_id is propagated through state to evaluator
+
+### Files
+
+- `src/noa/orchestrator/state.py` — add `run_id` field
+- `src/noa/orchestrator/runner.py` — populate `run_id` in initial state
+- `src/noa/orchestrator/nodes/evaluator_node.py` — verify read is correct
+- `tests/unit/test_st3_evaluator_run_id.py`
+
+---
+
+## ST4: Streaming & Callback Fixes
+
+**Wave:** 26
+**Findings resolved:** W24-M1, W24-M2
+
+### Problem
+
+Two streaming bugs:
+1. **W24-M1 (concurrent token draining):** The module-global `_stream_callbacks` dict can have race conditions when multiple concurrent runs share or overwrite the same callback slot.
+2. **W24-M2 (per-request stream callback):** The stream callback is stored as a module-global, not scoped to the request/run — if two runs fire concurrently, tokens can be delivered to the wrong SSE stream.
+
+### Solution
+
+1. Replace the module-global `_stream_callbacks` dict in `runner.py` (or wherever it lives) with a per-run callback passed through via closure or run context. Each `OrchestratorRunner` instance should hold its own callback, not a shared dict.
+2. Ensure the callback is cleared/released after the run ends (success or error) to avoid memory leaks.
+3. Token events should only route to the SSE stream that initiated the run.
+
+### Acceptance Criteria
+
+- [ ] No module-global stream callback storage — callback is scoped per run/runner instance
+- [ ] Concurrent runs do not cross-contaminate token streams
+- [ ] Callback is released after run completes
+- [ ] `ruff check src/ tests/` passes
+- [ ] `mypy src/` passes
+- [ ] ≥1 unit test verifying callback isolation between two concurrent runs
+
+### Files
+
+- `src/noa/orchestrator/runner.py` — per-instance callback, remove global dict
+- `src/noa/api/v1/chat.py` — pass callback into runner correctly
+- `tests/unit/test_st4_streaming_callbacks.py`
+
+---
+
+## ST5: VM1 Completion & Quick Fixes
+
+**Wave:** 26
+**Findings resolved:** W24-M4, W24-M5, W24-M6, W25B-L1
+
+### Problem
+
+Four small items left open:
+1. **W24-M4:** `OllamaEmbedder` class missing or not properly tested — pgvector integration test not passing.
+2. **W24-M5:** `source_thread_id` not included in `rag_ingest` calls — RAG-stored facts can't be traced back to their originating thread.
+3. **W24-M6:** `IdempotencyKey` not exported from `__init__.py` — callers must use full import path.
+4. **W25B-L1:** Kimi context windows not configured — KimiClient defaults to generic window sizes instead of actual Kimi model limits.
+
+### Solution
+
+1. **W24-M4:** Verify `OllamaEmbedder` exists in `src/noa/workers/private/embeddings.py` (or similar). Add/fix a pgvector integration test that exercises real embedding insert + cosine search.
+2. **W24-M5:** Add `source_thread_id` parameter to the `rag_ingest` RPC handler and `MemoryTool.remember()`. Store it in `memory_facts` (column exists from VM1 or add it via migration if missing).
+3. **W24-M6:** Add `IdempotencyKey` to the appropriate `__init__.py` so it's importable as `from noa.tools import IdempotencyKey` (or wherever the canonical path should be).
+4. **W25B-L1:** Add context window constants for `kimi-k2` and `moonshot-v1-128k` in `KimiClient` (e.g., 128k tokens). Wire into the token budget / compaction checks.
+
+### Acceptance Criteria
+
+- [ ] `OllamaEmbedder` is importable and has a passing pgvector integration test
+- [ ] `source_thread_id` saved in `memory_facts` and passed through `rag_ingest`
+- [ ] `IdempotencyKey` importable from package `__init__`
+- [ ] Kimi model context windows defined and used in compaction checks
+- [ ] `ruff check src/ tests/` passes
+- [ ] `mypy src/` passes
+
+### Files
+
+- `src/noa/workers/private/embeddings.py` — verify/fix OllamaEmbedder
+- `src/noa/tools/memory.py` — add source_thread_id
+- `src/noa/tools/__init__.py` — export IdempotencyKey
+- `src/noa/llm/kimi_client.py` — add context window constants
+- `tests/integration/test_st5_pgvector.py`
+- `tests/unit/test_st5_fixes.py`
