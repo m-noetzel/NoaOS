@@ -427,10 +427,7 @@ Track token usage, per-run costs, and budget limits across all providers.
 
 | Phase | Scope | Status |
 |-------|-------|--------|
-| **Waves 1-22** | Core platform: backend, iOS, web, tools, governance, domain isolation, quality infra (130+ phases) | Complete |
-| **Auth Stability** | Session validation, error clarity, 7-day tokens, startup check | Complete |
-| **Wave 23** | Code quality: wire audit, enum consistency, strict typing | In Progress |
-| **Wave 24** | Observability: health dashboard, error rate tracking, structured logging | Planned |
+| **Waves 1-24** | Core platform: backend, iOS, web, tools, governance, domain isolation, quality infra, observability (160+ phases) | Complete |
 | **Phase 2** | Physical isolation: dedicated Mac for private domain, mTLS, air-gapped network | Planned |
 | **Future** | MCP Server: expose Noa as an MCP server for Claude Desktop integration | Planned |
 
