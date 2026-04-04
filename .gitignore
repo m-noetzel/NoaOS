@@ -17,9 +17,9 @@ build/
 *.sqlite3
 .agent_worktrees/
 .agent_locks/
-.claude/worktrees/
-.claude/settings.local.json
-.claude/agent-memory/
+.claude/
+CLAUDE.md
+**/agent-memory/
 .worktrees/
 .npm-cache/
 htmlcov/
@@ -30,8 +30,9 @@ htmlcov/
 # Internal docs — not for public repo
 STRATEGY.md
 STUDY.md
+Meridian SPEC.md
 
-# Plan — keep only PLAN.md and PHASE_DETAILS.md
+# Plan — keep only PLAN.md
 Plan/CI/
 Plan/RETROS/
 Plan/REVIEWS/
@@ -40,6 +41,8 @@ Plan/FINDINGS.md
 Plan/QA_CHECKLIST.md
 Plan/ARCH_INVARIANTS.md
 Plan/DECISION_LOG.md
+Plan/PHASE_DETAILS.md
+Plan/TRACEABILITY.md
 
 # Xcode / iOS — IDE-generated state, not project source
 xcuserdata/
