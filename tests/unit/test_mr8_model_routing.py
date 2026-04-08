@@ -8,7 +8,7 @@ Deliverables tested:
 2. AgentState gets model_config field
 3. router_node returns model_config in state update
 4. agent_node reads model_config["agent"] with fallback
-5. Default config: router=none, agent=DEFAULT_EXTERNAL_MODEL, responder=none
+5. Default config: router=none, agent=DEFAULT_EXTERNAL_MODEL (OV3: responder removed)
 6. Private mode: agent=ollama/llama3.1
 """
 
@@ -64,10 +64,11 @@ class TestModelConfigDefaults:
     """ModelConfig must declare correct per-node defaults."""
 
     def test_default_external_config(self):
-        """External-mode defaults: router=none, agent=DEFAULT_EXTERNAL_MODEL, responder=none.
+        """External-mode defaults: router=none, agent=DEFAULT_EXTERNAL_MODEL.
 
         Updated in Wave 23 (CQ4 centralization): DEFAULT_EXTERNAL_MODEL is now
         openai/gpt-4.1-mini (config.py) rather than anthropic/claude-sonnet-4-20250514.
+        OV3: responder field removed from ModelConfig.
         """
         from noa.config import DEFAULT_EXTERNAL_MODEL
         from noa.orchestrator.model_config import ModelConfig
@@ -75,7 +76,7 @@ class TestModelConfigDefaults:
         cfg = ModelConfig()
         assert cfg.router == "none"
         assert cfg.agent == DEFAULT_EXTERNAL_MODEL
-        assert cfg.responder == "none"
+        assert not hasattr(cfg, "responder"), "OV3: ModelConfig must not have responder field"
 
     def test_private_mode_config(self):
         """Private mode must use the default private model from config."""
@@ -97,7 +98,10 @@ class TestModelConfigDefaults:
         assert cfg.agent == DEFAULT_EXTERNAL_MODEL
 
     def test_to_dict(self):
-        """ModelConfig.to_dict() returns a plain dict suitable for AgentState."""
+        """ModelConfig.to_dict() returns a plain dict suitable for AgentState.
+
+        OV3: responder field removed from ModelConfig and to_dict().
+        """
         from noa.config import DEFAULT_EXTERNAL_MODEL
         from noa.orchestrator.model_config import ModelConfig
 
@@ -106,17 +110,19 @@ class TestModelConfigDefaults:
         assert isinstance(d, dict)
         assert d["router"] == "none"
         assert d["agent"] == DEFAULT_EXTERNAL_MODEL
-        assert d["responder"] == "none"
+        assert "responder" not in d, "OV3: responder must not appear in to_dict()"
         assert "classifier" in d
 
-    def test_router_and_responder_always_none(self):
-        """Router and responder models should be 'none' (no LLM cost)."""
+    def test_router_always_none(self):
+        """Router model should be 'none' (no LLM cost).
+
+        OV3: responder removed from ModelConfig — only router checked here.
+        """
         from noa.orchestrator.model_config import ModelConfig
 
         for mode in ("private", "external"):
             cfg = ModelConfig.for_privacy_mode(mode)
             assert cfg.router == "none", f"router should be none in {mode} mode"
-            assert cfg.responder == "none", f"responder should be none in {mode} mode"
 
 
 # ===========================================================================
@@ -154,7 +160,7 @@ class TestRouterNodeModelConfig:
         mc = result["model_config"]
         assert mc["agent"] == "openai/gpt-4.1-mini"
         assert mc["router"] == "none"
-        assert mc["responder"] == "none"
+        assert "responder" not in mc, "OV3: responder must not appear in model_config"
 
     def test_router_returns_model_config_private(self):
         """Router state update must include model_config for private mode."""
@@ -188,7 +194,6 @@ class TestAgentNodeModelConfig:
             model_config={
                 "router": "none",
                 "agent": "anthropic/claude-sonnet-4-20250514",
-                "responder": "none",
             },
         )
 
@@ -238,7 +243,7 @@ class TestModelConfigFromSettings:
         assert cfg.agent == "openai/gpt-4o"
         # Non-overridden fields keep defaults
         assert cfg.router == "none"
-        assert cfg.responder == "none"
+        assert not hasattr(cfg, "responder"), "OV3: responder must not be in ModelConfig"
 
     def test_from_settings_empty_uses_defaults(self):
         """Empty settings dict returns default ModelConfig (DEFAULT_EXTERNAL_MODEL)."""
@@ -264,7 +269,6 @@ class TestPerNodeOverride:
         custom_config = {
             "router": "none",
             "agent": "openai/gpt-4o",
-            "responder": "none",
         }
         state = _make_agent_state(
             model_config=custom_config,

@@ -286,14 +286,13 @@ class TestRunnerCompactionIntegration:
 
         class _FakeGraph:
             async def astream(self, state: dict[str, Any]) -> Any:  # type: ignore[override]
-                # Yield a single chunk from the "responder" node
+                # OV3: yield agent node output (responder deleted)
                 yield {
-                    "responder": {
+                    "agent": {
                         "messages": large_msgs,
                         "response": "Final answer.",
                         "tool_calls": [],
                         "tool_results": [],
-                        "total_cost": 0.0,
                         "llm_usage": [],
                         "eval_scores": None,
                         "eval_verdict": "pass",
@@ -367,12 +366,11 @@ class TestRunnerCompactionIntegration:
         class _FakeGraph:
             async def astream(self, state: dict[str, Any]) -> Any:  # type: ignore[override]
                 yield {
-                    "responder": {
+                    "agent": {
                         "messages": short_msgs,
                         "response": "Done.",
                         "tool_calls": [],
                         "tool_results": [],
-                        "total_cost": 0.0,
                         "llm_usage": [],
                         "eval_scores": None,
                         "eval_verdict": "pass",

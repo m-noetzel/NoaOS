@@ -165,10 +165,16 @@ def wire_llm_pipeline(settings: Any) -> None:
 
     # 3. Build OrchestratorRunner with compiled graph
     try:
+        from langgraph.checkpoint.memory import MemorySaver
+
         from noa.orchestrator.graph import build_graph
         from noa.orchestrator.runner import OrchestratorRunner
 
-        graph = build_graph().compile()
+        # OV2: Compile with MemorySaver for interrupt/resume support.
+        # MemorySaver holds state in-process; approval decisions happen fast
+        # so restart-during-approval is acceptable to lose.
+        lg_saver = MemorySaver()
+        graph = build_graph().compile(checkpointer=lg_saver)
 
         # A4: Use PostgresCheckpointer when DB is available
         from typing import Any as _Any

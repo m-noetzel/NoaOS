@@ -167,6 +167,7 @@ async def list_messages(
             "thread_id": str(row.thread_id),
             "role": row.role,
             "content": row.content,
+            "run_id": row.run_id,
             "created_at": row.timestamp.isoformat(),
         }
         for row in rows

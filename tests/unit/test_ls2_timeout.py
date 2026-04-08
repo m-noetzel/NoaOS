@@ -115,7 +115,7 @@ async def test_timeout_fires_after_elapsed_time() -> None:
     # the second after another 0.05s (over budget for a 0.06s total timeout).
     chunks = [
         {"agent": {"response": None, "tool_calls": [], "tool_results": []}},
-        {"responder": {"response": "done", "tool_calls": [], "tool_results": []}},
+        {"agent": {"response": "done", "tool_calls": [], "tool_results": []}},
     ]
     graph = _make_slow_graph(chunks=chunks, delay_per_chunk=0.04)
     runner = OrchestratorRunner(graph=graph)
@@ -197,7 +197,7 @@ async def test_no_result_ready_after_timeout() -> None:
     """After a timeout, the graph execution is aborted — no result_ready event."""
     chunks = [
         {"agent": {"response": None, "tool_calls": [], "tool_results": []}},
-        {"responder": {"response": "should not arrive", "tool_calls": [], "tool_results": []}},
+        {"agent": {"response": "should not arrive", "tool_calls": [], "tool_results": []}},
     ]
     graph = _make_slow_graph(chunks=chunks, delay_per_chunk=0.04)
     runner = OrchestratorRunner(graph=graph)

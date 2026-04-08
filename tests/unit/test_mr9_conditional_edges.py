@@ -82,15 +82,19 @@ class TestGraphCompilationMR9:
         compiled = graph.compile()
         assert compiled is not None
 
-    def test_graph_has_four_nodes(self):
-        """Graph must have at least the core nodes: router, agent, tools, responder."""
+    def test_graph_has_core_nodes(self):
+        """Graph must have at least the core nodes: router, agent, tools, evaluator.
+
+        OV3: responder node removed; evaluator is now the terminal node.
+        """
         from noa.orchestrator.graph import build_graph
 
         graph = build_graph()
         compiled = graph.compile()
         node_names = {n.name for n in compiled.get_graph().nodes.values()}
         core_nodes = node_names - {"__start__", "__end__"}
-        assert {"router", "agent", "tools", "responder"}.issubset(core_nodes)
+        assert {"router", "agent", "tools", "evaluator"}.issubset(core_nodes)
+        assert "responder" not in core_nodes, "OV3: responder node must be removed"
 
 
 # ===========================================================================
@@ -120,23 +124,23 @@ class TestToolRoundsDefault:
 
 
 class TestNoToolCallsSkipsTools:
-    """When agent returns no tool_calls, graph should go agent -> responder."""
+    """When agent returns no tool_calls, graph should go agent -> evaluator (OV3)."""
 
     def test_no_tool_calls_skips_tools_node(self):
         """When agent produces no tool_calls, the tools node must be skipped.
 
-        We verify by checking the routing function directly.
+        OV3: routes to evaluator directly instead of responder.
         """
         from noa.orchestrator.graph import route_after_agent
 
         state = _make_agent_state(tool_calls=[])
         result = route_after_agent(state)
-        assert result == "responder", (
-            f"Expected 'responder' when no tool_calls, got '{result}'"
+        assert result == "evaluator", (
+            f"Expected 'evaluator' when no tool_calls, got '{result}'"
         )
 
     def test_pure_text_response_correct(self):
-        """When agent returns text with no tool_calls, responder gets the response."""
+        """When agent returns text with no tool_calls, evaluator gets the response."""
         from noa.orchestrator.graph import route_after_agent
 
         state = _make_agent_state(
@@ -144,7 +148,7 @@ class TestNoToolCallsSkipsTools:
             response="Hello, how can I help?",
         )
         result = route_after_agent(state)
-        assert result == "responder"
+        assert result == "evaluator"
 
 
 # ===========================================================================
@@ -245,16 +249,16 @@ class TestToolRoundsIncrement:
 
 
 class TestMaxToolRoundsEnforced:
-    """After MAX_TOOL_ROUNDS, tools must route to responder, not agent."""
+    """After MAX_TOOL_ROUNDS, tools must route to evaluator (OV3), not agent."""
 
-    def test_max_tool_rounds_routes_to_responder(self):
-        """When tool_rounds >= MAX_TOOL_ROUNDS, route to responder."""
+    def test_max_tool_rounds_routes_to_evaluator(self):
+        """When tool_rounds >= MAX_TOOL_ROUNDS, route to evaluator (OV3: was responder)."""
         from noa.orchestrator.graph import MAX_TOOL_ROUNDS, route_after_tools
 
         state = _make_agent_state(tool_rounds=MAX_TOOL_ROUNDS)
         result = route_after_tools(state)
-        assert result == "responder", (
-            f"Expected 'responder' after {MAX_TOOL_ROUNDS} rounds, got '{result}'"
+        assert result == "evaluator", (
+            f"Expected 'evaluator' after {MAX_TOOL_ROUNDS} rounds, got '{result}'"
         )
 
     def test_max_tool_rounds_value_is_3(self):
@@ -293,15 +297,18 @@ class TestBackwardCompat:
         assert ("__start__", "router") in edge_pairs
 
     def test_graph_ends_at_evaluator(self):
-        """Graph ends at evaluator (EV1: responder -> evaluator -> __end__)."""
+        """Graph ends at evaluator (OV3: agent/tools -> evaluator -> __end__)."""
         from noa.orchestrator.graph import build_graph
 
         graph = build_graph()
         compiled = graph.compile()
         graph_repr = compiled.get_graph()
         edge_pairs = {(e.source, e.target) for e in graph_repr.edges}
-        assert ("responder", "evaluator") in edge_pairs
         assert ("evaluator", "__end__") in edge_pairs
+        # OV3: responder no longer exists; agent routes directly to evaluator
+        assert ("responder", "evaluator") not in edge_pairs, (
+            "OV3: responder -> evaluator edge must not exist (responder deleted)"
+        )
 
     def test_router_to_agent_edge_exists(self):
         """Router must eventually reach agent (via classifier in DI1)."""
@@ -317,14 +324,18 @@ class TestBackwardCompat:
         assert ("planner", "agent") in edge_pairs
 
     def test_existing_orchestrator_tests_unbroken(self):
-        """Verify the graph still has all required core nodes (regression check)."""
+        """Verify the graph still has all required core nodes (regression check).
+
+        OV3: responder removed; evaluator is now the terminal node.
+        """
         from noa.orchestrator.graph import build_graph
 
         graph = build_graph()
         compiled = graph.compile()
         node_names = {n.name for n in compiled.get_graph().nodes.values()}
         core_nodes = node_names - {"__start__", "__end__"}
-        assert {"router", "agent", "tools", "responder"}.issubset(core_nodes)
+        assert {"router", "agent", "tools", "evaluator"}.issubset(core_nodes)
+        assert "responder" not in core_nodes, "OV3: responder must be removed"
 
 
 # ===========================================================================

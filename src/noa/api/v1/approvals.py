@@ -1,7 +1,12 @@
-"""Approval endpoints — SPEC.md §29.6."""
+"""Approval endpoints — SPEC.md §29.6.
+
+OV2: decide_approval() now resumes the interrupted LangGraph graph instead
+of executing the tool outside the graph via _execute_approved_tool().
+"""
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import uuid
@@ -223,29 +228,20 @@ async def decide_approval(
     # fact to MemoryStore so it becomes available for recall.
     _handle_memory_approval(approval=approval, decision=body.decision)
 
-    # Execute the approved tool; finalize the run regardless of decision.
-    # CHAT-H2: run must leave "awaiting_approval" on both approve and deny.
-    tool_result = None
-    if body.decision == "approved":
-        tool_result = await _execute_approved_tool(approval, str(user.user_id))
-    else:
-        # Denied: finalize run as failed so it doesn't stay in "awaiting_approval".
-        try:
-            from noa.api.app_state import get_session_factory as _gsf
-            sf = _gsf()
-            if sf:
-                async with sf() as _db:
-                    from noa.db.models.run import Run as _Run
-                    _res = await _db.execute(
-                        select(_Run).where(_Run.id == approval.run_id)
-                    )
-                    _run = _res.scalar_one_or_none()
-                    if _run and _run.status == "awaiting_approval":
-                        _run.status = "failed"
-                        _run.updated_at = datetime.now(UTC)
-                        await _db.commit()
-        except Exception:  # noqa: BLE001
-            logger.warning("Failed to finalize run after denial", exc_info=True)
+    # OV2: Resume the graph via runner.resume() (fire-and-forget).
+    # The runner continues the graph from interrupt() in tool_node.
+    # Both approved and denied paths go through resume() — for denial,
+    # tool_node inserts a denial message, then the graph completes normally.
+    run_id_str = str(approval.run_id)
+    decision_payload: dict[str, Any] = {"decision": body.decision}
+
+    asyncio.ensure_future(
+        _resume_graph(
+            run_id=run_id_str,
+            decision=decision_payload,
+            user_id=str(user.user_id),
+        )
+    )
 
     data: dict[str, Any] = {
         "approval_id": str(approval_id),
@@ -254,104 +250,57 @@ async def decide_approval(
         "risk_tier": approval.risk_tier,
         "decided_at": approval.decided_at.isoformat(),
     }
-    if tool_result is not None:
-        data["tool_result"] = tool_result
 
     return success_envelope(data=data, trace_id=rid)
 
 
-async def _execute_approved_tool(
-    approval: Approval, user_id: str
-) -> dict[str, Any] | None:
-    """Execute a tool after its approval is granted, then complete the run.
+async def _resume_graph(
+    run_id: str,
+    decision: dict[str, Any],
+    user_id: str,  # noqa: ARG001 — kept for call-site symmetry; graph has its own context
+) -> None:
+    """Resume the interrupted LangGraph graph with the user's approval decision.
 
-    Parses tool/function/args from the approval's preview_text,
-    dispatches via ToolGateway with approved=True, and updates the
-    run status from awaiting_approval → completed.
+    OV2: Replaces _execute_approved_tool().  The runner.resume() method
+    continues the graph from the interrupt() point in tool_node, which
+    re-dispatches the tool with approved=True (or inserts a denial message)
+    and then continues to responder and evaluator normally.
+
+    Runs as a fire-and-forget background task (asyncio.ensure_future) so
+    decide_approval can return immediately.
     """
     try:
-        from noa.api.app_state import get_gateway, get_session_factory
-        from noa.tools.gateway import ToolRequest
+        from noa.api.app_state import get_runner, get_session_factory
+        from noa.runs.service import RunService
 
-        gateway = get_gateway()
-        if gateway is None:
-            logger.warning("No ToolGateway available to execute approved tool")
-            return None
-
-        # Parse tool_name and args from preview_text
-        # Format: "tool.function\n{args_json}" or "tool_name\n{args_json}"
-        preview = approval.preview_text or ""
-        if "\n" not in preview:
-            logger.warning("Cannot parse tool from approval preview_text: %s", preview)
-            return None
-
-        first_line, rest = preview.split("\n", 1)
-        tool_function = first_line.strip()
-
-        try:
-            tool_args = json.loads(rest)
-        except (ValueError, TypeError):
-            tool_args = {}
-
-        # Parse "tool.function" or just "function"
-        if "." in tool_function:
-            tool_name, func_name = tool_function.split(".", 1)
-        else:
-            tool_name = tool_function
-            func_name = tool_function
-
-        # Dispatch with approved=True to bypass the approval gate
-        request = ToolRequest(
-            tool=tool_name,
-            function=func_name,
-            args=tool_args,
-            approved=True,
-            user_id=uuid.UUID(user_id),
-            privacy_mode=approval.domain or "external",
-        )
-
-        response = await gateway.dispatch(request, approvals_enabled=False)
-
-        # Finalize the run: completed on success, failed on error.
-        # CHAT-H2: never leave a run in "running" after approval resolves.
-        final_status = "failed" if response.error else "completed"
-        try:
-            session_factory = get_session_factory()
-            if session_factory:
-                async with session_factory() as db_session:
-                    from noa.db.models.run import Run
-
-                    result = await db_session.execute(
-                        select(Run).where(Run.id == approval.run_id)
-                    )
-                    run = result.scalar_one_or_none()
-                    if run and run.status == "awaiting_approval":
-                        run.status = final_status
-                        run.updated_at = datetime.now(UTC)
-                        await db_session.commit()
-                        logger.info(
-                            "Run %s finalized as '%s' after approval %s",
-                            approval.run_id,
-                            final_status,
-                            approval.id,
-                        )
-        except Exception:  # noqa: BLE001
+        runner = get_runner()
+        if runner is None:
             logger.warning(
-                "Failed to update run status after approval", exc_info=True
+                "No runner available to resume graph for run_id=%s", run_id
             )
+            return
 
-        if response.error:
+        session_factory = get_session_factory()
+        if session_factory is None:
             logger.warning(
-                "Tool execution after approval failed: %s", response.error
+                "No session factory available to resume graph for run_id=%s", run_id
             )
-            return {"error": response.error}
+            return
 
-        return response.result
+        async with session_factory() as db_session:
+            run_service = RunService(session=db_session)
+            async for _event in runner.resume(
+                run_id=run_id,
+                decision=decision,
+                run_service=run_service,
+            ):
+                # Events persisted inside resume() via run_service.
+                # The original SSE connection is gone; drain the generator.
+                pass
 
     except Exception:  # noqa: BLE001
         logger.warning(
-            "Failed to execute approved tool for approval %s",
-            approval.id,
+            "Failed to resume graph for run_id=%s",
+            run_id,
             exc_info=True,
         )
-        return None

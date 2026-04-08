@@ -1,8 +1,10 @@
 """Per-node model routing configuration.
 
 Phase MR8: Different LangGraph nodes have different intelligence requirements.
-Router and responder are pure functions (no LLM), agent needs an LLM.
+Router is a pure function (no LLM), agent needs an LLM.
 This module provides ModelConfig to map node names to model identifiers.
+
+OV3: responder field removed — responder node was deleted.
 """
 
 from __future__ import annotations
@@ -33,15 +35,15 @@ class ModelConfig:
     Attributes:
         router: Model for the router node (always "none" -- pure function).
         agent: Model for the agent node (the only node that calls an LLM).
-        responder: Model for the responder node (always "none" -- pure function).
         classifier: Model for the classifier node (cheap model for task type detection).
         planner: Model for the planner node (cheap model, defaults same as classifier).
         evaluator: Model for the evaluator node (cheap model for response scoring).
+
+    Note: OV3 removed the responder field — responder node was deleted.
     """
 
     router: str = _NO_MODEL
     agent: str = _EXTERNAL_AGENT_MODEL
-    responder: str = _NO_MODEL
     classifier: str = _EXTERNAL_CLASSIFIER_MODEL
     planner: str = _EXTERNAL_PLANNER_MODEL
     evaluator: str = _EXTERNAL_EVALUATOR_MODEL
@@ -51,7 +53,6 @@ class ModelConfig:
         return {
             "router": self.router,
             "agent": self.agent,
-            "responder": self.responder,
             "classifier": self.classifier,
             "planner": self.planner,
             "evaluator": self.evaluator,
@@ -86,8 +87,9 @@ class ModelConfig:
         """Create a ModelConfig from user preference overrides.
 
         Args:
-            settings: Dict with optional keys "router", "agent", "responder",
-                      "classifier", "planner" whose values are model identifier strings.
+            settings: Dict with optional keys "router", "agent",
+                      "classifier", "planner", "evaluator" whose values
+                      are model identifier strings.
 
         Returns:
             ModelConfig with overrides applied on top of defaults.
@@ -95,7 +97,6 @@ class ModelConfig:
         return cls(
             router=settings.get("router", _NO_MODEL),
             agent=settings.get("agent", _EXTERNAL_AGENT_MODEL),
-            responder=settings.get("responder", _NO_MODEL),
             classifier=settings.get("classifier", _EXTERNAL_CLASSIFIER_MODEL),
             planner=settings.get("planner", _EXTERNAL_PLANNER_MODEL),
             evaluator=settings.get("evaluator", _EXTERNAL_EVALUATOR_MODEL),

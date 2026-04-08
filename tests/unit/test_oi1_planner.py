@@ -5,7 +5,7 @@ Covers:
 - simple_utility skips planning (no LLM call)
 - ReAct thought parsing from agent response
 - Plan injection into agent system message
-- Graph topology (6 nodes: router, classifier, planner, agent, tools, responder)
+- Graph topology (6 nodes: router, classifier, planner, agent, tools, evaluator; OV3: responder removed)
 """
 
 from __future__ import annotations
@@ -435,7 +435,8 @@ class TestGraphTopology:
         # LangGraph StateGraph nodes include __start__ and __end__ as well as
         # the explicitly added nodes.
         node_names = set(graph.nodes.keys())
-        expected = {"router", "classifier", "planner", "agent", "tools", "responder"}
+        # OV3: responder removed; evaluator is now the terminal node
+        expected = {"router", "classifier", "planner", "agent", "tools", "evaluator"}
         assert expected.issubset(node_names), (
             f"Missing nodes: {expected - node_names}"
         )

@@ -473,3 +473,124 @@ class TestDeleteThread:
         app.dependency_overrides.clear()
 
         assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# run_id propagation tests (rating-button fix)
+# ---------------------------------------------------------------------------
+
+
+class TestRunIdInMessages:
+    """Verify run_id is stored on Message rows and returned by list_messages.
+
+    Root cause: RatingButtons in the frontend returns null when runId is
+    undefined.  Fix: persist run_id on every Message and include it in
+    the GET /threads/{id}/messages response.
+    """
+
+    @pytest.mark.asyncio
+    async def test_run_id_returned_in_messages_list(self, monkeypatch):
+        """Messages with a run_id must expose that field in the API response."""
+        monkeypatch.setenv("SECRET_KEY", "test-secret")
+
+        from sqlalchemy.ext.asyncio import (
+            AsyncSession,
+            async_sessionmaker,
+            create_async_engine,
+        )
+
+        from noa.db.models.base import Base
+        from noa.db.models.conversation import Conversation, Message
+
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+        user_id = uuid.uuid4()
+        thread_id = uuid.uuid4()
+        run_id = str(uuid.uuid4())
+
+        async with factory() as session:
+            session.add(Conversation(id=thread_id, user_id=user_id, title="T"))
+            session.add(Message(
+                thread_id=thread_id,
+                user_id=user_id,
+                role="user",
+                content="Hello",
+                run_id=run_id,
+            ))
+            session.add(Message(
+                thread_id=thread_id,
+                user_id=user_id,
+                role="assistant",
+                content="Hi there!",
+                run_id=run_id,
+            ))
+            await session.commit()
+
+        app = _build_app_with_overrides(factory, user_id)
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(
+                f"/api/v1/threads/{thread_id}/messages",
+                params={"privacy_mode": "external"},
+            )
+        app.dependency_overrides.clear()
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["ok"] is True
+        messages = body["data"]
+        assert len(messages) == 2
+        for msg in messages:
+            assert "run_id" in msg, "run_id must be present in each message object"
+            assert msg["run_id"] == run_id, "run_id value must match what was stored"
+
+    @pytest.mark.asyncio
+    async def test_run_id_none_when_not_set(self, monkeypatch):
+        """Messages without a run_id expose null (not missing key) in the response."""
+        monkeypatch.setenv("SECRET_KEY", "test-secret")
+
+        from sqlalchemy.ext.asyncio import (
+            AsyncSession,
+            async_sessionmaker,
+            create_async_engine,
+        )
+
+        from noa.db.models.base import Base
+        from noa.db.models.conversation import Conversation, Message
+
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+        user_id = uuid.uuid4()
+        thread_id = uuid.uuid4()
+
+        async with factory() as session:
+            session.add(Conversation(id=thread_id, user_id=user_id, title="T"))
+            session.add(Message(
+                thread_id=thread_id,
+                user_id=user_id,
+                role="user",
+                content="Old message without run_id",
+            ))
+            await session.commit()
+
+        app = _build_app_with_overrides(factory, user_id)
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(
+                f"/api/v1/threads/{thread_id}/messages",
+                params={"privacy_mode": "external"},
+            )
+        app.dependency_overrides.clear()
+
+        assert response.status_code == 200
+        body = response.json()
+        messages = body["data"]
+        assert len(messages) == 1
+        assert "run_id" in messages[0], "run_id key must always be present"
+        assert messages[0]["run_id"] is None

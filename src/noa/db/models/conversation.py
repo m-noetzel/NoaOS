@@ -49,6 +49,9 @@ class Message(Base):
     tool_calls: Mapped[list[Any] | None] = mapped_column(JSON, nullable=True)
     tool_call_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     tool_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # run_id links a message to the orchestrator run that produced it,
+    # enabling the frontend RatingButtons to associate a rating with a run.
+    run_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     timestamp: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),

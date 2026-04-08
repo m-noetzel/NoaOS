@@ -794,6 +794,7 @@ async def _persist_messages(
                 user_id=uid,
                 role="user",
                 content=user_message,
+                run_id=run_id,
             ))
 
             # ST2: Persist tool-aware turn messages (assistant with tool_calls
@@ -814,6 +815,7 @@ async def _persist_messages(
                                 role="assistant",
                                 content=tm.get("content") or None,
                                 tool_calls=tcs,
+                                run_id=run_id,
                             ))
                     elif role == "tool":
                         session.add(Message(
@@ -824,6 +826,7 @@ async def _persist_messages(
                             content=tm.get("content") or None,
                             tool_call_id=tm.get("tool_call_id") or None,
                             tool_name=tm.get("name") or None,
+                            run_id=run_id,
                         ))
 
             # Assistant message (if we got a response)
@@ -834,6 +837,7 @@ async def _persist_messages(
                     user_id=uid,
                     role="assistant",
                     content=assistant_response,
+                    run_id=run_id,
                 ))
     except Exception:  # noqa: BLE001
         logger.warning("Failed to persist messages for run %s", run_id, exc_info=True)

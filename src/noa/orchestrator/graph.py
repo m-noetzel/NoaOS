@@ -1,11 +1,14 @@
 """LangGraph state machine — deterministic outer shell.
 
 Spec ref: SPEC.md S2.1 (workflow topology is fixed:
-router -> agent -> tools -> responder).
+router -> agent -> tools -> evaluator).
 
 MR9: Conditional edges replace fixed linear topology.
-- agent -> tools (if tool_calls) or agent -> responder (if no tool_calls)
-- tools -> agent (if tool_rounds < MAX_TOOL_ROUNDS) or tools -> responder (if done)
+- agent -> tools (if tool_calls) or agent -> evaluator (if no tool_calls)
+- tools -> agent (if tool_rounds < MAX_TOOL_ROUNDS) or tools -> evaluator (if done)
+
+OV3: Responder node removed. Cost summation and response fallback moved to
+runner._extract_response() and computed after graph loop completes.
 
 build_graph() returns an uncompiled StateGraph.
 Callers compile it via graph.compile() before invocation.
@@ -21,7 +24,6 @@ from noa.orchestrator.nodes.agent import agent_node
 from noa.orchestrator.nodes.classifier import classifier_node
 from noa.orchestrator.nodes.evaluator import evaluator_node
 from noa.orchestrator.nodes.planner import planner_node
-from noa.orchestrator.nodes.responder import responder_node
 from noa.orchestrator.nodes.router import router_node
 from noa.orchestrator.nodes.tools import tool_node
 from noa.orchestrator.state import AgentState
@@ -31,36 +33,33 @@ MAX_TOOL_ROUNDS: int = 3
 
 
 def route_after_agent(state: dict[str, Any]) -> str:
-    """Decide next node after agent: tools (if tool_calls) or responder.
+    """Decide next node after agent: tools (if tool_calls) or evaluator.
 
     Spec ref: SPEC.md S2.1 — skip tools when unnecessary.
+    OV3: Routes directly to evaluator instead of responder.
     """
     tool_calls = state.get("tool_calls", [])
     if tool_calls:
         return "tools"
-    return "responder"
+    return "evaluator"
 
 
 def route_after_tools(state: dict[str, Any]) -> str:
-    """Decide next node after tools: agent (for follow-up) or responder (if done).
+    """Decide next node after tools: agent (for follow-up) or evaluator (if done).
 
     Caps at max_retries from state (user-configured) or MAX_TOOL_ROUNDS as
     fallback, to enforce bounded autonomy (S2.2).
 
-    If any tool result requires approval, stop the loop immediately and
-    go to responder — the approval_requested SSE event will be emitted
-    by the runner, preventing an infinite retry loop.
-    """
-    # Stop immediately if any tool needs approval
-    tool_results = state.get("tool_results", [])
-    for tr in tool_results:
-        if isinstance(tr, dict) and tr.get("approval_required"):
-            return "responder"
+    OV2: The approval_required branch is removed.  interrupt() in tool_node
+    pauses the graph natively before routing occurs.  The graph only reaches
+    this function after the interrupt resolves (approved or denied).
 
+    OV3: Routes directly to evaluator instead of responder when done.
+    """
     tool_rounds = int(state.get("tool_rounds", 0))
     max_retries = int(state.get("max_retries") or MAX_TOOL_ROUNDS)
     if tool_rounds >= max_retries:
-        return "responder"
+        return "evaluator"
     return "agent"
 
 
@@ -84,10 +83,11 @@ def build_graph() -> StateGraph[AgentState]:
 
     Topology:
         __start__ -> router -> classifier -> planner -> agent
-        agent --(conditional)--> tools | responder
-        tools --(conditional)--> agent | responder
-        responder -> evaluator
+        agent --(conditional)--> tools | evaluator
+        tools --(conditional)--> agent | evaluator
         evaluator --(conditional)--> __end__ | agent (reroute, max 2 cycles)
+
+    OV3: Responder node removed. Agent routes directly to evaluator.
     """
     graph = StateGraph(AgentState)
 
@@ -97,7 +97,6 @@ def build_graph() -> StateGraph[AgentState]:
     graph.add_node("planner", planner_node)
     graph.add_node("agent", agent_node)
     graph.add_node("tools", tool_node)
-    graph.add_node("responder", responder_node)
     graph.add_node("evaluator", evaluator_node)
 
     # Set entry point
@@ -108,22 +107,19 @@ def build_graph() -> StateGraph[AgentState]:
     graph.add_edge("classifier", "planner")
     graph.add_edge("planner", "agent")
 
-    # Conditional edge: agent -> tools or agent -> responder
+    # Conditional edge: agent -> tools or agent -> evaluator (OV3: was responder)
     graph.add_conditional_edges(
         "agent",
         route_after_agent,
-        {"tools": "tools", "responder": "responder"},
+        {"tools": "tools", "evaluator": "evaluator"},
     )
 
-    # Conditional edge: tools -> agent or tools -> responder
+    # Conditional edge: tools -> agent or tools -> evaluator (OV3: was responder)
     graph.add_conditional_edges(
         "tools",
         route_after_tools,
-        {"agent": "agent", "responder": "responder"},
+        {"agent": "agent", "evaluator": "evaluator"},
     )
-
-    # Fixed edge: responder -> evaluator
-    graph.add_edge("responder", "evaluator")
 
     # Conditional edge: evaluator -> __end__ or evaluator -> agent (reroute)
     graph.add_conditional_edges(

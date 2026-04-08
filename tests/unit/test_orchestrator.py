@@ -160,8 +160,8 @@ class TestGraphTopology:
         assert compiled is not None
 
     def test_graph_contains_all_required_nodes(self):
-        """Compiled graph must contain router, agent, tools, responder nodes.
-        (SPEC.md §2.1, §7.1)
+        """Compiled graph must contain router, agent, tools, evaluator nodes.
+        (SPEC.md §2.1 — OV3: responder node removed)
         """
         from noa.orchestrator.graph import build_graph
 
@@ -169,15 +169,16 @@ class TestGraphTopology:
         compiled = graph.compile()
         # LangGraph exposes node names via .get_graph().nodes
         node_names = {n.name for n in compiled.get_graph().nodes.values()}
-        for required in ("router", "agent", "tools", "responder"):
+        for required in ("router", "agent", "tools", "evaluator"):
             assert required in node_names, (
                 f"Node '{required}' missing from compiled graph"
             )
+        assert "responder" not in node_names, "OV3: responder node must be removed"
 
     def test_node_execution_order_is_deterministic(self):
         """Given identical input, the node execution order must be
-        router -> agent -> tools -> responder every time.
-        (SPEC.md §2.1 — deterministic outer shell)
+        router -> agent -> tools -> evaluator every time.
+        (SPEC.md §2.1 — deterministic outer shell; OV3: responder removed)
         """
         from noa.orchestrator.graph import build_graph
 
@@ -201,13 +202,13 @@ class TestGraphTopology:
         assert ("planner", "agent") in edge_pairs, (
             "Missing edge: planner -> agent"
         )
-        # agent -> tools
+        # agent -> tools (conditional)
         assert ("agent", "tools") in edge_pairs, (
             "Missing edge: agent -> tools"
         )
-        # tools -> responder
-        assert ("tools", "responder") in edge_pairs, (
-            "Missing edge: tools -> responder"
+        # OV3: tools no longer edges to responder; conditional route to evaluator
+        assert ("responder", "evaluator") not in edge_pairs, (
+            "OV3: responder -> evaluator edge must not exist (responder deleted)"
         )
 
     def test_graph_starts_at_router(self):
@@ -227,8 +228,8 @@ class TestGraphTopology:
         )
 
     def test_graph_ends_at_evaluator(self):
-        """The graph must terminate after the evaluator node (EV1).
-        responder -> evaluator -> __end__ is the new terminal path.
+        """The graph must terminate after the evaluator node.
+        OV3: agent/tools -> evaluator -> __end__ (responder removed).
         (SPEC.md §2.1 — workflow topology is fixed)
         """
         from noa.orchestrator.graph import build_graph
@@ -238,11 +239,12 @@ class TestGraphTopology:
         graph_repr = compiled.get_graph()
 
         edge_pairs = {(e.source, e.target) for e in graph_repr.edges}
-        assert ("responder", "evaluator") in edge_pairs, (
-            "Graph must have responder -> evaluator edge (EV1)"
-        )
         assert ("evaluator", "__end__") in edge_pairs, (
             "Graph must end after the evaluator node"
+        )
+        # OV3: responder no longer exists
+        assert ("responder", "evaluator") not in edge_pairs, (
+            "OV3: responder -> evaluator edge must not exist (responder deleted)"
         )
 
 
@@ -420,7 +422,8 @@ class TestAgentNode:
 
     def test_agent_sets_response_when_empty_content_no_tools(self):
         """When LLM returns empty content and no tool calls (post-tool-round),
-        agent must still set response in state so responder doesn't fallback.
+        agent must still set response in state so runner._extract_response()
+        can apply the fallback chain (OV3: was: so responder doesn't fallback).
         Regression test for: agent.py condition was `if not tool_calls and content`
         which missed the empty-content case.
         """
@@ -449,8 +452,8 @@ class TestAgentNode:
         ):
             result = asyncio.run(agent_node(state))
 
-        # response must be set (even if empty string) so responder
-        # knows the agent finished intentionally
+        # response must be set (even if empty string) so runner._extract_response()
+        # knows the agent finished intentionally (OV3: was: so responder knows)
         assert "response" in result
 
     def test_agent_does_not_set_response_when_tool_calls_present(self):
@@ -688,119 +691,72 @@ class TestToolNode:
 # 6. Responder Node
 # ===========================================================================
 
-class TestResponderNode:
-    """Responder node formats output and tracks cost per §7.1."""
+class TestExtractResponse:
+    """OV3: _extract_response() replaces the deleted responder node.
 
-    def test_responder_produces_formatted_response(self):
-        """Responder must produce a final formatted response string.
-        (SPEC.md §7.1 — responder node: cost, format)
-        """
-        from noa.orchestrator.nodes.responder import responder_node
+    The runner's _extract_response() static method implements the same
+    fallback chain that responder_node previously handled, but runs in the
+    runner after the graph loop completes.
+    """
 
-        state = _make_agent_state(
-            messages=[
-                _make_user_message("Hi"),
-                {"role": "assistant", "content": "Hello! How can I help?"},
-            ],
-            tool_results=[],
-            response="Hello! How can I help?",
-        )
+    def test_extract_response_uses_response_field(self):
+        """When result has a non-empty response, _extract_response returns it."""
+        from noa.orchestrator.runner import OrchestratorRunner
 
-        result = responder_node(state)
-        assert "response" in result
-        assert isinstance(result["response"], str)
-        assert len(result["response"]) > 0
+        result = {
+            "response": "Hello! How can I help?",
+            "messages": [],
+            "tool_results": [],
+        }
+        response = OrchestratorRunner._extract_response(result)
+        assert response == "Hello! How can I help?"
 
-    def test_responder_tracks_cost(self):
-        """Responder must update total_cost in state.
-        (SPEC.md §2.1 — cost and iteration limits are fixed)
-        """
-        from noa.orchestrator.nodes.responder import responder_node
+    def test_extract_response_skips_empty_assistant_messages(self):
+        """_extract_response skips assistant messages with empty content."""
+        from noa.orchestrator.runner import OrchestratorRunner
 
-        state = _make_agent_state(
-            response="Here is your answer.",
-            total_cost=0.0,
-        )
-
-        result = responder_node(state)
-        assert "total_cost" in result
-        assert isinstance(result["total_cost"], (int, float))
-        assert result["total_cost"] >= 0.0
-
-    def test_responder_returns_state_update_only(self):
-        """Responder must return a state update dict, not mutate input.
-        (SPEC.md §2.1 — node isolation)
-        """
-        from noa.orchestrator.nodes.responder import responder_node
-
-        state = _make_agent_state(response="Answer.")
-        original_cost = state["total_cost"]
-
-        result = responder_node(state)
-
-        assert isinstance(result, dict)
-        # Original state should not be mutated
-        assert state["total_cost"] == original_cost
-
-    def test_responder_skips_empty_assistant_messages(self):
-        """Responder must skip assistant messages with empty content when
-        synthesizing from message history — don't treat '' as a valid response.
-        Regression: responder picked up empty content from tool-call assistant
-        messages and returned it as the final response.
-        """
-        from noa.orchestrator.nodes.responder import responder_node
-
-        state = _make_agent_state(
-            messages=[
-                _make_user_message("Search for Python news"),
-                {"role": "assistant", "content": ""},  # tool-call msg with empty content
+        result = {
+            "response": None,
+            "messages": [
+                {"role": "user", "content": "Search for Python news"},
+                {"role": "assistant", "content": ""},  # tool-call msg, empty
                 {"role": "tool", "name": "web_search", "content": "results"},
                 {"role": "assistant", "content": "Here are the results."},
             ],
-            response=None,
-        )
+            "tool_results": [],
+        }
+        response = OrchestratorRunner._extract_response(result)
+        assert response == "Here are the results."
 
-        result = responder_node(state)
-        assert result["response"] == "Here are the results."
+    def test_extract_response_last_resort_fallback(self):
+        """When no response and no non-empty assistant messages, returns fallback."""
+        from noa.orchestrator.runner import OrchestratorRunner
 
-    def test_responder_uses_tool_context_when_all_messages_empty(self):
-        """When all assistant messages have empty content but tool_results
-        exist, responder should provide a contextual message instead of
-        the generic 'I'm sorry' fallback.
-        """
-        from noa.orchestrator.nodes.responder import responder_node
-
-        state = _make_agent_state(
-            messages=[
-                _make_user_message("Search for Python news"),
+        result = {
+            "response": "",
+            "messages": [
+                {"role": "user", "content": "Hi"},
                 {"role": "assistant", "content": ""},
             ],
-            tool_results=[{"name": "web_search", "result": "some data"}],
-            response=None,
-        )
+            "tool_results": [],
+        }
+        response = OrchestratorRunner._extract_response(result)
+        assert response == "I'm sorry, I couldn't generate a response."
 
-        result = responder_node(state)
-        assert "web_search" in result["response"]
-        assert "sorry" not in result["response"].lower()
+    def test_extract_response_picks_up_message_history(self):
+        """When response='' but messages have content, _extract_response uses history."""
+        from noa.orchestrator.runner import OrchestratorRunner
 
-    def test_responder_empty_response_from_agent_is_accepted(self):
-        """When agent explicitly sets response='' (empty string after tool
-        round with no content), responder should use message history or
-        tool context — not the raw empty string.
-        """
-        from noa.orchestrator.nodes.responder import responder_node
-
-        state = _make_agent_state(
-            messages=[
-                _make_user_message("Hi"),
+        result = {
+            "response": "",
+            "messages": [
+                {"role": "user", "content": "Hi"},
                 {"role": "assistant", "content": "Hello there!"},
             ],
-            response="",
-        )
-
-        result = responder_node(state)
-        # Should pick up "Hello there!" from message history
-        assert result["response"] == "Hello there!"
+            "tool_results": [],
+        }
+        response = OrchestratorRunner._extract_response(result)
+        assert response == "Hello there!"
 
 
 # ===========================================================================
@@ -835,11 +791,13 @@ class TestDeterministicExecution:
         node_names = {n.name for n in compiled.get_graph().nodes.values()}
 
         # The node set must contain at least the required nodes (DI1 adds classifier)
-        expected_core = {"router", "agent", "tools", "responder"}
+        # OV3: responder removed; evaluator is now the terminal node
+        expected_core = {"router", "agent", "tools", "evaluator"}
         core_nodes = node_names - {"__start__", "__end__"}
         assert expected_core.issubset(core_nodes), (
             f"Graph must contain at least {expected_core}, got {core_nodes}"
         )
+        assert "responder" not in core_nodes, "OV3: responder must be removed"
 
 
 # ===========================================================================
@@ -924,9 +882,8 @@ class TestNodeIsolation:
     @pytest.mark.asyncio
     async def test_all_nodes_return_dicts(self):
         """Every node function must return a dict (state update).
-        (SPEC.md §2.1 — deterministic outer shell)
+        (SPEC.md §2.1 — deterministic outer shell; OV3: responder removed)
         """
-        from noa.orchestrator.nodes.responder import responder_node
         from noa.orchestrator.nodes.router import router_node
         from noa.orchestrator.nodes.tools import tool_node
 
@@ -937,7 +894,3 @@ class TestNodeIsolation:
         # Tools (with empty tool calls)
         t = await tool_node(_make_agent_state(tool_calls=[]))
         assert isinstance(t, dict), "tool_node must return dict"
-
-        # Responder
-        resp = responder_node(_make_agent_state(response="answer"))
-        assert isinstance(resp, dict), "responder_node must return dict"

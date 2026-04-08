@@ -258,5 +258,6 @@ VALID_SSE_EVENT_TYPES: frozenset[str] = frozenset(
         "step_started",
         "queued",
         "compaction",
+        "artifact_created",  # OV9: web search artifact report
     }
 )

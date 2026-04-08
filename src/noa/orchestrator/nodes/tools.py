@@ -73,7 +73,13 @@ async def tool_node(state: AgentState) -> dict[str, Any]:
     - Legacy format: {"name": "web_search__web_search", "input": {...}}
 
     All dispatch flows through ToolGateway (set via set_gateway at startup).
+
+    OV2: When a tool requires approval, interrupt() pauses the graph.
+    On resume with {"decision": "approved"}, re-dispatches with approved=True.
+    On resume with {"decision": "denied"}, adds a denial tool result.
     """
+    from langgraph.types import interrupt
+
     tool_calls: list[dict[str, Any]] = state.get("tool_calls", [])
     current_rounds: int = state.get("tool_rounds", 0)
     # W22-H2: Read approvals_enabled from state (default True = enforce approvals)
@@ -149,6 +155,33 @@ async def tool_node(state: AgentState) -> dict[str, Any]:
                     "error": "ToolGateway not configured"
                     " — check app startup wiring",
                 }
+
+            # OV2: If approval is required, pause via interrupt().
+            # interrupt() raises internally; runtime saves state.
+            # On resume, interrupt() returns the user's decision dict.
+            if result.get("approval_required"):
+                interrupt_payload: dict[str, Any] = {
+                    "approval_required": True,
+                    "tool": tool_name,
+                    "function": function,
+                    "args": args,
+                    "risk_tier": result.get("risk_tier", "medium"),
+                }
+                if result.get("cross_domain"):
+                    interrupt_payload["cross_domain"] = True
+                    interrupt_payload["reason"] = result.get("reason", "")
+                decision: dict[str, Any] = interrupt(interrupt_payload)
+                if decision.get("decision") == "approved":
+                    result = await _dispatch_gateway(
+                        tool_name, function, args,
+                        approvals_enabled=False,
+                        user_id=user_id,
+                        privacy_mode=privacy_mode,
+                    )
+                    result = {**result, "approved": True}
+                else:
+                    result = {"error": "Tool execution denied by user.", "denied": True}
+
             sig = _tool_signature(qualified, args)
             results.append({"name": qualified, "_signature": sig, **result})
             prior_results.append({"name": qualified, "_signature": sig})
@@ -185,6 +218,32 @@ async def tool_node(state: AgentState) -> dict[str, Any]:
                     user_id=user_id,
                     privacy_mode=privacy_mode,
                 )
+                # OV2: Interrupt for approval in legacy format too
+                if result.get("approval_required"):
+                    interrupt_payload = {
+                        "approval_required": True,
+                        "tool": parsed_tool,
+                        "function": parsed_func,
+                        "args": arguments,
+                        "risk_tier": result.get("risk_tier", "medium"),
+                    }
+                    if result.get("cross_domain"):
+                        interrupt_payload["cross_domain"] = True
+                        interrupt_payload["reason"] = result.get("reason", "")
+                    decision = interrupt(interrupt_payload)
+                    if decision.get("decision") == "approved":
+                        result = await _dispatch_gateway(
+                            parsed_tool, parsed_func, arguments,
+                            approvals_enabled=False,
+                            user_id=user_id,
+                            privacy_mode=privacy_mode,
+                        )
+                        result = {**result, "approved": True}
+                    else:
+                        result = {
+                            "error": "Tool execution denied by user.",
+                            "denied": True,
+                        }
                 results.append({"name": name, **result})
                 continue
 

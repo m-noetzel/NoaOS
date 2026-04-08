@@ -104,15 +104,18 @@ async def test_agent_node_fallback_to_constant_when_no_state_value() -> None:
 
 
 def test_route_after_tools_uses_max_retries_from_state() -> None:
-    """route_after_tools must use max_retries from state, not the hardcoded constant."""
+    """route_after_tools must use max_retries from state, not the hardcoded constant.
+
+    OV3: routes to evaluator instead of responder when done.
+    """
     from noa.orchestrator.graph import route_after_tools
 
-    # State with max_retries=1 and tool_rounds=1 → should route to responder
+    # State with max_retries=1 and tool_rounds=1 → should route to evaluator (OV3)
     state_at_limit = {
         "tool_rounds": 1,
         "max_retries": 1,
     }
-    assert route_after_tools(state_at_limit) == "responder"
+    assert route_after_tools(state_at_limit) == "evaluator"
 
     # State with max_retries=5 and tool_rounds=1 → should still route to agent
     state_under_limit = {
@@ -123,12 +126,15 @@ def test_route_after_tools_uses_max_retries_from_state() -> None:
 
 
 def test_route_after_tools_fallback_to_constant() -> None:
-    """route_after_tools falls back to MAX_TOOL_ROUNDS when max_retries not in state."""
+    """route_after_tools falls back to MAX_TOOL_ROUNDS when max_retries not in state.
+
+    OV3: routes to evaluator instead of responder when done.
+    """
     from noa.orchestrator.graph import MAX_TOOL_ROUNDS, route_after_tools
 
-    # At the constant cap, should route to responder
+    # At the constant cap, should route to evaluator (OV3: was responder)
     state = {"tool_rounds": MAX_TOOL_ROUNDS}
-    assert route_after_tools(state) == "responder"
+    assert route_after_tools(state) == "evaluator"
 
     # One below, should route to agent
     state_under = {"tool_rounds": MAX_TOOL_ROUNDS - 1}

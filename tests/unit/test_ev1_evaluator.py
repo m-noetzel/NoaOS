@@ -482,21 +482,30 @@ class TestGraphTopology:
         graph = build_graph()
         assert "evaluator" in graph.nodes
 
-    def test_responder_leads_to_evaluator(self) -> None:
-        """The responder node should have an edge to evaluator."""
+    def test_evaluator_is_reachable_from_agent(self) -> None:
+        """The evaluator node must be reachable (agent -> evaluator edge exists).
+
+        OV3: responder removed; agent routes directly to evaluator.
+        """
         graph = build_graph()
-        # Check that evaluator is reachable (LangGraph graph edges)
-        # We verify by checking the compiled graph has both nodes
         compiled = graph.compile()
-        assert compiled is not None
+        edge_pairs = {(e.source, e.target) for e in compiled.get_graph().edges}
+        # agent -> evaluator (conditional, when no tool_calls)
+        assert ("agent", "evaluator") in edge_pairs, (
+            "OV3: agent must have direct edge to evaluator"
+        )
+        assert ("responder", "evaluator") not in edge_pairs, (
+            "OV3: responder -> evaluator edge must not exist (responder deleted)"
+        )
 
     def test_all_required_nodes_present(self) -> None:
-        """All pipeline nodes must be present."""
+        """All pipeline nodes must be present. OV3: responder removed."""
         graph = build_graph()
         expected_nodes = {"router", "classifier", "planner", "agent", "tools",
-                          "responder", "evaluator"}
+                          "evaluator"}
         for node in expected_nodes:
             assert node in graph.nodes, f"Node '{node}' missing from graph"
+        assert "responder" not in graph.nodes, "OV3: responder must be removed"
 
 
 class TestRouteAfterEvaluator:

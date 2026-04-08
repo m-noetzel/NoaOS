@@ -7,14 +7,27 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
+import uuid
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from noa.observability.langfuse_client import TraceContext
 
 logger = logging.getLogger(__name__)
+
+# OV9: Artifacts base directory — mirrors the artifacts endpoint setting.
+_ARTIFACTS_BASE = Path(
+    os.environ.get("ARTIFACTS_DIR", "/data/artifacts")
+).resolve()
+
+# OV2: Registry mapping run_id -> thread_id for interrupted runs awaiting
+# an approval decision.  Keyed by run_id (str); value is the LangGraph
+# thread_id (same as run_id for this implementation).
+_pending_interrupts: dict[str, str] = {}
 
 
 class OrchestratorRunner:
@@ -280,7 +293,58 @@ class OrchestratorRunner:
             _run_start = time.monotonic()
             _timed_out = False
 
-            async for chunk in self._graph.astream(initial_state):
+            # OV2: Use run_id as LangGraph thread_id for MemorySaver checkpointing.
+            _lg_config: dict[str, Any] = {"configurable": {"thread_id": run_id}}
+            _interrupted = False
+
+            # OV2: Pass config for interrupt/resume support.
+            # Detect whether the graph's astream accepts 'config' to remain
+            # compatible with stub graphs in tests.
+            import inspect as _inspect
+            try:
+                _sig = _inspect.signature(self._graph.astream)
+                _has_config = "config" in _sig.parameters
+            except (ValueError, TypeError):
+                _has_config = False
+            if _has_config:
+                _stream = self._graph.astream(initial_state, config=_lg_config)
+            else:
+                _stream = self._graph.astream(initial_state)
+
+            async for chunk in _stream:
+                # OV2: LangGraph signals an interrupt via "__interrupt__" key.
+                if "__interrupt__" in chunk:
+                    interrupt_data = chunk["__interrupt__"]
+                    if interrupt_data:
+                        try:
+                            iv = interrupt_data[0].value
+                        except (AttributeError, IndexError, TypeError):
+                            iv = {}
+                    else:
+                        iv = {}
+
+                    _pending_interrupts[run_id] = run_id
+                    approval_payload_interrupt: dict[str, Any] = {
+                        "tool": iv.get("tool", ""),
+                        "function": iv.get("function", ""),
+                        "args": iv.get("args", {}),
+                        "risk_tier": iv.get("risk_tier", "medium"),
+                    }
+                    if iv.get("cross_domain"):
+                        approval_payload_interrupt["cross_domain"] = True
+                        approval_payload_interrupt["reason"] = iv.get("reason", "")
+
+                    approval_event_interrupt = self._make_event(
+                        "approval_requested",
+                        approval_payload_interrupt,
+                    )
+                    await self._persist_event(
+                        run_service, run_id, approval_event_interrupt,
+                    )
+                    yield approval_event_interrupt
+                    _interrupted = True
+                    break
+
                 # astream yields {node_name: state_update} per completed node
                 for node_name, node_output in chunk.items():
                     if not isinstance(node_output, dict):
@@ -384,33 +448,29 @@ class OrchestratorRunner:
                             await self._persist_event(run_service, run_id, end_event)
                             yield end_event
 
-                            # Emit approval_requested for actions needing approval
-                            if tr.get("approval_required"):
-                                approval_payload: dict[str, Any] = {
-                                    "tool": tr.get("tool", ""),
-                                    "function": tr.get("function", ""),
-                                    "args": tr.get("args", {}),
-                                    "risk_tier": tr.get("risk_tier", "medium"),
-                                }
-                                # OI7: Include cross-domain context when present
-                                if tr.get("cross_domain"):
-                                    approval_payload["cross_domain"] = True
-                                    approval_payload["reason"] = tr.get("reason", "")
-                                approval_event = self._make_event(
-                                    "approval_requested",
-                                    approval_payload,
+                            # OV2: approval_required is now handled by interrupt()
+                            # in tool_node before routing reaches here.
+                            # Emit tool_result for all completed tool calls.
+                            tr_event = self._make_event(
+                                "tool_result",
+                                {"tool_result": tr, "tool_name": tr_name},
+                            )
+                            await self._persist_event(run_service, run_id, tr_event)
+                            yield tr_event
+
+                            # OV9: Web search artifact — format results as
+                            # a Markdown report and save as an artifact.
+                            if tr_name == "web_search":
+                                artifact_event = await self._create_search_artifact(
+                                    run_service=run_service,
+                                    run_id=run_id,
+                                    tool_result=tr,
                                 )
-                                await self._persist_event(
-                                    run_service, run_id, approval_event,
-                                )
-                                yield approval_event
-                            else:
-                                tr_event = self._make_event(
-                                    "tool_result",
-                                    {"tool_result": tr, "tool_name": tr_name},
-                                )
-                                await self._persist_event(run_service, run_id, tr_event)
-                                yield tr_event
+                                if artifact_event is not None:
+                                    await self._persist_event(
+                                        run_service, run_id, artifact_event,
+                                    )
+                                    yield artifact_event
 
                 # LS2: Timeout watchdog — check after each chunk (node)
                 elapsed = time.monotonic() - _run_start
@@ -447,6 +507,23 @@ class OrchestratorRunner:
                         extra=log_ctx,
                     )
                 # ST4: No cleanup needed — callback is scoped to this run's state
+                return
+
+            # OV2: Mark run as awaiting_approval if graph was interrupted.
+            if _interrupted:
+                try:
+                    await run_service.update_status(run_id, "awaiting_approval")
+                except Exception:  # noqa: BLE001
+                    logger.warning(
+                        "Failed to update run status to awaiting_approval: run_id=%s",
+                        run_id,
+                        extra=log_ctx,
+                    )
+                logger.info(
+                    "Run interrupted for approval: run_id=%s",
+                    run_id,
+                    extra=log_ctx,
+                )
                 return
 
             # CC1: Context window compaction — check if accumulated messages
@@ -533,12 +610,25 @@ class OrchestratorRunner:
                     1.0 if eval_verdict == "pass" else 0.0,
                 )
 
+            # OV3: Extract response with fallback (responder logic moved here).
+            response = self._extract_response(result)
+            result["response"] = response
+
+            # OV3: Compute total_cost from accumulated llm_usage records
+            # (previously done in responder_node, now done in runner after graph).
+            llm_usage_final: list[dict[str, Any]] = result.get("llm_usage", [])
+            total_cost = sum(
+                entry.get("cost_usd", 0.0)
+                for entry in llm_usage_final
+                if isinstance(entry, dict)
+            )
+            result["total_cost"] = total_cost
+
             # LF1: Update trace with final output + flush
-            response = result.get("response", "")
             lf_trace.update(
                 output=response,
                 metadata={
-                    "total_cost": result.get("total_cost", 0.0),
+                    "total_cost": total_cost,
                     "privacy_mode": privacy_mode,
                     "model": model or "default",
                     "eval_verdict": eval_verdict,
@@ -551,8 +641,8 @@ class OrchestratorRunner:
                 "result_ready",
                 {
                     "response": response,
-                    "total_cost": result.get("total_cost", 0.0),
-                    "llm_usage": result.get("llm_usage", []),
+                    "total_cost": total_cost,
+                    "llm_usage": llm_usage_final,
                 },
             )
             await self._persist_event(run_service, run_id, event)
@@ -696,6 +786,265 @@ class OrchestratorRunner:
             " Never leave the user without a response."
         )
 
+    # OV9: Search artifact helpers -------------------------------------------
+
+    @staticmethod
+    def _format_search_report(
+        query: str,
+        results: list[dict[str, Any]],
+        timestamp: str,
+    ) -> str:
+        """Format web search results as a Markdown report."""
+        lines: list[str] = [
+            "# Web Search Report",
+            "",
+            f"**Query:** {query}",
+            f"**Date:** {timestamp}",
+            f"**Results:** {len(results)}",
+            "",
+            "---",
+            "",
+        ]
+        for idx, result in enumerate(results, start=1):
+            title = result.get("title", "(no title)")
+            url = result.get("url", "")
+            snippet = result.get("snippet", result.get("content", ""))
+            lines.append(f"## {idx}. {title}")
+            if url:
+                lines.append(f"**URL:** {url}")
+            if snippet:
+                lines.append(snippet)
+            lines.append("")
+        return "\n".join(lines)
+
+    async def _create_search_artifact(
+        self,
+        *,
+        run_service: Any,
+        run_id: str,
+        tool_result: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Write a search report to disk and create an artifact DB record.
+
+        Returns an ``artifact_created`` event dict, or None on failure.
+        Best-effort — errors are logged but do not propagate.
+        """
+        try:
+            args: dict[str, Any] = tool_result.get("args", {})
+            query: str = args.get("query", "")
+            result_data = tool_result.get("result", tool_result.get("output", {}))
+            if isinstance(result_data, str):
+                results: list[dict[str, Any]] = []
+            elif isinstance(result_data, dict):
+                results = result_data.get("results", [])
+            elif isinstance(result_data, list):
+                results = result_data
+            else:
+                results = []
+
+            timestamp = datetime.now(UTC).isoformat()
+            report_md = self._format_search_report(query, results, timestamp)
+            report_bytes = report_md.encode("utf-8")
+
+            artifact_dir = _ARTIFACTS_BASE / run_id
+            artifact_dir.mkdir(parents=True, exist_ok=True)
+            artifact_path = artifact_dir / "search_report.md"
+            artifact_path.write_bytes(report_bytes)
+
+            storage_ref = str(artifact_path)
+
+            run_uuid = uuid.UUID(run_id) if isinstance(run_id, str) else run_id
+            artifact = await run_service.create_artifact(
+                run_uuid,
+                artifact_type="export",
+                name="search_report.md",
+                mime_type="text/markdown",
+                size_bytes=len(report_bytes),
+                storage_ref=storage_ref,
+            )
+
+            artifact_id = str(artifact.id) if hasattr(artifact, "id") else ""
+            return self._make_event(
+                "artifact_created",
+                {
+                    "artifact_id": artifact_id,
+                    "name": "search_report.md",
+                    "mime_type": "text/markdown",
+                    "size_bytes": len(report_bytes),
+                    "storage_ref": storage_ref,
+                },
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "Failed to create search artifact for run %s",
+                run_id,
+                exc_info=True,
+            )
+            return None
+
+    # -------------------------------------------------------------------------
+
+    async def resume(
+        self,
+        run_id: str,
+        decision: dict[str, Any],
+        *,
+        run_service: Any,
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Resume an interrupted graph with the user's approval decision.
+
+        OV2: Called by the approvals endpoint when the user decides.
+        Uses Command(resume=decision) to continue the graph from the
+        interrupt point in tool_node.
+
+        Args:
+            run_id: The run_id (also used as LangGraph thread_id).
+            decision: Dict with "decision" key: "approved" or "denied".
+            run_service: RunService for status updates and event persistence.
+
+        Yields:
+            SSE event dicts (same format as run()).
+        """
+        from langgraph.types import Command
+
+        thread_id = _pending_interrupts.pop(run_id, run_id)
+        lg_config: dict[str, Any] = {"configurable": {"thread_id": thread_id}}
+
+        logger.info(
+            "Resuming graph for run_id=%s with decision=%s",
+            run_id,
+            decision.get("decision"),
+        )
+
+        try:
+            await run_service.update_status(run_id, "running")
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "Failed to update run status to running on resume: run_id=%s", run_id
+            )
+
+        try:
+            # OV3: Accumulate result so we can compute response/cost after graph.
+            resume_result: dict[str, Any] = {}
+            _interrupted_resume = False
+
+            async for chunk in self._graph.astream(
+                Command(resume=decision), config=lg_config,
+            ):
+                if "__interrupt__" in chunk:
+                    interrupt_data = chunk["__interrupt__"]
+                    if interrupt_data:
+                        try:
+                            iv = interrupt_data[0].value
+                        except (AttributeError, IndexError, TypeError):
+                            iv = {}
+                    else:
+                        iv = {}
+
+                    _pending_interrupts[run_id] = thread_id
+                    ap_payload: dict[str, Any] = {
+                        "tool": iv.get("tool", ""),
+                        "function": iv.get("function", ""),
+                        "args": iv.get("args", {}),
+                        "risk_tier": iv.get("risk_tier", "medium"),
+                    }
+                    if iv.get("cross_domain"):
+                        ap_payload["cross_domain"] = True
+                        ap_payload["reason"] = iv.get("reason", "")
+
+                    ap_event = self._make_event("approval_requested", ap_payload)
+                    await self._persist_event(run_service, run_id, ap_event)
+                    yield ap_event
+
+                    try:
+                        await run_service.update_status(run_id, "awaiting_approval")
+                    except Exception:  # noqa: BLE001
+                        logger.warning(
+                            "Failed to update status to awaiting_approval: run_id=%s",
+                            run_id,
+                        )
+                    _interrupted_resume = True
+                    return
+
+                for node_name, node_output in chunk.items():
+                    if not isinstance(node_output, dict):
+                        continue
+
+                    # Merge node output into accumulated result.
+                    resume_result.update(node_output)
+
+                    step_event = self._make_event("step_started", {"step": node_name})
+                    await self._persist_event(run_service, run_id, step_event)
+                    yield step_event
+
+                    if node_name == "tools":
+                        for tr in node_output.get("tool_results", []):
+                            if not isinstance(tr, dict):
+                                continue
+                            tr_name = tr.get("name", tr.get("tool_name", ""))
+                            tr_event = self._make_event(
+                                "tool_result",
+                                {"tool_result": tr, "tool_name": tr_name},
+                            )
+                            await self._persist_event(run_service, run_id, tr_event)
+                            yield tr_event
+
+            # OV3: Emit result_ready after graph loop completes (was: responder node).
+            if not _interrupted_resume:
+                resume_response = self._extract_response(resume_result)
+                resume_llm_usage: list[dict[str, Any]] = resume_result.get(
+                    "llm_usage", [],
+                )
+                resume_cost = sum(
+                    entry.get("cost_usd", 0.0)
+                    for entry in resume_llm_usage
+                    if isinstance(entry, dict)
+                )
+                result_ready_event = self._make_event(
+                    "result_ready",
+                    {
+                        "response": resume_response,
+                        "total_cost": resume_cost,
+                        "llm_usage": resume_llm_usage,
+                    },
+                )
+                await self._persist_event(run_service, run_id, result_ready_event)
+                yield result_ready_event
+
+            try:
+                await run_service.update_status(run_id, "completed")
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "Failed to update run status to completed after resume: run_id=%s",
+                    run_id,
+                )
+
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "Resume failed: run_id=%s error=%s",
+                run_id,
+                str(exc),
+                exc_info=True,
+            )
+            error_event = self._make_event(
+                "error",
+                {
+                    "error": "An error occurred processing your request.",
+                    "error_type": type(exc).__name__,
+                },
+            )
+            await self._persist_event(run_service, run_id, error_event)
+            yield error_event
+
+            try:
+                await run_service.update_status(run_id, "failed")
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "Failed to update run status to failed after resume"
+                    " error: run_id=%s",
+                    run_id,
+                )
+
     @staticmethod
     def _make_event(
         event_type: str,
@@ -707,6 +1056,39 @@ class OrchestratorRunner:
             "payload": payload,
             "timestamp": datetime.now(UTC).isoformat(),
         }
+
+    @staticmethod
+    def _extract_response(result: dict[str, Any]) -> str:
+        """Extract the response text from graph result with fallback chain.
+
+        OV3: This logic was previously in responder_node. Moved here so the
+        runner computes it after the graph loop, eliminating the responder node.
+
+        Fallback order:
+        1. result["response"] if non-empty.
+        2. Last non-empty assistant message content in result["messages"].
+        3. "I'm sorry, I couldn't generate a response." (last resort).
+
+        Note: The tool-result synthesized message from the old responder_node
+        ("I completed the requested actions using {tool_names}...") is
+        intentionally removed — it was identified as false/misleading (ARCH-RS1).
+        """
+        response = result.get("response") or ""
+        if response:
+            return response
+
+        # Try the last non-empty assistant message.
+        messages = result.get("messages", [])
+        for msg in reversed(messages):
+            if not isinstance(msg, dict):
+                continue
+            if msg.get("role") == "assistant":
+                candidate = msg.get("content", "")
+                if candidate:
+                    return candidate
+
+        # Last resort.
+        return "I'm sorry, I couldn't generate a response."
 
     @staticmethod
     async def _persist_event(
