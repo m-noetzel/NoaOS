@@ -334,6 +334,7 @@ async def submit_chat(
                         private_available=private_available,
                         tool_scope=body.tool_scope,
                         node_models=user_settings.get("node_models", {}),
+                        eval_config=user_settings.get("eval_config") or {},
                     ):
                         await event_queue.put(event)
                 finally:
@@ -448,6 +449,7 @@ async def _load_user_settings(user_id: Any) -> dict[str, Any]:
         "approvals_enabled": True,
         "node_models": {},
         "private_keywords": [],
+        "eval_config": {},
     }
     factory = _get_session_factory()
     if factory is None:
@@ -475,6 +477,8 @@ async def _load_user_settings(user_id: Any) -> dict[str, Any]:
                 "node_models": data.get("node_models") or {},
                 # PC1: Custom private keywords (empty list = use built-in defaults)
                 "private_keywords": data.get("private_keywords") or [],
+                # OV4 / UX-EV1: Evaluator config (empty dict = use hardcoded defaults)
+                "eval_config": data.get("eval_config") or {},
             }
     except Exception:  # noqa: BLE001
         logger.warning("Failed to load user settings for agent limits")

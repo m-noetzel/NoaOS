@@ -413,6 +413,11 @@ class TestRubricThresholdsHappyPath:
         """completeness must be >= 3.0 for a well-formed response."""
         if fixture["task_type"] == "simple_utility":
             pytest.skip("simple_utility skips evaluation — no scores to check")
+        if fixture["task_type"] == "execution":
+            pytest.skip(
+                "OV4: execution tasks use lightweight rubric (goal_alignment + actionability only) "
+                "— completeness is not evaluated for execution tasks"
+            )
 
         scores = _realistic_scores_for_fixture(fixture)
         state = _make_evaluator_state(fixture)
@@ -586,7 +591,8 @@ class TestRubricThresholdsNegativePath:
         # Feedback message must be injected for agent to improve
         assert "messages" in result
         feedback_msg = result["messages"][-1]
-        assert feedback_msg["role"] == "user"
+        # OV4 / ARCH-EV1: reroute feedback uses role "developer" (not "user")
+        assert feedback_msg["role"] == "developer"
         assert "improvement" in feedback_msg["content"].lower()
         # Cycle counter incremented
         assert result["eval_cycle"] == 1

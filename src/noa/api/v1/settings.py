@@ -37,6 +37,18 @@ class NodeModelsConfig(BaseModel):
     evaluator: str | None = None
 
 
+class EvalConfig(BaseModel):
+    """Evaluator quality thresholds (OV4 / UX-EV1).
+
+    Controls when evaluation results in pass, reroute, or flag.
+    Stored as JSON in user_settings.eval_config column.
+    """
+
+    pass_threshold: float = Field(default=3.0, ge=0.0, le=5.0)
+    reroute_threshold: float = Field(default=2.0, ge=0.0, le=5.0)
+    max_cycles: int = Field(default=2, ge=1, le=10)
+
+
 class UpdateSettingsRequest(BaseModel):
     """Request body for updating user settings."""
 
@@ -63,6 +75,8 @@ class UpdateSettingsRequest(BaseModel):
     node_models: NodeModelsConfig | None = None
     # PC1: User-configurable private keywords for the privacy classifier
     private_keywords: list[str] | None = None
+    # OV4 / UX-EV1: Evaluator quality thresholds
+    eval_config: EvalConfig | None = None
 
 
 def _reload_llm_pipeline_if_needed(

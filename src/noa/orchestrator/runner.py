@@ -71,6 +71,7 @@ class OrchestratorRunner:
         private_available: bool = True,
         tool_scope: str | None = None,
         node_models: dict[str, str] | None = None,
+        eval_config: dict[str, Any] | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Execute the graph and yield structured events.
 
@@ -89,6 +90,8 @@ class OrchestratorRunner:
             approvals_enabled: Whether human approval checks are enforced (W22-H2).
             node_models: MC1 per-node model overrides
                 (keys: classifier, planner, agent, evaluator).
+            eval_config: OV4 / UX-EV1 evaluator quality thresholds
+                (keys: pass_threshold, reroute_threshold, max_cycles).
 
         Yields:
             Event dicts with event_type, payload, timestamp.
@@ -256,6 +259,10 @@ class OrchestratorRunner:
                 "eval_scores": None,
                 "eval_verdict": None,
                 "eval_cycle": 0,
+                # OV4: Configurable evaluator thresholds (UX-EV1)
+                "eval_config": eval_config or {},
+                # OV4: Evaluator reasoning for Langfuse logging (ARCH-EV1)
+                "eval_reasoning": None,
                 # CC1: Context compaction boundary flag
                 "is_compaction_boundary": False,
             }

@@ -50,10 +50,12 @@ _ALL_FIELDS = frozenset({
     "timeout_seconds",
     # PC1: custom privacy classifier keywords
     "private_keywords",
+    # OV4 / UX-EV1: evaluator configuration
+    "eval_config",
 })
 
 # Fields stored as JSON blobs (TEXT column, decode on read)
-_JSON_FIELDS = frozenset({"node_models", "private_keywords"})
+_JSON_FIELDS = frozenset({"node_models", "private_keywords", "eval_config"})
 
 _DEFAULTS: dict[str, Any] = {
     "default_model": "claude-sonnet-4-20250514",
@@ -79,6 +81,8 @@ _DEFAULTS: dict[str, Any] = {
     "node_models": None,
     # PC1: User-configurable private keywords (None = use built-in defaults only)
     "private_keywords": None,
+    # OV4 / UX-EV1: evaluator config (None = use hardcoded defaults)
+    "eval_config": None,
 }
 
 
@@ -201,6 +205,16 @@ class SettingsService:
         else:
             row_result["private_keywords"] = None
 
+        # OV4 / UX-EV1: eval_config stored as JSON TEXT — decode and include
+        raw_eval_config = getattr(row, "eval_config", None)
+        if raw_eval_config:
+            try:
+                row_result["eval_config"] = json.loads(raw_eval_config)
+            except (json.JSONDecodeError, TypeError):
+                row_result["eval_config"] = None
+        else:
+            row_result["eval_config"] = None
+
         return row_result
 
     async def get_scope_overrides(
@@ -288,6 +302,26 @@ class SettingsService:
                     json.dumps(cleaned_kw) if cleaned_kw else None
                 )
             # ignore non-list values
+
+        # OV4 / UX-EV1: handle eval_config (JSON-encoded TEXT column).
+        # Stores evaluator threshold settings as a JSON object.
+        if "eval_config" in updates:
+            ec_value = updates["eval_config"]
+            if ec_value is None:
+                filtered["eval_config"] = None
+            elif isinstance(ec_value, dict):
+                # Only store recognised keys with valid types
+                cleaned_ec: dict[str, Any] = {}
+                if ec_value.get("pass_threshold") is not None:
+                    cleaned_ec["pass_threshold"] = float(ec_value["pass_threshold"])
+                if ec_value.get("reroute_threshold") is not None:
+                    cleaned_ec["reroute_threshold"] = float(
+                        ec_value["reroute_threshold"]
+                    )
+                if ec_value.get("max_cycles") is not None:
+                    cleaned_ec["max_cycles"] = int(ec_value["max_cycles"])
+                filtered["eval_config"] = json.dumps(cleaned_ec) if cleaned_ec else None
+            # ignore non-dict values
 
         if filtered:
             await self._repo.upsert(user_id, filtered)

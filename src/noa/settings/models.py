@@ -103,6 +103,11 @@ class UserSettings(Base):
     # None means "use built-in defaults only".
     private_keywords: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # OV4 / UX-EV1: Evaluator quality thresholds (JSON object stored as TEXT).
+    # Keys: pass_threshold (float), reroute_threshold (float), max_cycles (int).
+    # None means "use hardcoded defaults from evaluator.py".
+    eval_config: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC),
