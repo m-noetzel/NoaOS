@@ -1073,7 +1073,7 @@ class OrchestratorRunner:
         ("I completed the requested actions using {tool_names}...") is
         intentionally removed — it was identified as false/misleading (ARCH-RS1).
         """
-        response = result.get("response") or ""
+        response = str(result.get("response") or "")
         if response:
             return response
 
@@ -1083,7 +1083,7 @@ class OrchestratorRunner:
             if not isinstance(msg, dict):
                 continue
             if msg.get("role") == "assistant":
-                candidate = msg.get("content", "")
+                candidate = str(msg.get("content", "") or "")
                 if candidate:
                     return candidate
 
