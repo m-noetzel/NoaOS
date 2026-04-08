@@ -106,6 +106,8 @@ class OrchestratorRunner:
                 "provider": provider or "default",
             },
         )
+        # Set user message as trace input
+        lf_trace.update(input=message)
 
         # 1. message_received
         event = self._make_event(
@@ -301,6 +303,27 @@ class OrchestratorRunner:
                             {"token": token, "run_id": run_id},
                         )
                         yield token_event
+
+                    # LF1: Record a span for each graph node
+                    lf_trace.span(
+                        name=f"node/{node_name}",
+                        input={
+                            k: v
+                            for k, v in node_output.items()
+                            if k in ("messages", "plan", "task_type",
+                                     "archetype", "selected_model",
+                                     "privacy_mode", "tool_calls")
+                        },
+                        output={
+                            k: v
+                            for k, v in node_output.items()
+                            if k in ("response", "selected_model",
+                                     "privacy_mode", "plan", "task_type",
+                                     "archetype", "eval_scores",
+                                     "eval_verdict", "tool_results")
+                        },
+                        metadata={"node": node_name},
+                    )
 
                     # Emit step_started for each node as it completes
                     step_event = self._make_event(

@@ -28,7 +28,7 @@ api = [
     "nh3>=0.2,<1.0",
     "python-multipart>=0.0.9,<1.0",
     "pgvector>=0.3.0",
-    "langfuse>=2.0.0",
+    "langfuse>=2.0.0,<3.0.0",
 ]
 orchestrator = [
     "langgraph>=0.2,<1.0",

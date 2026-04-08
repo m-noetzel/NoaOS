@@ -331,7 +331,6 @@ class TestAgentNodePlanInjection:
 
         with (
             patch("noa.orchestrator.nodes.agent.invoke_llm", side_effect=_fake_invoke),
-            patch("noa.orchestrator.nodes.agent._stream_callback", None),
         ):
             await agent_node(state)  # type: ignore[arg-type]
 
@@ -371,7 +370,6 @@ class TestAgentNodePlanInjection:
 
         with (
             patch("noa.orchestrator.nodes.agent.invoke_llm", side_effect=_fake_invoke),
-            patch("noa.orchestrator.nodes.agent._stream_callback", None),
         ):
             result = await agent_node(state)  # type: ignore[arg-type]
 
@@ -416,7 +414,6 @@ class TestAgentNodePlanInjection:
 
         with (
             patch("noa.orchestrator.nodes.agent.invoke_llm", side_effect=_fake_invoke),
-            patch("noa.orchestrator.nodes.agent._stream_callback", None),
         ):
             await agent_node(state)  # type: ignore[arg-type]
 

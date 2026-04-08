@@ -41,17 +41,17 @@ class OllamaClient:
         messages: list[dict[str, Any]],
         model: str,
         max_tokens: int = 1024,
-        temperature: float = 0.7,
+        temperature: float | None = None,
     ) -> dict[str, Any]:
         """Build the request body for an Ollama /api/chat call."""
+        options: dict[str, Any] = {"num_predict": max_tokens}
+        if temperature is not None:
+            options["temperature"] = temperature
         return {
             "model": model,
             "messages": messages,
             "stream": False,
-            "options": {
-                "num_predict": max_tokens,
-                "temperature": temperature,
-            },
+            "options": options,
         }
 
     async def _send_request(self, request: dict[str, Any]) -> httpx.Response:
@@ -149,7 +149,7 @@ class OllamaClient:
         messages: list[dict[str, Any]],
         model: str,
         max_tokens: int = 1024,
-        temperature: float = 0.7,
+        temperature: float | None = None,
     ) -> dict[str, Any]:
         """Send a completion request to Ollama.
 
@@ -184,7 +184,7 @@ class OllamaClient:
         messages: list[dict[str, Any]],
         model: str,
         max_tokens: int = 1024,
-        temperature: float = 0.7,
+        temperature: float | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Stream a completion request to Ollama using NDJSON streaming.
 
@@ -198,14 +198,14 @@ class OllamaClient:
             msg = f"Model '{model}' is not approved in the manifest"
             raise ProviderError(msg)
 
+        options: dict[str, Any] = {"num_predict": max_tokens}
+        if temperature is not None:
+            options["temperature"] = temperature
         request = {
             "model": model,
             "messages": messages,
             "stream": True,
-            "options": {
-                "num_predict": max_tokens,
-                "temperature": temperature,
-            },
+            "options": options,
         }
         return self._stream_request(request, model)
 

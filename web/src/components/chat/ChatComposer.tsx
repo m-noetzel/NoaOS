@@ -4,13 +4,14 @@ import { apiRequest } from "@/api/client";
 import type { ChatRequest, Provider, PrivacyMode, UserSettings } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { Send, Settings2, Mic, MicOff, Square } from "lucide-react";
+import { DomainBadge } from "@/components/DomainBadge";
 import type { SSEClient } from "@/api/sse";
 import { useVoiceRecorder } from "@/hooks/useVoiceRecorder";
 
@@ -69,14 +70,36 @@ export function ChatComposer({
   const hasRecordingError = recordingState === "error";
   const [temperature, setTemperature] = useState<number | null>(null);
   const [maxTokens, setMaxTokens] = useState<number | null>(null);
-  const [systemPrompt, setSystemPrompt] = useState<string | null>(null);
 
-  const model = settings?.default_model || "gpt-4.1";
-  const provider = (settings?.default_provider || "openai") as Provider;
   const privacyMode = (settings?.default_privacy_mode || "external") as PrivacyMode;
+
+  // UI-H6: Providers available in the active domain
+  // Private domain only permits the local Ollama provider
+  const PRIVATE_PROVIDERS: Provider[] = ["ollama"];
+  const ALL_PROVIDERS: { value: Provider; label: string }[] = [
+    { value: "openai", label: "OpenAI" },
+    { value: "anthropic", label: "Anthropic" },
+    { value: "google_ai", label: "Google AI" },
+    { value: "kimi", label: "Kimi (Moonshot AI)" },
+    { value: "ollama", label: "Ollama (Local)" },
+  ];
+  const availableProviders =
+    privacyMode === "private"
+      ? ALL_PROVIDERS.filter((p) => PRIVATE_PROVIDERS.includes(p.value))
+      : ALL_PROVIDERS;
+
+  const defaultProvider = (settings?.default_provider || "openai") as Provider;
+  // If current default provider is not allowed in this domain, fall back
+  const effectiveDefaultProvider: Provider =
+    availableProviders.some((p) => p.value === defaultProvider)
+      ? defaultProvider
+      : availableProviders[0]?.value ?? "ollama";
+
+  const [selectedProvider, setSelectedProvider] = useState<Provider | null>(null);
+  const provider: Provider = selectedProvider ?? effectiveDefaultProvider;
+  const model = settings?.default_model || "gpt-4.1";
   const effectiveTemperature = temperature ?? settings?.temperature ?? 0.7;
   const effectiveMaxTokens = maxTokens ?? settings?.max_tokens ?? 4096;
-  const effectiveSystemPrompt = systemPrompt ?? settings?.system_prompt ?? "";
 
   const saveChatDefaultsMutation = useMutation({
     mutationFn: (updates: Record<string, unknown>) =>
@@ -156,9 +179,6 @@ export function ChatComposer({
       provider,
       temperature: effectiveTemperature,
       max_tokens: effectiveMaxTokens,
-      ...(effectiveSystemPrompt.trim()
-        ? { system_prompt: effectiveSystemPrompt.trim() }
-        : {}),
     };
 
     await sseClientRef.current!.connect("/api/v1/chat", body);
@@ -170,6 +190,31 @@ export function ChatComposer({
         <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
           <CollapsibleContent className="mb-3 space-y-3 animate-fade-in">
             <div className="space-y-3 p-3 rounded-xl bg-muted/40 border border-border/30">
+              {/* UI-H6: Domain badge + provider selector filtered by domain */}
+              <div className="flex items-center gap-3">
+                <DomainBadge domain={privacyMode} />
+                <div className="flex-1 space-y-1">
+                  <Label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                    Provider
+                  </Label>
+                  <Select
+                    value={provider}
+                    onValueChange={(v) => setSelectedProvider(v as Provider)}
+                    data-testid="provider-select"
+                  >
+                    <SelectTrigger className="h-8 text-xs bg-background/50 border-border/40" data-testid="provider-select-trigger">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableProviders.map((p) => (
+                        <SelectItem key={p.value} value={p.value} data-testid={`provider-option-${p.value}`}>
+                          {p.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
@@ -201,18 +246,6 @@ export function ChatComposer({
                     step={256}
                   />
                 </div>
-              </div>
-              <div className="space-y-2">
-                <Label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-                  System prompt
-                </Label>
-                <Textarea
-                  value={effectiveSystemPrompt}
-                  onChange={(e) => setSystemPrompt(e.target.value)}
-                  placeholder="Override system prompt for this message (leave empty to use default from Settings)"
-                  className="min-h-[60px] text-sm bg-background/50 border-border/40 resize-y"
-                  rows={2}
-                />
               </div>
             </div>
           </CollapsibleContent>

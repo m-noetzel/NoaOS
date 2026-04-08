@@ -25,12 +25,21 @@ class PostgresCheckpointer:
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._session_factory = session_factory
 
+    # Keys whose values are not JSON-serializable (e.g. callback functions).
+    _NON_SERIALIZABLE_KEYS = frozenset({"token_callback"})
+
     async def save(self, *, run_id: str, state: dict[str, Any]) -> None:
         """Save or update a checkpoint for the given run."""
         from noa.db.models.checkpoint import Checkpoint
 
+        # Strip non-serializable fields before persisting
+        clean_state = {
+            k: v for k, v in state.items()
+            if k not in self._NON_SERIALIZABLE_KEYS
+        }
+
         async with self._session_factory() as session:
-            stmt = pg_insert(Checkpoint).values(run_id=run_id, state=state)
+            stmt = pg_insert(Checkpoint).values(run_id=run_id, state=clean_state)
             stmt = stmt.on_conflict_do_update(
                 index_elements=["run_id"],
                 set_={"state": stmt.excluded.state, "updated_at": func.now()},

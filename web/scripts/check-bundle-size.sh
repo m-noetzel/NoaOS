@@ -36,23 +36,25 @@ printf "%-60s %10s %10s %6s\n" "----" "--------" "---------" "------"
 while IFS= read -r file; do
   filename="$(basename "$file")"
   raw_bytes=$(wc -c < "$file")
-  raw_kb=$(( raw_bytes / 1024 ))
+  raw_kb=$(awk "BEGIN {printf \"%.1f\", $raw_bytes/1024}")
 
   # gzip to temp file, measure
   tmp=$(mktemp)
   gzip -c "$file" > "$tmp"
   gz_bytes=$(wc -c < "$tmp")
   rm -f "$tmp"
-  gz_kb=$(( gz_bytes / 1024 ))
+  gz_kb=$(awk "BEGIN {printf \"%.1f\", $gz_bytes/1024}")
 
-  if (( gz_kb > MAX_GZIP_KB )); then
+  # Compare using integer part for threshold check
+  gz_kb_int=$(( gz_bytes / 1024 ))
+  if (( gz_kb_int > MAX_GZIP_KB )); then
     status="FAIL"
     FAIL=1
   else
     status="ok"
   fi
 
-  printf "%-60s %10d %10d %6s\n" "$filename" "$raw_kb" "$gz_kb" "$status"
+  printf "%-60s %10s %10s %6s\n" "$filename" "$raw_kb" "$gz_kb" "$status"
 done < <(find "$DIST_DIR" -maxdepth 1 \( -name "*.js" -o -name "*.css" \) | sort)
 
 echo ""

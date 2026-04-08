@@ -46,7 +46,7 @@ export interface RefreshRequest {
 export type RunStatus = "queued" | "pending" | "running" | "waiting_for_approval" | "completed" | "failed" | "cancelled";
 export type RiskTier = "low" | "medium" | "high" | "critical";
 export type PrivacyMode = "private" | "external";
-export type Provider = "ollama" | "anthropic" | "openai" | "google_ai";
+export type Provider = "ollama" | "anthropic" | "openai" | "google_ai" | "kimi";
 export type ReplayMode = "tool_only" | "downstream" | "full";
 
 // --- Pricing ---
@@ -74,6 +74,7 @@ export interface Thread {
   created_at: string;
   updated_at: string;
   message_count: number;
+  domain?: PrivacyMode;
 }
 
 export interface Message {

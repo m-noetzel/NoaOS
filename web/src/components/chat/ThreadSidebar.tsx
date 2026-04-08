@@ -1,12 +1,14 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/api/client";
-import type { Thread } from "@/api/types";
+import type { Thread, PrivacyMode } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { Plus, Trash2, Pencil, Check, X } from "lucide-react";
+
+type DomainFilter = PrivacyMode | "all";
 
 interface ThreadSidebarProps {
   activeThread: string | null;
@@ -24,12 +26,27 @@ export function ThreadSidebar({
 
   const [renamingThread, setRenamingThread] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [domainFilter, setDomainFilter] = useState<DomainFilter>("all");
 
-  const { data: threadsRes } = useQuery({
-    queryKey: ["threads"],
-    queryFn: () => apiRequest<Thread[]>("/api/v1/threads"),
+  // Fetch threads for each domain separately (backend only accepts one domain at a time)
+  const { data: externalThreadsRes } = useQuery({
+    queryKey: ["threads", "external"],
+    queryFn: () => apiRequest<Thread[]>("/api/v1/threads?privacy_mode=external"),
   });
-  const threads = threadsRes?.data || [];
+  const { data: privateThreadsRes } = useQuery({
+    queryKey: ["threads", "private"],
+    queryFn: () => apiRequest<Thread[]>("/api/v1/threads?privacy_mode=private"),
+  });
+
+  const externalThreads = externalThreadsRes?.data || [];
+  const privateThreads = privateThreadsRes?.data || [];
+
+  const threads =
+    domainFilter === "all"
+      ? [...privateThreads, ...externalThreads]
+      : domainFilter === "private"
+        ? privateThreads
+        : externalThreads;
 
   const createThreadMutation = useMutation({
     mutationFn: (title: string) =>
@@ -110,6 +127,28 @@ export function ThreadSidebar({
         >
           <Plus className="h-3.5 w-3.5" />
         </Button>
+      </div>
+      {/* UI-H6: Domain filter pills */}
+      <div className="px-2 py-1.5 flex items-center gap-1 border-b border-border/20" data-testid="domain-filter-pills">
+        {(["all", "private", "external"] as DomainFilter[]).map((f) => (
+          <button
+            key={f}
+            data-testid={`domain-filter-${f}`}
+            onClick={() => setDomainFilter(f)}
+            className={cn(
+              "px-2 py-0.5 rounded-full text-[10px] font-medium capitalize transition-all",
+              domainFilter === f
+                ? f === "private"
+                  ? "bg-purple-900/60 text-purple-200 border border-purple-700/40"
+                  : f === "external"
+                    ? "bg-blue-900/60 text-blue-200 border border-blue-700/40"
+                    : "bg-accent text-accent-foreground border border-border/50"
+                : "text-muted-foreground hover:text-foreground hover:bg-accent/40"
+            )}
+          >
+            {f}
+          </button>
+        ))}
       </div>
       <ScrollArea className="flex-1">
         <div className="p-1.5 space-y-0.5">

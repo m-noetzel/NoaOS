@@ -13,7 +13,7 @@ from typing import Any
 
 import httpx
 import pytest
-from sqlalchemy import select, update
+from sqlalchemy import select
 
 from tests.integration.conftest import register_and_login
 
@@ -44,10 +44,11 @@ async def test_orphan_run_recovery(pg_app: Any) -> None:  # noqa: I001
     Test flow:
     1. Register a user and create a thread via the API.
     2. Directly insert a Run row with status='running' and created_at=now()-400s.
-    3. Call the orphan recovery logic.
+    3. Call _recover_orphaned_runs() directly.
     4. Verify the row is now status='failed'.
     """
     from noa.api import app_state
+    from noa.api.app import _recover_orphaned_runs
     from noa.db.models.run import Run
 
     sf = app_state.get_session_factory()
@@ -76,20 +77,8 @@ async def test_orphan_run_recovery(pg_app: Any) -> None:  # noqa: I001
         )
         session.add(run)
 
-    # Run the orphan recovery logic (mirrors app.py lifespan)
-    timeout_cutoff = datetime.now(UTC) - timedelta(seconds=300)
-    async with sf() as session, session.begin():
-        result = await session.execute(
-            update(Run)
-            .where(Run.status == "running", Run.created_at < timeout_cutoff)
-            .values(status="failed", summary="orphaned: process restarted")
-            .returning(Run.id)
-        )
-        recovered_ids = [str(r[0]) for r in result.fetchall()]
-
-    assert str(orphaned_run_id) in recovered_ids, (
-        f"Expected orphaned run {orphaned_run_id} to be recovered"
-    )
+    # Call the real orphan recovery function from app.py
+    await _recover_orphaned_runs()
 
     # Verify the specific run is now failed in DB
     async with sf() as session:
@@ -111,6 +100,7 @@ async def test_recent_running_run_not_recovered(pg_app: Any) -> None:  # noqa: I
     These are genuinely active runs that should not be interrupted.
     """
     from noa.api import app_state
+    from noa.api.app import _recover_orphaned_runs
     from noa.db.models.run import Run
 
     sf = app_state.get_session_factory()
@@ -139,20 +129,8 @@ async def test_recent_running_run_not_recovered(pg_app: Any) -> None:  # noqa: I
         )
         session.add(run)
 
-    # Run recovery — should NOT touch the recent run
-    timeout_cutoff = datetime.now(UTC) - timedelta(seconds=300)
-    async with sf() as session, session.begin():
-        result = await session.execute(
-            update(Run)
-            .where(Run.status == "running", Run.created_at < timeout_cutoff)
-            .values(status="failed", summary="orphaned: process restarted")
-            .returning(Run.id)
-        )
-        recovered_ids = [str(r[0]) for r in result.fetchall()]
-
-    assert str(recent_run_id) not in recovered_ids, (
-        "Recent running run must NOT be marked failed by orphan recovery"
-    )
+    # Call the real orphan recovery function — should NOT touch the recent run
+    await _recover_orphaned_runs()
 
     # Verify the run is still 'running'
     async with sf() as session:
@@ -161,4 +139,6 @@ async def test_recent_running_run_not_recovered(pg_app: Any) -> None:  # noqa: I
         )
         still_running = db_result.scalar_one()
 
-    assert still_running.status == "running"
+    assert still_running.status == "running", (
+        "Recent running run must NOT be marked failed by orphan recovery"
+    )

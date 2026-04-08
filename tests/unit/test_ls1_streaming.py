@@ -4,7 +4,7 @@ Test plan:
 - Happy path: each provider's complete_stream() yields token chunks then complete
 - ProviderRouter.complete_stream() delegates to the right client
 - invoke_llm_stream() calls token_callback for each token and returns LLMResponse
-- agent.py stream callback wiring: set_stream_callback / get_stream_callback
+- agent.py stream callback: per-run token_callback in state (W27-FX2: module globals removed)
 - OrchestratorRunner yields token_stream SSE events when tokens flow
 - Non-streaming path (backward compat): streaming disabled when no callback
 - Error paths: ProviderError on HTTP errors, streaming still produces error events
@@ -406,45 +406,32 @@ class TestOllamaClientStream:
 
 
 class TestAgentStreamCallback:
-    """Tests for set_stream_callback / get_stream_callback."""
+    """W27-FX2: set_stream_callback/get_stream_callback removed (W26-L3 dead code fix).
 
-    def setup_method(self):
-        """Clear callback before each test."""
-        from noa.orchestrator.nodes.agent import set_stream_callback
-        set_stream_callback(None)
+    These functions were module-global callbacks superseded by per-run
+    token_callback in state (ST4). They were removed in W27-FX2.
+    """
 
-    def teardown_method(self):
-        """Clear callback after each test."""
-        from noa.orchestrator.nodes.agent import set_stream_callback
-        set_stream_callback(None)
-
-    def test_set_and_get_callback(self):
-        """set_stream_callback stores the callback; get_stream_callback returns it."""
-        from noa.orchestrator.nodes.agent import (
-            get_stream_callback,
-            set_stream_callback,
+    def test_set_stream_callback_removed(self):
+        """set_stream_callback no longer exists in agent module (W26-L3 fix)."""
+        import noa.orchestrator.nodes.agent as agent_mod
+        assert not hasattr(agent_mod, "set_stream_callback"), (
+            "set_stream_callback should have been removed (W26-L3)"
         )
 
-        async def my_cb(token: str) -> None:
-            pass
-
-        assert get_stream_callback() is None
-        set_stream_callback(my_cb)
-        assert get_stream_callback() is my_cb
-
-    def test_clear_callback(self):
-        """set_stream_callback(None) clears the callback."""
-        from noa.orchestrator.nodes.agent import (
-            get_stream_callback,
-            set_stream_callback,
+    def test_get_stream_callback_removed(self):
+        """get_stream_callback no longer exists in agent module (W26-L3 fix)."""
+        import noa.orchestrator.nodes.agent as agent_mod
+        assert not hasattr(agent_mod, "get_stream_callback"), (
+            "get_stream_callback should have been removed (W26-L3)"
         )
 
-        async def my_cb(token: str) -> None:
-            pass
-
-        set_stream_callback(my_cb)
-        set_stream_callback(None)
-        assert get_stream_callback() is None
+    def test_stream_global_removed(self):
+        """_stream_callback module global no longer exists in agent module."""
+        import noa.orchestrator.nodes.agent as agent_mod
+        assert not hasattr(agent_mod, "_stream_callback"), (
+            "_stream_callback module global should have been removed (W26-L3)"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -456,15 +443,13 @@ class TestInvokeLlmStream:
     """Tests for invoke_llm_stream() function."""
 
     def setup_method(self):
-        """Reset router and callback before each test."""
+        """Reset router before each test."""
         import noa.orchestrator.nodes.agent as agent_mod
         agent_mod._router = None
-        agent_mod._stream_callback = None
 
     def teardown_method(self):
         import noa.orchestrator.nodes.agent as agent_mod
         agent_mod._router = None
-        agent_mod._stream_callback = None
 
     @pytest.mark.asyncio
     async def test_calls_token_callback_for_each_token(self):
@@ -556,12 +541,10 @@ class TestRunnerTokenStreamEvents:
     def setup_method(self):
         import noa.orchestrator.nodes.agent as agent_mod
         agent_mod._router = None
-        agent_mod._stream_callback = None
 
     def teardown_method(self):
         import noa.orchestrator.nodes.agent as agent_mod
         agent_mod._router = None
-        agent_mod._stream_callback = None
 
     @pytest.mark.asyncio
     async def test_runner_yields_token_stream_events(self):
@@ -577,7 +560,6 @@ class TestRunnerTokenStreamEvents:
 
         The runner must yield token_stream events before result_ready.
         """
-        import noa.orchestrator.nodes.agent as agent_mod
         from noa.orchestrator.runner import OrchestratorRunner
 
         # We need to capture the runner's token queue/callback so the mock
@@ -586,8 +568,8 @@ class TestRunnerTokenStreamEvents:
         token_cb_holder: list[Any] = [None]
 
         async def mock_graph_astream(initial_state: dict) -> AsyncGenerator:
-            # ST4: callback is now in state, not module global
-            cb = initial_state.get("token_callback") or agent_mod.get_stream_callback()
+            # W27-FX2: module global removed — callback is exclusively in state
+            cb = initial_state.get("token_callback")
             if cb is not None:
                 token_cb_holder[0] = cb
                 await cb("Hello")
@@ -637,8 +619,8 @@ class TestRunnerTokenStreamEvents:
             )
 
     @pytest.mark.asyncio
-    async def test_runner_clears_callback_after_run(self):
-        """Runner clears stream callback after graph execution completes."""
+    async def test_runner_no_module_global_callback(self):
+        """W27-FX2: Module-global callback removed; runner uses per-run state only."""
         import noa.orchestrator.nodes.agent as agent_mod
         from noa.orchestrator.runner import OrchestratorRunner
 
@@ -667,8 +649,10 @@ class TestRunnerTokenStreamEvents:
         ):
             pass
 
-        # Callback must be cleared after run completes
-        assert agent_mod.get_stream_callback() is None
+        # W27-FX2: module global removed; verify it does not exist
+        assert not hasattr(agent_mod, "_stream_callback"), (
+            "_stream_callback module global should not exist (W26-L3 fix)"
+        )
 
     @pytest.mark.asyncio
     async def test_backward_compat_no_streaming_when_tools_active(self):
@@ -697,14 +681,13 @@ class TestRunnerTokenStreamEvents:
         mock_router.complete_stream = AsyncMock()
         agent_mod._router = mock_router
 
-        # Set callback before calling agent_node
-        agent_mod.set_stream_callback(token_cb)
-
+        # W27-FX2: use per-run token_callback in state (module global removed)
         state: dict[str, Any] = {
             "messages": [{"role": "user", "content": "search for something"}],
             "selected_model": "openai/gpt-4.1",
             "privacy_mode": "external",
             "available_tools": [{"name": "web_search"}],
+            "token_callback": token_cb,
             "max_tokens": 512,
             "max_tool_calls": 10,
             "temperature": None,

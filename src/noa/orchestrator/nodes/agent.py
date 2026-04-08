@@ -24,31 +24,6 @@ MAX_TOOL_CALLS = 10
 # Module-level router reference, set at startup via set_router().
 _router: ProviderRouter | None = None
 
-# Module-level streaming token callback.
-# Set by the runner before graph execution so token events flow back to the SSE
-# stream without coupling the LangGraph node to the runner's async queue.
-# Signature: async callable that receives a single token string.
-_stream_callback: Callable[[str], Coroutine[Any, Any, None]] | None = None
-
-
-def set_stream_callback(
-    callback: Callable[[str], Coroutine[Any, Any, None]] | None,
-) -> None:
-    """Set (or clear) the token streaming callback.
-
-    The runner calls this before graph execution to wire token events into
-    the SSE stream.  Pass ``None`` to disable streaming (non-streaming path).
-    """
-    global _stream_callback  # noqa: PLW0603
-    _stream_callback = callback
-
-
-def get_stream_callback() -> (
-    Callable[[str], Coroutine[Any, Any, None]] | None
-):
-    """Return the current stream callback (or None)."""
-    return _stream_callback
-
 
 @dataclass
 class LLMResponse:
@@ -314,8 +289,7 @@ async def agent_node(state: AgentState) -> dict[str, Any]:
 
     # Use streaming when a token callback is registered and no tools are
     # requested (streaming does not support tool calls).
-    # ST4: Prefer per-run callback from state; fall back to module global
-    cb = state.get("token_callback") or _stream_callback
+    cb = state.get("token_callback")
     use_streaming = cb is not None and not available_tools
     if use_streaming:
         response = await invoke_llm_stream(

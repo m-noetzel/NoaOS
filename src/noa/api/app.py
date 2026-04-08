@@ -191,6 +191,48 @@ def wire_llm_pipeline(settings: Any) -> None:
         )
 
 
+async def _recover_orphaned_runs() -> None:
+    """TECH-M4: Recover runs left in 'running' state by a previous process crash.
+
+    Marks any run stuck in 'running' for more than 300 seconds as 'failed'.
+    Safe to call at startup or in tests — no-ops if no session factory is set.
+    """
+    from datetime import timedelta
+
+    from sqlalchemy import update
+
+    from noa.api.app_state import get_session_factory
+    from noa.db.models.run import Run
+
+    # Default: runner.run() default is 120s; use 300s grace margin for recovery.
+    _orphan_timeout_seconds = 300
+
+    sf = get_session_factory()
+    if sf is None:
+        return
+    try:
+        timeout_seconds = _orphan_timeout_seconds
+        async with sf() as session, session.begin():
+            timeout_cutoff = datetime.now(UTC) - timedelta(seconds=timeout_seconds)
+            result = await session.execute(
+                update(Run)
+                .where(Run.status == "running", Run.created_at < timeout_cutoff)
+                .values(
+                    status="failed",
+                    summary="orphaned: process restarted",
+                    updated_at=datetime.now(UTC),
+                )
+                .returning(Run.id)
+            )
+            rows = result.fetchall()
+            if rows:
+                logger.info(
+                    "TECH-M4: Recovered %d orphaned runs on startup", len(rows)
+                )
+    except Exception:  # noqa: BLE001
+        logger.warning("Failed to recover orphaned runs on startup", exc_info=True)
+
+
 async def _probe_worker(url: str, name: str) -> bool:
     """Probe a worker health endpoint at startup.
 
@@ -241,42 +283,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         )
 
     # TECH-M4: Recover runs left in "running" state by a previous process crash.
-    async def _recover_orphaned_runs() -> None:
-        from datetime import timedelta
-
-        from sqlalchemy import update
-
-        from noa.api.app_state import get_session_factory
-        from noa.db.models.run import Run
-
-        # Default: runner.run() default is 120s; use 300s grace margin for recovery.
-        _orphan_timeout_seconds = 300
-
-        sf = get_session_factory()
-        if sf is None:
-            return
-        try:
-            timeout_seconds = _orphan_timeout_seconds
-            async with sf() as session, session.begin():
-                timeout_cutoff = datetime.now(UTC) - timedelta(seconds=timeout_seconds)
-                result = await session.execute(
-                    update(Run)
-                    .where(Run.status == "running", Run.created_at < timeout_cutoff)
-                    .values(
-                        status="failed",
-                        summary="orphaned: process restarted",
-                        updated_at=datetime.now(UTC),
-                    )
-                    .returning(Run.id)
-                )
-                rows = result.fetchall()
-                if rows:
-                    logger.info(
-                        "TECH-M4: Recovered %d orphaned runs on startup", len(rows)
-                    )
-        except Exception:  # noqa: BLE001
-            logger.warning("Failed to recover orphaned runs on startup", exc_info=True)
-
     await _recover_orphaned_runs()
 
     # Start private-container health checker (§17.1)

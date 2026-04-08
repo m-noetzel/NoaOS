@@ -6,6 +6,8 @@ All operations silently no-op when:
   - LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY env vars are absent
   - Langfuse server is unreachable
 
+Compatible with Langfuse SDK v2 + Langfuse Server v2.
+
 Spec refs: SPEC.md — LF1
 """
 

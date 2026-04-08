@@ -211,8 +211,7 @@ class TestAgentNodeReadsFromState:
 
         monkeypatch.setattr(agent_mod, "invoke_llm_stream", fake_invoke_llm_stream)
         monkeypatch.setattr(agent_mod, "invoke_llm", fake_invoke_llm)
-        # Ensure module global is also None
-        monkeypatch.setattr(agent_mod, "_stream_callback", None)
+        # W27-FX2: module global removed; no-op cleanup no longer needed
 
         state = _make_state(
             token_callback=None,

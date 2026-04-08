@@ -10,7 +10,7 @@ The plan is organized into **waves** — groups of related phases that deliver a
 
 ## Key Documents
 
-- **[FINDINGS.md](FINDINGS.md)** — 213 audit findings (189 resolved, 24 open). Updated inline when findings are resolved.
+- **[FINDINGS.md](FINDINGS.md)** — 242 audit findings (213 resolved, 29 open). Updated inline when findings are resolved.
 - **[PHASE_DETAILS.md](PHASE_DETAILS.md)** — Detailed phase descriptions (search by phase ID).
 - **[QA_CHECKLIST.md](QA_CHECKLIST.md)** — QA criteria (M1-M8 must-haves, S1-S5 should-haves).
 
@@ -248,6 +248,42 @@ Fixes the 3 open Highs and 5 Mediums. No new architecture — pure correctness f
 | **ST3** | Evaluator run_id Fix | **Complete** | 6 | main | ~30 min | ~5 min | W24-H2: run_id already in AgentState+runner+evaluator; 6 verification tests added |
 | **ST4** | Streaming & Callback Fixes | **Complete** | 7 | main | ~45 min | ~15 min | W24-M1/M2: per-run token_callback in AgentState replaces module-global _stream_callback; no cross-run contamination |
 | **ST5** | VM1 Completion & Quick Fixes | **Complete** | 8 | main | ~45 min | ~10 min | W24-M4: OllamaEmbedder class; W24-M5/M6: already done; W25B-L1: Kimi context windows (131072) added |
+
+---
+
+### Wave 27: Process Enforcement & Findings Closure
+
+Fixes the 1 remaining High (UI-H6), 3 Mediums (CQ9-M1, ADHOC-M1/M2), and 4 Lows (W26-L1/L3, W25-L2, W26-M1 acceptance). Applies all PROPOSED CI proposals (CI-045/046/051/052/054/055) and triages CI-047/053.
+
+| ID | Phase | Status | Tests | Branch | Est. | Actual | Notes |
+|----|-------|--------|-------|--------|------|--------|-------|
+| **W27-FX1** | UI Domain Adaptation | **Complete** | 9 TS | main | ~60 min | ~30 min | UI-H6: DomainBadge component, provider filter by domain, thread domain filter pills, GeneralSettings privacy toggle |
+| **W27-FX2** | Data & Code Fixes | **Complete** | 11 Python | main | ~45 min | ~20 min | CQ9-M1 stale (already resolved); W26-L3: dead callback globals removed from agent.py; ADHOC-M2: Ollama temperature=None default |
+| **W27-FX3** | Test & Minor Fixes | **Complete** | 10 Python | main | ~30 min | ~20 min | ADHOC-M1: 10 temperature regression tests; W26-L1: ST1 test calls _recover_orphaned_runs() directly; W25-L2: bundle size float division |
+| **W27-PP1** | CI Process Proposals | **Complete** | — | main | ~30 min | ~15 min | CI-045/046/051/052/054/055 APPLIED; CI-047 DEFERRED; CI-053 APPLIED (CI-023→FAILED); meta-test passes |
+
+---
+
+### Wave 28: Orchestrator Overhaul — Review Ready
+
+Comprehensive rewrite of the orchestrator pipeline based on Langfuse trace analysis (2026-04-08). Resolves 14 findings (3 High, 8 Medium, 3 Low) and adds `ask_user` structured input tool. Goal: make the system review-ready — no wasted LLM calls, no false messages, clean Langfuse traces, robust approval flow.
+
+Dependency order: OV1 → OV2 → OV3 → OV4 → OV5 → OV6 → OV7 → OV8
+
+| ID | Phase | Status | Tests | Branch | Est. | Actual | Notes |
+|----|-------|--------|-------|--------|------|--------|-------|
+| **OV1** | Langfuse Instrumentation Fix | Planned | — | — | ~45 min | — | **OBS-LF2** (High): fix token key mismatch (`input_tokens`→`prompt_tokens` mapping in runner.py:500-517), capture actual messages + output in GENERATION spans. **OBS-LF1** (Medium, partial): separate input/output in node spans, include approval_required/error in tool spans. No dependencies. |
+| **OV2** | LangGraph Interrupt Approval Flow | Planned | — | — | ~90 min | — | **ARCH-AP1** (High): Replace out-of-graph approval with `interrupt()` in tools node. Graph pauses at approval, resumes via `Command(resume=...)` after decision. Requires: (1) `langgraph-checkpoint-postgres` or `MemorySaver` in `graph.compile(checkpointer=...)`, (2) resume endpoint in approvals.py, (3) remove `_execute_approved_tool()`. Also resolves **BE-AP2** (evaluator no longer sees approval placeholder) and **PERF-AP1** (Low, approval short-circuit). Depends on OV1 (traces must work first). |
+| **OV3** | Remove Responder Node | Planned | — | — | ~45 min | — | **ARCH-RS1** (Medium): Delete `nodes/responder.py`. Agent delivers response directly — if agent produced text, use it; if tool results pending (interrupt), no message needed; if empty after tools, route back to agent. Move cost summation to runner. Remove `route_after_tools → responder` edge. Depends on OV2 (approval flow must not rely on responder). |
+| **OV4** | Evaluator Overhaul | Planned | — | — | ~60 min | — | **ARCH-EV2** (High): Add per-dimension rubric definitions with anchor examples (1/3/5 for each dimension). Task-type-specific criteria: `simple_utility` skips eval (already done), `execution` uses lightweight rubric (goal_alignment + actionability only), `research`/`decision_intelligence` use full rubric + reasoning_coherence. **ARCH-EV1** (Medium): Change reroute feedback from `role: "user"` to `role: "developer"`. Log `reasoning` field to Langfuse. **UX-EV1** (Medium): Expose pass_threshold, reroute_threshold, max_cycles in Settings. Depends on OV3 (responder removal changes graph edges). |
+| **OV5** | Classifier Fast-Path & Planner-as-Tool | Planned | — | — | ~60 min | — | **PERF-CL1** (Medium): Add heuristic bypass for obvious messages (short greeting, single emoji, "hi/hello/hey" patterns) — return `simple_utility` without LLM call. Add conditional edge: `simple_utility` → skip planner, go directly to agent. **PERF-PL1** (Medium): Convert planner from mandatory node to agent tool. Agent calls `plan()` tool when task complexity warrants it (research, multi-step). `execution` tasks skip planning entirely. Remove planner node from graph, add `plan` tool to agent's tool list. **BUG-PL2** (Low): No longer relevant after planner becomes a tool (plan injected once via tool result, not system prompt). Depends on OV4 (evaluator must handle new graph topology). |
+| **OV6** | Agent Feedback Loop | Planned | — | — | ~45 min | — | **ARCH-AG1** (Medium): Before responding, agent proactively recalls relevant memories (semantic search via VM1). On reroute, agent receives evaluator feedback as `developer` message (from OV4) with awareness it's internal. Between runs: agent reads summarized eval history for recurring topics. Approval outcomes (approved/denied/expired) written back as memory facts for future tool-call decisions. Depends on OV4+OV5 (new graph shape). |
+| **OV7** | Execution Task UX + Google Token Refresh | Planned | — | — | ~45 min | — | **UX-EX1** (Medium): For execution tasks, agent suppresses paraphrase — responds only after tool result. For approval: only SSE approval event, no chat bubble. For success: confirm with actual data. For error: human-readable message with next steps. **BE-AP3** (Medium): Reload Google tokens from DB before each tool execution (not just at startup). On `invalid_grant`, return structured error "Please re-connect Google" instead of raw "Token refresh failed: 400". **BE-AP1** (High): Update run summary after approval decision (already in FINDINGS). Depends on OV2 (interrupt flow) + OV3 (no responder). |
+| **OV8** | Ask-User Tool + Langfuse Topology Logging | Planned | — | — | ~60 min | — | **New feature**: `ask_user` tool — agent calls it when user input is needed. Returns structured quick-reply UI: 3 suggested options (buttons) + freetext input. Frontend renders as inline card. Graph pauses via `interrupt()` (reuses OV2 mechanism), resumes with user's choice. Use cases: ambiguous requests, preference selection, confirmation before high-risk actions. **OBS-LF1** (Medium, remaining): Add routing decision spans (which edge was taken, why), cycle tagging (node/agent#1, node/agent#2), parent-child span hierarchy for reroute cycles. Depends on all prior phases. |
+| **OV9** | Web Search Artifact Reports | Planned | — | — | ~45 min | — | Wire `web_search` tool results into the Artifact system. After search completes, format results as Markdown report (title, query, results with title/URL/snippet, timestamp). Write to `/data/artifacts/{run_id}/search_report.md`. Call `RunService.create_artifact()` (type=`export`, mime=`text/markdown`). Emit `artifact_created` SSE event so frontend updates live. Frontend Artifacts page already handles list/download/preview — no UI changes needed. No dependencies on OV1-OV8 (can run in parallel). |
+| **OV10** | iOS SSE Sync + Chat Parameters | Planned | — | — | ~30 min | — | **P1**: Add missing SSE event types to `SSEEventType` enum in `ChatModels.swift`: `tool_start`, `tool_end`, `compaction`, `queued`. Currently silently dropped. **P2**: Add `temperature: Float?` and `maxTokens: Int?` to iOS `ChatRequest` struct + ComposerBar advanced options UI (matching web frontend sliders). No backend changes needed — fields already accepted as optional. No dependencies on OV1-OV9. |
+
+**Deferred to later:** TECH-L2 (tool definition fragmentation), L11/L12 (diagnostics/user management pages), W27-L1/L2/L3 (test/script fixes — low priority).
 
 ---
 
