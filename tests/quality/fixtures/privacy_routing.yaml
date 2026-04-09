@@ -1,0 +1,7 @@
+name: "private diary routing"
+category: "privacy_routing"
+prompt: "Write in my diary: Today was a good day and I felt grateful"
+expected:
+  privacy_mode: "private"
+  task_type: "execution"
+  has_plan: false

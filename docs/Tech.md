@@ -1,7 +1,7 @@
 # Noa Technical Guide
 
 > A comprehensive guide to understanding Noa — its architecture, functionality, strengths, and weak points.
-> Last updated: 2026-03-17
+> Last updated: 2026-04-09
 
 ---
 
@@ -59,7 +59,7 @@ The orchestration layer is deterministic and predefined. The LLM does not contro
 
 | Invariant | What It Means |
 |-----------|---------------|
-| **Fixed workflow topology** | The LangGraph state machine defines the node sequence (`router → agent → tools → responder`). The LLM cannot add, remove, or reorder nodes. |
+| **Fixed workflow topology** | The LangGraph state machine defines the node sequence (`router → classifier → planner → agent → tools → evaluator`). The LLM cannot add, remove, or reorder nodes. |
 | **Static tool allowlists** | The set of tools available to any step is defined at graph compile time. The LLM cannot invoke unlisted tools. |
 | **Explicit approval checkpoints** | Every side-effecting action passes through a risk-tier check. The LLM cannot skip or defer approval gates. |
 | **Pre-execution privacy routing** | Domain classification happens before the LLM sees the task. The LLM cannot change its own routing. |
@@ -244,12 +244,20 @@ User types message
 [3] Thread created or reused; Run created (status: pending → running)
         |
         v
-[4] OrchestratorRunner starts LangGraph execution
+[4] OrchestratorRunner starts LangGraph execution (Langfuse trace opened)
         |
         +---> [router node]
         |       PrivacyClassifier: "calendar" → EXTERNAL domain
         |       Model selected: claude-sonnet (or user override)
         |       SSE event: classification_done
+        |
+        +---> [classifier node]
+        |       Task type: "execution" (heuristic or LLM-based)
+        |       SSE event: task_classified
+        |
+        +---> [planner node] (skipped for simple_utility / execution)
+        |       Generates 2-4 step execution plan
+        |       Selects archetype (execution, research, comparative_selection)
         |
         +---> [agent node]
         |       ProviderRouter dispatches to Anthropic/OpenAI/Google
@@ -267,10 +275,14 @@ User types message
         |
         +---> [conditional edge: more tool calls needed?]
         |       tool_rounds < max (3) AND tool_calls exist → back to agent
-        |       no more tool calls → forward to responder
+        |       no more tool calls → forward to evaluator
         |
-        +---> [responder node]
-                Formats response, sums cost from llm_usage records
+        +---> [evaluator node]
+                Scores response on rubric (goal_alignment, completeness, ...)
+                score >= 3.0 → pass → __end__
+                score >= 2.0 → reroute → agent (with feedback, max 2 cycles)
+                score <  2.0 → flag → __end__
+                Persists scores to response_evaluations table
                 SSE event: response
                 SSE event: done (run_id, total_cost, status)
                 |
@@ -278,7 +290,7 @@ User types message
 [5] Events streamed via SSE to client in real-time
         |
         v
-[6] Run completed, audit log entry written, usage stats recorded
+[6] Run completed, audit log entry written, usage stats recorded, Langfuse trace closed
 ```
 
 ### SSE Event Types
@@ -302,23 +314,39 @@ SSE keepalive pings (`: comment`) sent every 15 seconds to prevent proxy timeout
 ### The LangGraph Pipeline (Conditional Edges)
 
 ```
-__start__ --> router --> agent --[conditional]--> tools | responder
-                         tools --[conditional]--> agent | responder
-                                                  responder --> __end__
+__start__ → router → classifier ──(simple_utility)──→ agent ⇄ tools
+                         │                              │
+                         └──(complex)──→ planner → agent │
+                                                         ↓
+                                                    evaluator ──(reroute)──→ agent
+                                                         │
+                                                      __end__
 ```
+
+**6 nodes, 4 conditional edges:**
+
+**Conditional edge: classifier → ?**
+- `simple_utility` → `agent` (skip planner)
+- All other task types → `planner`
 
 **Conditional edge: agent → ?**
 - If `tool_calls` exist → `tools`
-- If no `tool_calls` → `responder`
+- If no `tool_calls` → `evaluator`
 
 **Conditional edge: tools → ?**
-- If `tool_rounds < max_retries` AND no `approval_required` AND more `tool_calls` → `agent`
-- Otherwise → `responder`
+- If `tool_rounds < max_retries` → `agent`
+- Otherwise → `evaluator`
 
-**Three conditions stop the tool loop:**
-1. Agent returns no tool_calls (done reasoning)
+**Conditional edge: evaluator → ?**
+- `pass` (score >= 3.0) or `flag` (score < 2.0) → `__end__`
+- `reroute` (score 2.0-3.0) and `eval_cycle < max_cycles` → `agent` (with feedback)
+- `reroute` and `eval_cycle >= max_cycles` → `__end__`
+
+**Four conditions stop the pipeline:**
+1. Agent returns no tool_calls and evaluator passes (done reasoning)
 2. `tool_rounds >= MAX_TOOL_ROUNDS` (default 3)
-3. A tool result has `approval_required=True` (immediate exit)
+3. Evaluator verdict is `pass` or `flag`
+4. Reroute cycle limit reached (default 2)
 
 ---
 
@@ -337,7 +365,7 @@ __start__ --> router --> agent --[conditional]--> tools | responder
 
 ### Why These Specific Choices Matter
 
-**LangGraph over raw LangChain:** LangChain is flexible but chaotic — agents can call arbitrary chains of tools in unpredictable order. LangGraph forces us to define a state machine (`router → agent → tools → responder`). For a *governed* AI agent, predictability is a feature, not a limitation.
+**LangGraph over raw LangChain:** LangChain is flexible but chaotic — agents can call arbitrary chains of tools in unpredictable order. LangGraph forces us to define a state machine (`router → classifier → planner → agent → tools → evaluator`). For a *governed* AI agent, predictability is a feature, not a limitation.
 
 **FastAPI over Django/Flask:** Django is too opinionated and synchronous-first. Flask lacks built-in async. FastAPI gives us async request handling (critical when waiting on LLM API responses that take seconds), automatic request validation via Pydantic, and auto-generated API documentation.
 
@@ -433,9 +461,11 @@ __start__ --> router --> agent --[conditional]--> tools | responder
 |   |   +-- checkpointer.py    # Conversation state persistence
 |   |   +-- nodes/
 |   |       +-- router.py      # Privacy classification + model selection
+|   |       +-- classifier.py  # Task type classification (heuristic + LLM)
+|   |       +-- planner.py     # Execution plan generation (complex tasks only)
 |   |       +-- agent.py       # LLM decision-making via ProviderRouter
 |   |       +-- tools.py       # Tool execution via ToolGateway
-|   |       +-- responder.py   # Response formatting + cost summation
+|   |       +-- evaluator.py   # Response quality scoring + reroute logic
 |   |
 |   +-- privacy/               # Privacy classification
 |   |   +-- classifier.py      # 4-level routing logic
@@ -501,7 +531,7 @@ __start__ --> router --> agent --[conditional]--> tools | responder
 |
 +-- ios/                       # iOS app (Swift 6 / SwiftUI)
 |   +-- Noa/Sources/           # APIClient, SSEClient, services, view models, views
-|   +-- Noa/Tests/             # 224+ XCTest cases
+|   +-- Noa/Tests/             # 270+ XCTest cases
 |
 +-- tests/                     # Python test suite
 |   +-- conftest.py            # Shared fixtures
@@ -531,27 +561,40 @@ This is the brain of Noa. It uses LangGraph to define a state machine with condi
 # Simplified from graph.py
 graph = StateGraph(AgentState)
 
-graph.add_node("router",    router_node)     # Classify & pick model
-graph.add_node("agent",     agent_node)      # LLM generates response/tool calls
-graph.add_node("tools",     tools_node)      # Execute tool calls via ToolGateway
-graph.add_node("responder", responder_node)  # Format final output, sum costs
+graph.add_node("router",     router_node)      # Classify privacy domain & pick model
+graph.add_node("classifier", classifier_node)  # Categorize task type (simple/exec/research/decision)
+graph.add_node("planner",    planner_node)     # Generate execution plan for complex tasks
+graph.add_node("agent",      agent_node)       # LLM generates response/tool calls
+graph.add_node("tools",      tool_node)        # Execute tool calls via ToolGateway
+graph.add_node("evaluator",  evaluator_node)   # Score response quality, reroute if needed
 
-graph.add_edge(START,       "router")
-graph.add_edge("router",    "agent")
+graph.add_edge(START,      "router")
+graph.add_edge("router",   "classifier")
+graph.add_edge("planner",  "agent")
+
+# Conditional: classifier fast-paths simple tasks past planner
+graph.add_conditional_edges("classifier", route_after_classifier, {
+    "agent": "agent",       # simple_utility skips planner
+    "planner": "planner"    # complex tasks get a plan
+})
 
 # Conditional: agent decides if tools are needed
 graph.add_conditional_edges("agent", route_after_agent, {
     "tools": "tools",
-    "responder": "responder"
+    "evaluator": "evaluator"
 })
 
 # Conditional: tools loop back or exit
 graph.add_conditional_edges("tools", route_after_tools, {
     "agent": "agent",
-    "responder": "responder"
+    "evaluator": "evaluator"
 })
 
-graph.add_edge("responder", END)
+# Conditional: evaluator passes, flags, or reroutes
+graph.add_conditional_edges("evaluator", route_after_evaluator, {
+    "__end__": END,
+    "agent": "agent"        # reroute with feedback (max 2 cycles)
+})
 ```
 
 The `AgentState` is a TypedDict that flows through every node:
@@ -567,9 +610,12 @@ class AgentState(TypedDict):
     max_retries: int            # Configurable tool-loop limit (default 3)
     llm_usage: list             # Per-step cost tracking (provider, model, tokens, cost_usd)
     total_cost: float           # Running cost for this run
-    risk_tier: str              # "low", "medium", "high" (RiskTier enum)
-    approvals_enabled: bool     # Whether approval gates are active
-    approval_required: bool     # Set by tools node when policy requires approval
+    task_type: str              # Classifier output: simple_utility/execution/research/decision_intelligence
+    plan: str | None            # Planner output: numbered execution plan (None for simple tasks)
+    archetype: str | None       # Planner archetype: execution/research/comparative_selection
+    eval_verdict: str           # Evaluator verdict: pass/reroute/flag
+    eval_cycle: int             # Current reroute cycle count (max 2)
+    eval_scores: dict           # Per-dimension rubric scores (1-5)
     tool_scope: str | None      # Task-specific tool filtering (e.g., "email_draft")
     # ... plus run/thread/user context fields
 ```
@@ -1041,7 +1087,7 @@ LOG_LEVEL=INFO                   # DEBUG | INFO | WARNING | ERROR
 
 ### 1. Deterministic Governance (The Big Differentiator)
 
-Noa's core strength is that **the LLM cannot control the execution path**. The LangGraph state machine defines a fixed topology (`router → agent → tools → responder`). Tool allowlists are static. Approval gates are enforced by the orchestrator, not requested by the model. This makes the system auditable, predictable, and resistant to prompt injection escalation.
+Noa's core strength is that **the LLM cannot control the execution path**. The LangGraph state machine defines a fixed topology (`router → classifier → planner → agent → tools → evaluator`). Tool allowlists are static. Approval gates are enforced by the orchestrator, not requested by the model. This makes the system auditable, predictable, and resistant to prompt injection escalation.
 
 Most AI agent frameworks give the LLM full control over tool calling and workflow branching. Noa inverts this: the outer shell is deterministic, and the LLM has bounded autonomy only within individual steps.
 
@@ -1072,7 +1118,7 @@ The chat endpoint streams 14 typed SSE events as the orchestrator processes. Cli
 
 ### 7. Cost Tracking & Control
 
-Every LLM call records input/output tokens, model, provider, and cost. The responder sums per-run costs. Usage stats are persisted to the database and queryable via the cost dashboard. Token budgets and iteration limits are enforced by the orchestrator.
+Every LLM call records input/output tokens, model, provider, and cost. The runner sums per-run costs after graph execution completes. Usage stats are persisted to the database and queryable via the cost dashboard. Token budgets and iteration limits are enforced by the orchestrator.
 
 ### 8. Container Hardening
 

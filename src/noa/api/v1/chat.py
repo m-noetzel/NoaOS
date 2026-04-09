@@ -27,13 +27,86 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["chat"])
 
-# M1: In-memory idempotency key tracking (TTL-based cleanup)
-_active_idempotency_keys: dict[str, float] = {}
-_IDEMPOTENCY_TTL_SECONDS = 300  # 5 minutes
-
 # UX-H1: SSE keepalive interval — send comment pings to prevent proxy timeouts
 # during long-running tool calls (e.g. Calendar API calls can take >30s).
 _SSE_KEEPALIVE_INTERVAL = 15  # seconds
+
+# DI2 (RV-M1): Chat-level idempotency key prefix in the DB table.
+# Tool-level keys are stored without a prefix; chat-level keys use "chat:"
+# to avoid collision.
+_CHAT_IDEM_PREFIX = "chat:"
+
+
+async def _check_chat_idempotency(idem_key: str) -> bool:
+    """Return True if this chat idempotency key has already been processed.
+
+    DI2: Replaces the in-memory dict with a DB-backed check using the
+    ``idempotency_keys`` table.  Falls back to False (allow) on any DB error
+    so a database hiccup never blocks the user.
+    """
+    factory = _get_session_factory()
+    if factory is None:
+        return False
+    try:
+        from sqlalchemy import select
+
+        from noa.db.models.idempotency_key import IdempotencyKey
+
+        full_key = f"{_CHAT_IDEM_PREFIX}{idem_key}"
+        async with factory() as session:
+            stmt = select(IdempotencyKey.id).where(IdempotencyKey.key == full_key)
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none() is not None
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "Chat idempotency DB check failed for key=%s", idem_key, exc_info=True
+        )
+        return False
+
+
+async def _register_chat_idempotency(idem_key: str) -> None:
+    """Store a chat idempotency key in the DB (best-effort, no-op on error).
+
+    DI2: Replaces the in-memory dict registration.  Uses ON CONFLICT DO NOTHING
+    so concurrent requests with the same key are handled gracefully.
+    """
+    factory = _get_session_factory()
+    if factory is None:
+        return
+    try:
+        from noa.db.models.idempotency_key import IdempotencyKey
+
+        full_key = f"{_CHAT_IDEM_PREFIX}{idem_key}"
+        async with factory() as session:
+            # Try a simple insert; if the key already exists (race), ignore.
+            try:
+                from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+                stmt = pg_insert(IdempotencyKey).values(
+                    key=full_key,
+                    response_json="{}",  # placeholder — chat idem keys carry no payload
+                ).on_conflict_do_nothing(index_elements=["key"])
+                await session.execute(stmt)
+                await session.commit()
+            except Exception:  # noqa: BLE001
+                # Non-Postgres (SQLite in tests): fall back to a plain INSERT
+                try:
+                    from sqlalchemy import insert as sa_insert
+
+                    stmt_plain = sa_insert(IdempotencyKey).values(
+                        key=full_key,
+                        response_json="{}",
+                    )
+                    await session.execute(stmt_plain)
+                    await session.commit()
+                except Exception as _inner_exc:  # noqa: BLE001
+                    logger.debug(
+                        "Chat idempotency fallback insert skipped: %s", _inner_exc
+                    )
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "Chat idempotency DB register failed for key=%s", idem_key, exc_info=True
+        )
 
 
 class ChatRequest(BaseModel):
@@ -176,9 +249,10 @@ async def submit_chat(
         extra=log_ctx,
     )
 
-    # M1: Check idempotency key for duplicate request detection
+    # DI2 (RV-M1): Check idempotency key for duplicate request detection
+    # Uses DB-backed check (replaces in-memory dict from M1).
     idem_key = idempotency_key_ctx.get()
-    if idem_key and idem_key in _active_idempotency_keys:
+    if idem_key and await _check_chat_idempotency(idem_key):
         return JSONResponse(
             status_code=409,
             content={"ok": False, "error": {"code": "DUPLICATE_REQUEST",
@@ -197,16 +271,9 @@ async def submit_chat(
     run_id = existing_run_id or str(uuid.uuid4())
     is_new_run = existing_run_id is None
 
-    # M1: Register idempotency key as active
+    # DI2 (RV-M1): Register idempotency key in DB (best-effort, non-blocking)
     if idem_key:
-        import time as _time
-
-        _active_idempotency_keys[idem_key] = _time.monotonic()
-        # Prune expired keys
-        cutoff = _time.monotonic() - _IDEMPOTENCY_TTL_SECONDS
-        expired = [k for k, t in _active_idempotency_keys.items() if t < cutoff]
-        for k in expired:
-            _active_idempotency_keys.pop(k, None)
+        await _register_chat_idempotency(idem_key)
 
     runner = get_runner()
 
@@ -664,18 +731,35 @@ def _extract_turn_messages(
     tool_call data from ``tool_called`` events and tool results from
     ``tool_result``/``tool_end`` events.
 
+    DI1 (W26-M1): Correctly handles multiple tool-call *rounds* within one
+    agent turn (tool A → result A → tool B → result B ...).  Each round is
+    emitted as a separate assistant+tool message pair, which is what LLM APIs
+    require for valid multi-turn tool history.
+
+    Also handles providers (Ollama, Kimi) that omit ``id`` on tool calls by
+    generating synthetic IDs of the form ``tool_<index>`` so that result
+    matching never collides across different tool calls.
+
     Returns a list that may include:
     - ``{"role": "assistant", "content": None, "tool_calls": [...]}`` — when
-      the assistant made tool calls during this turn
+      the assistant made tool calls during this round
     - ``{"role": "tool", "tool_call_id": "...", "name": "...", "content": "..."}``
-      — one entry per tool result
+      — one entry per tool result in the same round
     """
-    # Collect all tool_called events for this turn (may span multiple rounds)
-    all_tool_calls: list[dict[str, Any]] = []
-    # Map tool_call id -> result content for assembling tool-role messages
-    tool_results_by_call_id: dict[str, dict[str, Any]] = {}
-    # Ordered list of tool_call_ids to preserve result order
-    result_order: list[str] = []
+    import json as _json_mod
+
+    # -----------------------------------------------------------------------
+    # Pass 1: Group SSE events into ordered rounds.
+    # A round boundary is detected when a tool_called event arrives AFTER
+    # at least one result has already been seen in the current round.
+    # -----------------------------------------------------------------------
+    # Each round is a list of raw events belonging to that round.
+    rounds: list[list[dict[str, Any]]] = []
+    current_round: list[dict[str, Any]] = []
+    current_round_has_result = False
+    # Running counter for synthetic ID generation (global across rounds so
+    # IDs are unique within the entire turn, not just within a round).
+    _synthetic_id_counter = 0
 
     for event in collected_events:
         event_type = event.get("event_type", "")
@@ -683,60 +767,95 @@ def _extract_turn_messages(
 
         if event_type == "tool_called":
             tc = payload.get("tool_call", {})
-            if tc and isinstance(tc, dict):
-                all_tool_calls.append(tc)
+            if not (tc and isinstance(tc, dict)):
+                continue
+            # DI1: Generate synthetic ID for providers that omit it
+            if not tc.get("id"):
+                tc = dict(tc)  # copy to avoid mutating the original event
+                tc["id"] = f"tool_{_synthetic_id_counter}"
+                _synthetic_id_counter += 1
+
+            if current_round_has_result:
+                # The previous round is complete — save it and start a new one.
+                rounds.append(current_round)
+                current_round = []
+                current_round_has_result = False
+
+            current_round.append({"_type": "call", "tc": tc})
 
         elif event_type in ("tool_result", "tool_end"):
-            # tool_result carries full result; tool_end also has result field
             tr = payload.get("tool_result") or payload.get("result") or {}
             if not isinstance(tr, dict):
                 continue
             tool_name = payload.get("tool_name") or tr.get("name", "")
-            # Find matching tool_call_id by name (best-effort)
-            call_id = ""
-            for tc in all_tool_calls:
-                if tc.get("name") == tool_name and tc.get("id"):
-                    # Match first unused tool call with this name
-                    cid = tc["id"]
-                    if cid not in tool_results_by_call_id:
-                        call_id = cid
-                        break
-            import json as _json_mod
             content = tr.get("error") or _json_mod.dumps(
                 {k: v for k, v in tr.items() if k != "name"},
                 default=str,
             )
-            key = call_id or tool_name or str(len(result_order))
-            tool_results_by_call_id[key] = {
+            current_round.append(
+                {"_type": "result", "tool_name": tool_name, "content": content}
+            )
+            current_round_has_result = True
+
+    # Flush the last round
+    if current_round:
+        rounds.append(current_round)
+
+    if not rounds:
+        return []
+
+    # -----------------------------------------------------------------------
+    # Pass 2: Convert each round into (assistant_msg, tool_msg...) pairs.
+    # -----------------------------------------------------------------------
+    turn_msgs: list[dict[str, Any]] = []
+
+    for round_events in rounds:
+        calls = [e for e in round_events if e["_type"] == "call"]
+        results = [e for e in round_events if e["_type"] == "result"]
+
+        if not calls and not results:
+            continue
+
+        # Build the assistant message for this round (may have no calls if
+        # we somehow got orphan results — rare, but handle gracefully).
+        if calls:
+            tool_calls_payload = [e["tc"] for e in calls]
+            turn_msgs.append({
+                "role": "assistant",
+                "content": None,
+                "tool_calls": tool_calls_payload,
+            })
+
+        # Map tool name → list of call IDs so we can match results in order
+        # (handles the same tool being called multiple times in one round).
+        name_to_call_ids: dict[str, list[str]] = {}
+        for e in calls:
+            tc = e["tc"]
+            name = tc.get("name", "")
+            name_to_call_ids.setdefault(name, []).append(tc.get("id", ""))
+
+        # Track which call IDs have been consumed so we don't double-match
+        consumed_call_ids: set[str] = set()
+
+        for res_event in results:
+            tool_name = res_event["tool_name"]
+            content = res_event["content"]
+
+            # Find the first unconsumed call ID for this tool name
+            call_id = ""
+            candidates = name_to_call_ids.get(tool_name, [])
+            for cid in candidates:
+                if cid not in consumed_call_ids:
+                    call_id = cid
+                    consumed_call_ids.add(cid)
+                    break
+
+            turn_msgs.append({
+                "role": "tool",
                 "tool_call_id": call_id,
                 "name": tool_name,
                 "content": content,
-            }
-            if key not in result_order:
-                result_order.append(key)
-
-    if not all_tool_calls and not tool_results_by_call_id:
-        return []
-
-    turn_msgs: list[dict[str, Any]] = []
-
-    # Emit one assistant message carrying all tool_calls
-    if all_tool_calls:
-        turn_msgs.append({
-            "role": "assistant",
-            "content": None,
-            "tool_calls": all_tool_calls,
-        })
-
-    # Emit one tool-role message per result
-    for key in result_order:
-        tr_data = tool_results_by_call_id[key]
-        turn_msgs.append({
-            "role": "tool",
-            "tool_call_id": tr_data["tool_call_id"],
-            "name": tr_data["name"],
-            "content": tr_data["content"],
-        })
+            })
 
     return turn_msgs
 

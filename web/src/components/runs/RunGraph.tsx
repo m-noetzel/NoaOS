@@ -3,7 +3,7 @@ import type { RunEvent } from "@/api/types";
 import { cn, asString, asRecord, asStringArray } from "@/lib/utils";
 import {
   MessageSquare, Brain, Wrench, CheckCircle2, AlertCircle, Timer,
-  ArrowDownRight, Zap, ChevronRight, X, DollarSign, Flame,
+  ArrowDownRight, Zap, ChevronRight, X, Flame, Tag, Bot, BarChart2,
 } from "lucide-react";
 import { NodeReplayActions } from "@/components/runs/ReplayActions";
 
@@ -14,7 +14,7 @@ import { NodeReplayActions } from "@/components/runs/ReplayActions";
 interface GraphNode {
   id: string;
   label: string;
-  type: "message" | "planner" | "tool" | "result" | "error";
+  type: "message" | "classifier" | "planner" | "agent" | "evaluator" | "tool" | "result" | "error";
   event: RunEvent;
   resultEvent?: RunEvent;
   children: GraphNode[];
@@ -46,7 +46,10 @@ function buildGraph(events: RunEvent[]): GraphNode | null {
   if (events.length === 0) return null;
 
   const messageEvent = events.find((e) => e.type === "message_received");
+  const classificationEvent = events.find((e) => e.type === "classification_done");
   const plannerEvents = events.filter((e) => e.type === "planner_step");
+  // step_started events for named graph nodes (classifier, planner, agent, evaluator)
+  const stepEvents = events.filter((e) => e.type === "step_started");
   const toolCalledEvents = events.filter((e) => e.type === "tool_called");
   const toolResultEvents = events.filter((e) => e.type === "tool_result");
   const resultEvent = events.find((e) => e.type === "result_ready");
@@ -106,7 +109,11 @@ function buildGraph(events: RunEvent[]): GraphNode | null {
   }
   plannerChildren.push(...sequentialTools);
 
-  const firstPlanner = plannerEvents[0] || events[0];
+  // Determine planner event: prefer planner_step event, fall back to
+  // step_started with step="planner", otherwise use first available event.
+  const plannerStepEvent = plannerEvents[0];
+  const plannerStepStarted = stepEvents.find((e) => asString(e.data.step) === "planner");
+  const firstPlanner = plannerStepEvent || plannerStepStarted || events[0];
   const plannerNode: GraphNode = {
     id: "planner",
     label: "Planner",
@@ -115,12 +122,29 @@ function buildGraph(events: RunEvent[]): GraphNode | null {
     children: plannerChildren,
   };
 
+  // Evaluator node: present when result_ready carries eval_verdict/eval_scores,
+  // or when a step_started with step="evaluator" exists.
+  const evaluatorStepEvent = stepEvents.find((e) => asString(e.data.step) === "evaluator");
+  const hasEvalData = resultEvent && (
+    resultEvent.data.eval_verdict !== undefined ||
+    resultEvent.data.eval_scores !== undefined
+  );
+  const evaluatorNode: GraphNode | null = (evaluatorStepEvent || hasEvalData) ? {
+    id: "evaluator",
+    label: "Evaluator",
+    type: "evaluator",
+    event: evaluatorStepEvent || resultEvent || events[0],
+    resultEvent: hasEvalData ? resultEvent : undefined,
+    children: [],
+  } : null;
+
   const endNode: GraphNode | null = errorEvent
     ? { id: errorEvent.id, label: "Error", type: "error", event: errorEvent, children: [] }
     : resultEvent
     ? { id: resultEvent.id, label: "Final Response", type: "result", event: resultEvent, children: [] }
     : null;
 
+  if (evaluatorNode) plannerNode.children.push(evaluatorNode);
   if (endNode) plannerNode.children.push(endNode);
 
   // Mark critical path for sequential nodes (longest duration)
@@ -138,6 +162,18 @@ function buildGraph(events: RunEvent[]): GraphNode | null {
     if (critNode) critNode.isCriticalPath = true;
   }
 
+  // Classifier node: present when classification_done event exists or
+  // when a step_started with step="classifier" exists.
+  const classifierStepEvent = stepEvents.find((e) => asString(e.data.step) === "classifier");
+  const classifierNode: GraphNode | null = (classificationEvent || classifierStepEvent) ? {
+    id: "classifier",
+    label: "Classifier",
+    type: "classifier",
+    // Merge classification_done data with any step event data for the panel
+    event: classificationEvent || classifierStepEvent || events[0],
+    children: [plannerNode],
+  } : null;
+
   const root: GraphNode = {
     id: "root",
     label: messageEvent
@@ -145,7 +181,7 @@ function buildGraph(events: RunEvent[]): GraphNode | null {
       : "User Message",
     type: "message",
     event: messageEvent || events[0],
-    children: [plannerNode],
+    children: classifierNode ? [classifierNode] : [plannerNode],
   };
 
   return root;
@@ -159,7 +195,10 @@ function NodeIcon({ type }: { type: GraphNode["type"] }) {
   const cls = "h-3.5 w-3.5";
   switch (type) {
     case "message": return <MessageSquare className={cls} />;
+    case "classifier": return <Tag className={cls} />;
     case "planner": return <Brain className={cls} />;
+    case "agent": return <Bot className={cls} />;
+    case "evaluator": return <BarChart2 className={cls} />;
     case "tool": return <Wrench className={cls} />;
     case "result": return <CheckCircle2 className={cls} />;
     case "error": return <AlertCircle className={cls} />;
@@ -168,7 +207,10 @@ function NodeIcon({ type }: { type: GraphNode["type"] }) {
 
 const nodeColors: Record<GraphNode["type"], string> = {
   message: "bg-primary/15 text-primary border-primary/30",
+  classifier: "bg-purple-500/15 text-purple-400 border-purple-500/30",
   planner: "bg-info/15 text-info border-info/30",
+  agent: "bg-primary/15 text-primary border-primary/30",
+  evaluator: "bg-teal-500/15 text-teal-400 border-teal-500/30",
   tool: "bg-warning/15 text-warning border-warning/30",
   result: "bg-success/15 text-success border-success/30",
   error: "bg-destructive/15 text-destructive border-destructive/30",
@@ -176,7 +218,10 @@ const nodeColors: Record<GraphNode["type"], string> = {
 
 const nodeGlowColors: Record<GraphNode["type"], string> = {
   message: "ring-primary/40",
+  classifier: "ring-purple-500/40",
   planner: "ring-info/40",
+  agent: "ring-primary/40",
+  evaluator: "ring-teal-500/40",
   tool: "ring-warning/40",
   result: "ring-success/40",
   error: "ring-destructive/40",
@@ -184,7 +229,10 @@ const nodeGlowColors: Record<GraphNode["type"], string> = {
 
 const nodeTypeLabels: Record<GraphNode["type"], string> = {
   message: "User Message",
+  classifier: "Classifier",
   planner: "Planner",
+  agent: "Agent",
+  evaluator: "Evaluator",
   tool: "Tool Node",
   result: "Final Response",
   error: "Error",
@@ -300,53 +348,167 @@ function InspectionPanel({ node, runId, onClose }: { node: GraphNode; runId: str
         </div>
       )}
 
-      {/* Planner decision */}
-      {node.type === "planner" && (selectedTools || strategySummary) && (
-        <div className="rounded-lg bg-muted/30 p-3 space-y-2">
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Planner Decision</p>
-          <div className="space-y-2">
-            {strategySummary && (
-              <div>
-                <p className="text-[10px] text-muted-foreground">Strategy:</p>
-                <p className="text-xs text-foreground/80">{strategySummary}</p>
-              </div>
-            )}
-            {!strategySummary && strategy && (
-              <div>
-                <p className="text-[10px] text-muted-foreground">Strategy:</p>
-                <p className="text-xs text-foreground/80">{strategy}</p>
-              </div>
-            )}
-            {selectedTools && selectedTools.length > 0 && (
-              <div>
-                <p className="text-[10px] text-muted-foreground">Selected tools:</p>
-                <div className="flex flex-wrap gap-1 mt-1">
-                  {selectedTools.map((t) => (
-                    <span key={t} className="inline-flex items-center gap-1 rounded-md bg-warning/10 text-warning border border-warning/20 px-2 py-0.5 text-[11px] font-mono">
-                      <Wrench className="h-2.5 w-2.5" />{t}
-                    </span>
-                  ))}
+      {/* Classifier detail — task_type + privacy_mode */}
+      {node.type === "classifier" && (() => {
+        const taskType = typeof data.task_type === "string" ? data.task_type : undefined;
+        const privacyMode = typeof data.privacy_mode === "string" ? data.privacy_mode : undefined;
+        const model = typeof data.model === "string" ? data.model : undefined;
+        const hasData = taskType || privacyMode;
+        return hasData ? (
+          <div className="rounded-lg bg-muted/30 p-3 space-y-2">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold flex items-center gap-1">
+              <Tag className="h-3 w-3" /> Classification Result
+            </p>
+            <div className="space-y-2">
+              {taskType && (
+                <div>
+                  <p className="text-[10px] text-muted-foreground">Task type:</p>
+                  <span className="inline-flex items-center rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20 px-2 py-0.5 text-[11px] font-mono mt-1">
+                    {taskType}
+                  </span>
                 </div>
-              </div>
-            )}
-            {parallelGroupsData && parallelGroupsData.length > 0 && (
-              <div>
-                <p className="text-[10px] text-muted-foreground">Parallel groups:</p>
-                <div className="space-y-1 mt-1">
-                  {parallelGroupsData.map((g) => (
-                    <div key={g.group_id} className="flex items-center gap-1.5 text-[11px]">
-                      <span className="rounded-full bg-info/10 text-info border border-info/20 px-1.5 py-0 text-[9px] font-mono">
-                        ∥ {g.group_id}
-                      </span>
-                      <span className="font-mono text-muted-foreground">{g.tools.join(", ")}</span>
-                    </div>
-                  ))}
+              )}
+              {privacyMode && (
+                <div>
+                  <p className="text-[10px] text-muted-foreground">Privacy mode:</p>
+                  <span className="inline-flex items-center rounded-full bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 text-[11px] font-mono mt-1">
+                    {privacyMode}
+                  </span>
                 </div>
-              </div>
-            )}
+              )}
+              {model && (
+                <div>
+                  <p className="text-[10px] text-muted-foreground">Model:</p>
+                  <p className="text-xs font-mono text-foreground/80">{model}</p>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        ) : (
+          <div className="rounded-lg bg-muted/20 p-3 text-center">
+            <p className="text-[11px] text-muted-foreground">No classification data available</p>
+          </div>
+        );
+      })()}
+
+      {/* Planner decision */}
+      {node.type === "planner" && (() => {
+        const planText = typeof data.plan === "string" ? data.plan : undefined;
+        const archetype = typeof data.archetype === "string" ? data.archetype : undefined;
+        const hasData = selectedTools || strategySummary || strategy || planText || archetype;
+        return hasData ? (
+          <div className="rounded-lg bg-muted/30 p-3 space-y-2">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Planner Decision</p>
+            <div className="space-y-2">
+              {archetype && (
+                <div>
+                  <p className="text-[10px] text-muted-foreground">Archetype:</p>
+                  <span className="inline-flex items-center rounded-full bg-info/10 text-info border border-info/20 px-2 py-0.5 text-[11px] font-mono mt-1">
+                    {archetype}
+                  </span>
+                </div>
+              )}
+              {planText && (
+                <div>
+                  <p className="text-[10px] text-muted-foreground">Plan:</p>
+                  <pre className="text-xs text-foreground/80 mt-1 whitespace-pre-wrap font-sans leading-relaxed">{planText}</pre>
+                </div>
+              )}
+              {strategySummary && (
+                <div>
+                  <p className="text-[10px] text-muted-foreground">Strategy:</p>
+                  <p className="text-xs text-foreground/80">{strategySummary}</p>
+                </div>
+              )}
+              {!strategySummary && strategy && (
+                <div>
+                  <p className="text-[10px] text-muted-foreground">Strategy:</p>
+                  <p className="text-xs text-foreground/80">{strategy}</p>
+                </div>
+              )}
+              {selectedTools && selectedTools.length > 0 && (
+                <div>
+                  <p className="text-[10px] text-muted-foreground">Selected tools:</p>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {selectedTools.map((t) => (
+                      <span key={t} className="inline-flex items-center gap-1 rounded-md bg-warning/10 text-warning border border-warning/20 px-2 py-0.5 text-[11px] font-mono">
+                        <Wrench className="h-2.5 w-2.5" />{t}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {parallelGroupsData && parallelGroupsData.length > 0 && (
+                <div>
+                  <p className="text-[10px] text-muted-foreground">Parallel groups:</p>
+                  <div className="space-y-1 mt-1">
+                    {parallelGroupsData.map((g) => (
+                      <div key={g.group_id} className="flex items-center gap-1.5 text-[11px]">
+                        <span className="rounded-full bg-info/10 text-info border border-info/20 px-1.5 py-0 text-[9px] font-mono">
+                          ∥ {g.group_id}
+                        </span>
+                        <span className="font-mono text-muted-foreground">{g.tools.join(", ")}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-lg bg-muted/20 p-3 text-center">
+            <p className="text-[11px] text-muted-foreground">No planning data available</p>
+          </div>
+        );
+      })()}
+
+      {/* Evaluator detail — eval scores and verdict */}
+      {node.type === "evaluator" && (() => {
+        const evalData = node.resultEvent?.data ?? data;
+        const evalVerdict = typeof evalData.eval_verdict === "string" ? evalData.eval_verdict : undefined;
+        const evalScores = evalData.eval_scores && typeof evalData.eval_scores === "object" && !Array.isArray(evalData.eval_scores)
+          ? evalData.eval_scores as Record<string, number>
+          : undefined;
+        const hasData = evalVerdict || evalScores;
+        return hasData ? (
+          <div className="rounded-lg bg-muted/30 p-3 space-y-2">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold flex items-center gap-1">
+              <BarChart2 className="h-3 w-3" /> Evaluation Result
+            </p>
+            <div className="space-y-2">
+              {evalVerdict && (
+                <div>
+                  <p className="text-[10px] text-muted-foreground">Verdict:</p>
+                  <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold mt-1 border ${
+                    evalVerdict === "pass"
+                      ? "bg-success/10 text-success border-success/20"
+                      : "bg-destructive/10 text-destructive border-destructive/20"
+                  }`}>
+                    {evalVerdict}
+                  </span>
+                </div>
+              )}
+              {evalScores && Object.keys(evalScores).length > 0 && (
+                <div>
+                  <p className="text-[10px] text-muted-foreground mb-1.5">Scores:</p>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                    {Object.entries(evalScores).map(([dim, score]) => (
+                      <div key={dim}>
+                        <p className="text-[10px] text-muted-foreground capitalize">{dim.replace(/_/g, " ")}</p>
+                        <p className="text-sm font-mono font-semibold">{typeof score === "number" ? score.toFixed(2) : String(score)}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-lg bg-muted/20 p-3 text-center">
+            <p className="text-[11px] text-muted-foreground">No evaluation data available</p>
+          </div>
+        );
+      })()}
 
       {/* Tool parameters — args may be top-level or nested inside tool_call */}
       {node.type === "tool" && (() => {

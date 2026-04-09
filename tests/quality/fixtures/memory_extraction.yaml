@@ -1,0 +1,8 @@
+name: "memory auto-extraction"
+category: "memory_extraction"
+prompt: "My birthday is March 15th, please remember that"
+expected:
+  task_type: "execution"
+  has_tool_calls: true
+  tool_names: ["memory"]
+  has_plan: false

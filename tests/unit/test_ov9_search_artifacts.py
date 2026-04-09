@@ -119,7 +119,7 @@ class TestCreateSearchArtifact:
     """_create_search_artifact writes file, calls create_artifact, returns event."""
 
     def _run(self, coro: Any) -> Any:
-        return asyncio.get_event_loop().run_until_complete(coro)
+        return asyncio.run(coro)
 
     def _make_runner(self) -> Any:
         from noa.orchestrator.runner import OrchestratorRunner
@@ -248,7 +248,7 @@ class TestRunnerSearchArtifactEmission:
                 events.append(ev)
             return events
 
-        return asyncio.get_event_loop().run_until_complete(_run())
+        return asyncio.run(_run())
 
     def test_artifact_created_event_emitted_after_web_search(
         self, tmp_path: Path,

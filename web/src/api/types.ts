@@ -355,7 +355,9 @@ export type SSEEventType =
   // UX-H10: Tool execution lifecycle events from agent
   | "tool_start"
   | "tool_end"
-  | "step";
+  | "step"
+  // OV8: ask_user interrupt
+  | "ask_user";
 
 export interface SSEEvent {
   event: SSEEventType;

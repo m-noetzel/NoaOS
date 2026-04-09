@@ -23,6 +23,9 @@ def register_tools(gateway: ToolGateway) -> None:
 
     Checks environment for API keys and only registers tools
     whose credentials are configured.
+
+    Note: ask_user is handled directly by tool_node via interrupt() and does not
+    require gateway registration.
     """
     _register_web_search(gateway)
     _register_google_tools(gateway)

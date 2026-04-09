@@ -106,6 +106,7 @@ interface ChatMessagesProps {
   streamingContent: string;
   currentRunId: string | null;
   pendingApprovalSlot?: React.ReactNode;
+  askUserSlot?: React.ReactNode;
 }
 
 export function ChatMessages({
@@ -115,6 +116,7 @@ export function ChatMessages({
   streamingContent,
   currentRunId,
   pendingApprovalSlot,
+  askUserSlot,
 }: ChatMessagesProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -205,6 +207,9 @@ export function ChatMessages({
 
         {/* Approval request card — rendered from parent via slot */}
         {pendingApprovalSlot}
+
+        {/* Ask-user card — rendered from parent via slot (OV8) */}
+        {askUserSlot}
 
         {/* Streaming content */}
         {streamingContent && (

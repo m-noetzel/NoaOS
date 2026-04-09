@@ -220,6 +220,26 @@ class _CompactionPayload(TypedDict):
     model: str
 
 
+class AskUserEvent(TypedDict):
+    """Emitted when the agent asks the user for structured input (OV8).
+
+    Triggered by the ask_user tool calling interrupt() with ask_user=True.
+    The frontend renders a card with question, optional buttons, and an
+    optional freetext field.  The run resumes via the resume endpoint.
+    """
+
+    event_type: Literal["ask_user"]
+    payload: _AskUserPayload
+    timestamp: str
+
+
+class _AskUserPayload(TypedDict):
+    run_id: str
+    question: str
+    options: list[str]
+    allow_freetext: bool
+
+
 # Union type for all valid SSE events emitted by the chat pipeline.
 # Used for type narrowing in tests and consumers.
 SSEEvent = (
@@ -238,6 +258,7 @@ SSEEvent = (
     | StepStartedEvent
     | QueuedEvent
     | CompactionEvent
+    | AskUserEvent
 )
 
 # All valid event_type literals (kept in sync with SSEEvent union above).
@@ -259,5 +280,6 @@ VALID_SSE_EVENT_TYPES: frozenset[str] = frozenset(
         "queued",
         "compaction",
         "artifact_created",  # OV9: web search artifact report
+        "ask_user",  # OV8: ask_user tool interrupt
     }
 )

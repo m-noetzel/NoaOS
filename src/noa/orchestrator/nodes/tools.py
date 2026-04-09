@@ -134,6 +134,25 @@ async def tool_node(state: AgentState) -> dict[str, Any]:
                     })
                     continue
 
+            # OV8: ask_user is handled directly via interrupt() — never through gateway.
+            # The gateway adapter would catch GraphInterrupt; we must let it propagate.
+            if tool_name == "ask_user":
+                interrupt_payload = {
+                    "ask_user": True,
+                    "run_id": state.get("run_id", ""),
+                    "question": args.get("question", ""),
+                    "options": (args.get("options") or [])[:3],
+                    "allow_freetext": args.get("allow_freetext", True),
+                }
+                user_decision: dict[str, Any] = interrupt(interrupt_payload)
+                user_response = user_decision.get("response", "")
+                results.append({
+                    "name": "ask_user.ask_user",
+                    "args": args,
+                    "result": {"user_response": user_response},
+                })
+                continue
+
             # CX1: Doom loop detection
             qualified = f"{tool_name}.{function}"
             try:
@@ -200,6 +219,26 @@ async def tool_node(state: AgentState) -> dict[str, Any]:
                 })
                 continue
 
+            # OV8: ask_user is handled directly via interrupt() in legacy format too
+            from noa.tools.definitions import parse_tool_call_name
+            parsed_tool, parsed_func = parse_tool_call_name(name)
+            if parsed_tool == "ask_user":
+                interrupt_payload = {
+                    "ask_user": True,
+                    "run_id": state.get("run_id", ""),
+                    "question": arguments.get("question", ""),
+                    "options": (arguments.get("options") or [])[:3],
+                    "allow_freetext": arguments.get("allow_freetext", True),
+                }
+                user_decision = interrupt(interrupt_payload)
+                user_response = user_decision.get("response", "")
+                results.append({
+                    "name": name,
+                    "args": arguments,
+                    "result": {"user_response": user_response},
+                })
+                continue
+
             # CX1: Doom loop detection for legacy format
             try:
                 _check_doom_loop(name, arguments, prior_results)
@@ -207,10 +246,6 @@ async def tool_node(state: AgentState) -> dict[str, Any]:
                 sig = _tool_signature(name, arguments)
                 results.append({"name": name, "error": str(e), "_signature": sig})
                 continue
-
-            # Parse tool__function naming from definitions
-            from noa.tools.definitions import parse_tool_call_name
-            parsed_tool, parsed_func = parse_tool_call_name(name)
             if parsed_tool != name and _gateway is not None:
                 result = await _dispatch_gateway(
                     parsed_tool, parsed_func, arguments,

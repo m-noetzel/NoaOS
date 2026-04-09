@@ -5,6 +5,7 @@ import type { Thread, Message, Run, UserSettings, SSEEvent } from "@/api/types";
 import { ThreadSidebar } from "@/components/chat/ThreadSidebar";
 import { ChatMessages, groupMessagesByRun } from "@/components/chat/ChatMessages";
 import { ApprovalCard } from "@/components/chat/ApprovalCard";
+import { AskUserCard, type PendingAskUser } from "@/components/chat/AskUserCard";
 import { ChatComposer } from "@/components/chat/ChatComposer";
 import { useChatSSE, type PendingApproval } from "@/hooks/useChatSSE";
 import {
@@ -25,6 +26,8 @@ export default function Chat() {
   const [currentRunId, setCurrentRunId] = useState<string | null>(null);
   const [pendingApproval, setPendingApproval] =
     useState<PendingApproval | null>(null);
+  const [pendingAskUser, setPendingAskUser] =
+    useState<PendingAskUser | null>(null);
 
   const {
     optimisticMessage,
@@ -78,6 +81,7 @@ export default function Chat() {
     setStreamEvents,
     setCurrentRunId,
     setPendingApproval,
+    setPendingAskUser,
     setOptimisticMessage,
     // OI8: Switch the active thread when backend auto-redirects to a new domain thread
     onDomainRedirect: (newThreadId) => {
@@ -160,6 +164,16 @@ export default function Chat() {
                   setStreamEvents((prev) => [...prev, event as SSEEvent])
                 }
                 onInvalidateQueries={handleApprovalInvalidate}
+              />
+            ) : null
+          }
+          askUserSlot={
+            pendingAskUser ? (
+              <AskUserCard
+                pendingAskUser={pendingAskUser}
+                onResponded={() => {
+                  setPendingAskUser(null);
+                }}
               />
             ) : null
           }

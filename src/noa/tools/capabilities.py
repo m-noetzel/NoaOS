@@ -26,6 +26,7 @@ TOOL_CAPABILITIES: dict[str, str] = {
     "notion": "notion.read",
     "memory": "memory.remember",
     "external_memory": "external_memory.remember",
+    "ask_user": "ask_user.interact",  # OV8: internal coordination tool
 }
 
 # TM2: Add function-level capability keys (tool__function -> capability).

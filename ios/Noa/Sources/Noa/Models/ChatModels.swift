@@ -80,6 +80,10 @@ public struct ChatRequest: Codable, Sendable {
     public let provider: String?
     /// Specific model override (optional; backend uses defaults if nil).
     public let model: String?
+    /// LLM sampling temperature (0.0–1.0). Optional — backend uses its default if nil.
+    public let temperature: Float?
+    /// Maximum output token budget. Optional — backend uses its default if nil.
+    public let maxTokens: Int?
 
     enum CodingKeys: String, CodingKey {
         case message
@@ -87,6 +91,8 @@ public struct ChatRequest: Codable, Sendable {
         case privacyMode = "privacy_mode"
         case provider
         case model
+        case temperature
+        case maxTokens = "max_tokens"
     }
 
     public init(
@@ -94,19 +100,23 @@ public struct ChatRequest: Codable, Sendable {
         threadId: UUID? = nil,
         privacyMode: String = "private",
         provider: String? = nil,
-        model: String? = nil
+        model: String? = nil,
+        temperature: Float? = nil,
+        maxTokens: Int? = nil
     ) {
         self.message = message
         self.threadId = threadId
         self.privacyMode = privacyMode
         self.provider = provider
         self.model = model
+        self.temperature = temperature
+        self.maxTokens = maxTokens
     }
 }
 
 // MARK: - SSEEventType
 
-/// All 12 event types emitted by the backend SSE stream.
+/// All backend SSE stream event types.
 /// Spec ref: SPEC.md §22.2, VALID_EVENT_TYPES in noa/runs/schemas.py
 public enum SSEEventType: String, Codable, Sendable {
     case messageReceived = "message_received"
@@ -121,6 +131,13 @@ public enum SSEEventType: String, Codable, Sendable {
     case resultReady = "result_ready"
     case error
     case meta
+    // OV8: ask_user interrupt
+    case askUser = "ask_user"
+    // OV10: tool lifecycle events (UX-H10)
+    case toolStart = "tool_start"
+    case toolEnd = "tool_end"
+    case queued
+    case compaction
 }
 
 // MARK: - SSEEvent

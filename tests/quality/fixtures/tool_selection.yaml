@@ -1,0 +1,8 @@
+name: "calendar event creation"
+category: "tool_selection"
+prompt: "Add a meeting with John at 3pm tomorrow to my calendar"
+expected:
+  task_type: "execution"
+  has_tool_calls: true
+  tool_names: ["google_calendar"]
+  has_plan: false

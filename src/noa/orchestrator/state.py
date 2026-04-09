@@ -76,3 +76,10 @@ class AgentState(TypedDict):
     eval_reasoning: str | None
     # CC1: Context compaction flag — True when context was compacted this turn
     is_compaction_boundary: bool
+    # OV6: MemoryTool instance for proactive recall before LLM call.
+    # Typed as Any because TypedDict can't express protocol types cleanly.
+    memory_tool: Any
+    # MEM2: Pre-recalled context injected by runner before the graph starts.
+    # Non-empty string means the runner already did a recall pass; agent_node
+    # prepends this as an extra system message so the LLM sees it on turn 1.
+    recalled_context: str

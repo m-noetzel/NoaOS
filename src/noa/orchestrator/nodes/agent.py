@@ -8,6 +8,7 @@ set_router() must be called at app startup to wire the router.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncGenerator, Callable, Coroutine
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
@@ -17,6 +18,8 @@ from noa.orchestrator.state import AgentState
 
 if TYPE_CHECKING:
     from noa.external_worker.llm.router import ProviderRouter
+
+logger = logging.getLogger(__name__)
 
 # Maximum tool calls the agent will forward per step (S2.1 cost/iteration limits).
 MAX_TOOL_CALLS = 10
@@ -225,6 +228,45 @@ def _parse_react_thoughts(
     return thoughts
 
 
+async def _recall_context(
+    user_message: str,
+    memory_tool: Any,
+    user_id: str | None,
+    n_results: int = 3,
+) -> str:
+    """Recall relevant memory facts for the user message.
+
+    OV6: Best-effort proactive recall. Returns a context string to inject as a
+    system message prefix, or an empty string if no facts found or on error.
+
+    Args:
+        user_message: The user's current message (used as recall query).
+        memory_tool: MemoryTool instance providing .recall() via private RPC.
+        user_id: Owner scope for the recall query.
+        n_results: Max number of facts to retrieve.
+
+    Returns:
+        Formatted context string or empty string.
+    """
+    try:
+        result = await memory_tool.recall(
+            query=user_message,
+            n_results=n_results,
+            user_id=user_id,
+        )
+        facts: list[dict[str, Any]] = result.get("facts", [])
+        if not facts:
+            return ""
+        lines = [f["fact"] for f in facts if f.get("fact")]
+        if not lines:
+            return ""
+        bullet_lines = "\n".join(f"- {line}" for line in lines)
+        return "Relevant context from memory:\n" + bullet_lines
+    except Exception:  # noqa: BLE001
+        logger.debug("OV6: memory recall failed — skipping context injection")
+        return ""
+
+
 async def agent_node(state: AgentState) -> dict[str, Any]:
     """Call the LLM and return tool_calls / response. Async pure function."""
     messages = state.get("messages", [])
@@ -241,11 +283,56 @@ async def agent_node(state: AgentState) -> dict[str, Any]:
     raw_temp = state.get("temperature")
     temp: float | None = float(cast(float, raw_temp)) if raw_temp is not None else None
 
+    # MEM2: Use pre-recalled context from runner's turn-start recall pass.
+    # This is injected BEFORE the OV6 in-node recall so the LLM always sees
+    # at least the turn-start facts even on the first agent iteration.
+    recalled_context: str = state.get("recalled_context") or ""
+    if recalled_context:
+        messages = [
+            {"role": "system", "content": recalled_context}
+        ] + list(messages)
+
+    # OV6: Proactive memory recall — inject relevant facts before LLM call.
+    # Only runs for non-simple_utility tasks to avoid overhead on trivial requests.
+    task_type: str | None = state.get("task_type")
+    memory_tool = state.get("memory_tool")
+    if memory_tool is not None and task_type != "simple_utility":
+        user_id = state.get("user_id")
+        # Extract the user's current message as the recall query.
+        user_message = ""
+        for msg in reversed(messages):
+            if msg.get("role") == "user":
+                user_message = msg.get("content", "")
+                break
+        if user_message:
+            memory_context = await _recall_context(
+                user_message, memory_tool, user_id
+            )
+            if memory_context:
+                # Inject as a system message prepended before any existing messages.
+                messages = [
+                    {"role": "system", "content": memory_context}
+                ] + list(messages)
+
+    # OV7 / UX-EX1: For execution tasks, inject task-type-specific guidance
+    # so the LLM confirms with actual result data after tool success, and
+    # surfaces a human-readable error with next steps on failure.
+    execution_prompt: str | None = None
+    task_type_for_exec: str | None = state.get("task_type")
+    if task_type_for_exec == "execution":
+        execution_prompt = (
+            "For execution tasks: After successfully using a tool, confirm "
+            "with the actual result data. Do not paraphrase what the user "
+            "asked — show what was done. "
+            "If a tool fails, explain the error in plain language and "
+            "suggest next steps."
+        )
+
     # OI1: Inject plan and/or ReAct instruction into the system message.
     use_react: bool = bool(state.get("use_react", False))
     plan: str | None = state.get("plan")
 
-    if use_react or plan:
+    if use_react or plan or execution_prompt:
         # Find the system message and inject context into it.
         augmented_messages: list[dict[str, Any]] = []
         system_injected = False
@@ -261,6 +348,8 @@ async def agent_node(state: AgentState) -> dict[str, Any]:
                         " observing tool results, reflect with another"
                         " 'Thought: ...' before proceeding."
                     )
+                if execution_prompt:
+                    extra_parts.append(execution_prompt)
                 existing = msg.get("content", "")
                 new_content = existing + "\n\n" + "\n\n".join(extra_parts)
                 augmented_messages.append(
@@ -269,7 +358,7 @@ async def agent_node(state: AgentState) -> dict[str, Any]:
                 system_injected = True
             else:
                 augmented_messages.append(msg)
-        if not system_injected and (plan or use_react):
+        if not system_injected and (plan or use_react or execution_prompt):
             # No system message yet — prepend one.
             extra_parts = []
             if plan:
@@ -281,6 +370,8 @@ async def agent_node(state: AgentState) -> dict[str, Any]:
                     " observing tool results, reflect with another"
                     " 'Thought: ...' before proceeding."
                 )
+            if execution_prompt:
+                extra_parts.append(execution_prompt)
             augmented_messages.insert(
                 0,
                 {"role": "system", "content": "\n\n".join(extra_parts)},

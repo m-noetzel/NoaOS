@@ -83,8 +83,15 @@ def _make_agent_state(
         "eval_scores": None,
         "eval_verdict": None,
         "eval_cycle": 0,
+        # OV4: evaluator config
+        "eval_config": None,
+        "eval_reasoning": None,
         # CC1: context compaction boundary flag
         "is_compaction_boundary": False,
+        # OV6: memory tool
+        "memory_tool": None,
+        # MEM2: pre-recalled context from turn-start recall pass
+        "recalled_context": "",
     }
 
 

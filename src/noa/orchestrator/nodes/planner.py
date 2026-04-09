@@ -85,6 +85,16 @@ async def planner_node(state: AgentState) -> dict[str, Any]:
     archetype: str | None = ARCHETYPES.get(task_type, "execution")
     use_react: bool = task_type in _REACT_TASK_TYPES
 
+    # OV5/PERF-PL1: execution tasks don't need a planning LLM call.
+    # They have a clear single action — archetype is enough.
+    if task_type == "execution":
+        return {
+            "plan": None,
+            "archetype": archetype,
+            "use_react": False,
+            "thoughts": [],
+        }
+
     if archetype is None:
         # Shouldn't reach here for non-simple_utility but be safe.
         return {

@@ -23,6 +23,7 @@ from noa.api.middleware import trace_id_ctx
 from noa.api.schemas.common import success_envelope
 from noa.auth.middleware import AuthUser, require_auth
 from noa.db.models.approval import Approval
+from noa.db.rls import set_domain_context
 
 logger = logging.getLogger(__name__)
 
@@ -98,10 +99,18 @@ async def list_pending_approvals(
     request: Request,
     user: AuthUser = Depends(require_auth),  # noqa: B008
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
+    domain: str = "",
 ) -> dict[str, Any]:
-    """List pending approvals for the authenticated user."""
+    """List pending approvals for the authenticated user.
+
+    DI3 (W24B-L1): ``domain`` query param activates RLS context so Postgres
+    policies enforce domain isolation.  Pass ``domain=private`` or
+    ``domain=external`` to filter; omit (empty string) to see all domains.
+    """
     rid = trace_id_ctx.get("")
     user_id = user.user_id
+    # DI3: Activate RLS session context (no-op on SQLite)
+    await set_domain_context(session, domain)
     result = await session.execute(
         select(Approval)
         .where(Approval.user_id == user_id, Approval.decision == "pending")
@@ -144,10 +153,18 @@ async def list_approval_history(
     request: Request,
     user: AuthUser = Depends(require_auth),  # noqa: B008
     session: AsyncSession = Depends(get_db_session),  # noqa: B008
+    domain: str = "",
 ) -> dict[str, Any]:
-    """List decided approvals (approved/denied) for the authenticated user."""
+    """List decided approvals (approved/denied) for the authenticated user.
+
+    DI3 (W24B-L1): ``domain`` query param activates RLS context so Postgres
+    policies enforce domain isolation.  Pass ``domain=private`` or
+    ``domain=external`` to filter; omit (empty string) to see all domains.
+    """
     rid = trace_id_ctx.get("")
     user_id = user.user_id
+    # DI3: Activate RLS session context (no-op on SQLite)
+    await set_domain_context(session, domain)
     result = await session.execute(
         select(Approval)
         .where(Approval.user_id == user_id, Approval.decision != "pending")
@@ -191,8 +208,15 @@ async def decide_approval(
     Persists the decision to the database and returns the full approval shape
     so ApprovalDetailViewModel can update badge color (risk_tier) and show
     the decision timestamp (decided_at).
+
+    DI3 (W24B-L1): RLS context cleared (empty domain) so the user can decide
+    any of their approvals regardless of domain — the IDOR check below ensures
+    ownership is still enforced.
     """
     rid = trace_id_ctx.get("")
+    # DI3: Activate RLS session (empty domain = cross-domain access allowed,
+    # but IDOR check below enforces ownership).
+    await set_domain_context(session, "")
 
     result = await session.execute(
         select(Approval).where(Approval.id == approval_id)
@@ -252,6 +276,7 @@ async def decide_approval(
     }
 
     return success_envelope(data=data, trace_id=rid)
+
 
 
 async def _resume_graph(

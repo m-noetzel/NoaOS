@@ -117,18 +117,17 @@ class TestPlannerGeneratesPlan:
 
     @pytest.mark.asyncio
     async def test_execution_generates_plan(self) -> None:
+        # OV5/PERF-PL1: execution tasks skip the planner LLM call — plan is None
         state = _make_state(task_type="execution")
-        mock_resp = AsyncMock()
-        mock_resp.content = "1. Verify action\n2. Execute\n3. Confirm"
 
         with patch(
             "noa.orchestrator.nodes.planner.invoke_llm",
             new_callable=AsyncMock,
-            return_value=mock_resp,
-        ):
+        ) as mock_llm:
             result = await planner_node(state)  # type: ignore[arg-type]
 
-        assert result["plan"] == "1. Verify action\n2. Execute\n3. Confirm"
+        mock_llm.assert_not_called()
+        assert result["plan"] is None
         assert result["archetype"] == "execution"
         assert result["use_react"] is False
 
@@ -419,7 +418,10 @@ class TestAgentNodePlanInjection:
 
         assert captured_msgs
         system_msg = next(m for m in captured_msgs[0] if m["role"] == "system")
-        assert system_msg["content"] == original_system
+        # OV7: execution tasks may have a system prompt suffix appended.
+        # The test only checks that no "plan" text was injected.
+        assert "plan" not in system_msg["content"].lower() or original_system in system_msg["content"]
+        assert "Step-by-step plan:" not in system_msg["content"]
 
 
 # ---------------------------------------------------------------------------

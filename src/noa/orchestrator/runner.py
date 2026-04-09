@@ -6,6 +6,7 @@ Spec refs: SPEC.md §2.1, §22.1, §22.2, §22.4
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import time
@@ -214,6 +215,50 @@ class OrchestratorRunner:
 
             messages.append({"role": "user", "content": message})
 
+            # OV6: Build a MemoryTool for proactive recall in agent_node.
+            # Uses same in-process RPC shim as tool registration.
+            _memory_tool: Any | None = None
+            try:
+                from noa.private_worker.handlers import (  # noqa: PLC0415
+                    get_handler as _get_handler,
+                )
+                from noa.tools.memory import MemoryTool as _MemoryTool  # noqa: PLC0415
+
+                async def _local_memory_rpc(request: dict[str, Any]) -> dict[str, Any]:
+                    task_type = request.get("task_type", "")
+                    handler = _get_handler(task_type)
+                    if handler is None:
+                        return {
+                            "status": "error",
+                            "error": f"Unknown task type: {task_type}",
+                        }
+                    result = await handler(request.get("payload", {}))
+                    return {"status": "ok", "result": result}
+
+                _memory_tool = _MemoryTool(rpc_client=_local_memory_rpc)
+            except Exception:  # noqa: BLE001
+                logger.debug(
+                    "OV6: MemoryTool not available, skipping proactive recall"
+                )
+
+            # MEM2: Automatic memory recall at turn start.
+            # Recall relevant facts before the graph runs (not dependent on the
+            # LLM deciding to call the recall tool).  Inject results into
+            # initial_state so agent_node can prepend them as a system message.
+            _recalled_context: str = ""
+            if _memory_tool is not None:
+                from noa.orchestrator.nodes.agent import (  # noqa: PLC0415
+                    _recall_context as _do_recall,
+                )
+                try:
+                    _recalled_context = await _do_recall(
+                        message, _memory_tool, user_id
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.debug(
+                        "MEM2: pre-turn recall failed — skipping"
+                    )
+
             initial_state: dict[str, Any] = {
                 "messages": messages,
                 "privacy_mode": privacy_mode,
@@ -265,6 +310,10 @@ class OrchestratorRunner:
                 "eval_reasoning": None,
                 # CC1: Context compaction boundary flag
                 "is_compaction_boundary": False,
+                # OV6: MemoryTool for proactive recall in agent_node
+                "memory_tool": _memory_tool,
+                # MEM2: Pre-recalled context from turn-start recall pass
+                "recalled_context": _recalled_context,
             }
 
             # A4: Load checkpoint if available (resume support)
@@ -281,12 +330,18 @@ class OrchestratorRunner:
                 extra=log_ctx,
             )
 
-            # LS1/ST4: Per-run token queue + callback injected into state
-            # so concurrent runs never share a module-global callback.
-            token_queue: asyncio.Queue[str] = asyncio.Queue()
+            # TS1/ST4: Per-run event queue for concurrent token delivery.
+            # Token callback puts token events directly into this queue so they
+            # are emitted as soon as they arrive, not after the node completes.
+            # None is the sentinel: the graph producer puts it when done.
+            _event_queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
 
             async def _token_cb(token: str) -> None:
-                await token_queue.put(token)
+                token_event = self._make_event(
+                    "token_stream",
+                    {"token": token, "run_id": run_id},
+                )
+                await _event_queue.put(token_event)
 
             initial_state["token_callback"] = _token_cb
 
@@ -318,7 +373,43 @@ class OrchestratorRunner:
             else:
                 _stream = self._graph.astream(initial_state)
 
-            async for chunk in _stream:
+            # TS1: Run the graph as a background task so the token callback
+            # can emit token_stream events concurrently while each node executes.
+            # Node-completion events are published to _event_queue; the main
+            # generator below drains the queue and yields events in arrival order.
+            _graph_exc: list[BaseException] = []
+
+            async def _run_graph() -> None:
+                """Background task: iterate graph chunks, publish to _event_queue."""
+                try:
+                    async for chunk in _stream:
+                        await _event_queue.put({"__chunk__": chunk})
+                except BaseException as exc:  # noqa: BLE001
+                    _graph_exc.append(exc)
+                finally:
+                    # Sentinel: signal the consumer that the graph is done.
+                    await _event_queue.put(None)
+
+            graph_task = asyncio.ensure_future(_run_graph())
+
+            # Drain event queue until graph signals completion (None sentinel).
+            while True:
+                item = await _event_queue.get()
+                if item is None:
+                    # Graph finished — re-raise any exception it encountered.
+                    await graph_task
+                    if _graph_exc:
+                        raise _graph_exc[0]
+                    break
+
+                # Token events arrive directly from _token_cb.
+                if item.get("event_type") == "token_stream":
+                    yield item
+                    continue
+
+                # Node-completion chunk published by _run_graph.
+                chunk = item.get("__chunk__", {})
+
                 # OV2: LangGraph signals an interrupt via "__interrupt__" key.
                 if "__interrupt__" in chunk:
                     interrupt_data = chunk["__interrupt__"]
@@ -331,25 +422,47 @@ class OrchestratorRunner:
                         iv = {}
 
                     _pending_interrupts[run_id] = run_id
-                    approval_payload_interrupt: dict[str, Any] = {
-                        "tool": iv.get("tool", ""),
-                        "function": iv.get("function", ""),
-                        "args": iv.get("args", {}),
-                        "risk_tier": iv.get("risk_tier", "medium"),
-                    }
-                    if iv.get("cross_domain"):
-                        approval_payload_interrupt["cross_domain"] = True
-                        approval_payload_interrupt["reason"] = iv.get("reason", "")
 
-                    approval_event_interrupt = self._make_event(
-                        "approval_requested",
-                        approval_payload_interrupt,
-                    )
-                    await self._persist_event(
-                        run_service, run_id, approval_event_interrupt,
-                    )
-                    yield approval_event_interrupt
+                    # OV8: Differentiate ask_user interrupts from approval interrupts.
+                    if iv.get("ask_user"):
+                        ask_user_event_interrupt = self._make_event(
+                            "ask_user",
+                            {
+                                "run_id": run_id,
+                                "question": iv.get("question", ""),
+                                "options": iv.get("options", []),
+                                "allow_freetext": iv.get("allow_freetext", True),
+                            },
+                        )
+                        await self._persist_event(
+                            run_service, run_id, ask_user_event_interrupt,
+                        )
+                        yield ask_user_event_interrupt
+                    else:
+                        approval_payload_interrupt: dict[str, Any] = {
+                            "tool": iv.get("tool", ""),
+                            "function": iv.get("function", ""),
+                            "args": iv.get("args", {}),
+                            "risk_tier": iv.get("risk_tier", "medium"),
+                        }
+                        if iv.get("cross_domain"):
+                            approval_payload_interrupt["cross_domain"] = True
+                            approval_payload_interrupt["reason"] = iv.get("reason", "")
+
+                        approval_event_interrupt = self._make_event(
+                            "approval_requested",
+                            approval_payload_interrupt,
+                        )
+                        await self._persist_event(
+                            run_service, run_id, approval_event_interrupt,
+                        )
+                        yield approval_event_interrupt
+
                     _interrupted = True
+                    # Cancel graph task on interrupt and drain the sentinel.
+                    graph_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError, Exception):
+                        await graph_task
                     break
 
                 # astream yields {node_name: state_update} per completed node
@@ -359,25 +472,16 @@ class OrchestratorRunner:
                     # Merge node output into accumulated result
                     result.update(node_output)
 
-                    # LS1: Drain token queue — the agent node accumulated
-                    # tokens via the callback while it was running.
-                    # We drain here (after the node completes) and yield
-                    # token_stream SSE events before step_started so tokens
-                    # appear to stream before the step completion notice.
-                    while not token_queue.empty():
-                        try:
-                            token = token_queue.get_nowait()
-                        except asyncio.QueueEmpty:
-                            break
-                        token_event = self._make_event(
-                            "token_stream",
-                            {"token": token, "run_id": run_id},
-                        )
-                        yield token_event
+                    # OV8: Cycle tagging — include #cycleN suffix when
+                    # eval_cycle > 0 (graph reroute after evaluator).
+                    _eval_cycle = node_output.get("eval_cycle", 0) or 0
+                    _cycle_suffix = (
+                        f"#cycle{_eval_cycle}" if _eval_cycle > 0 else ""
+                    )
 
                     # LF1: Record a span for each graph node
                     lf_trace.span(
-                        name=f"node/{node_name}",
+                        name=f"node/{node_name}{_cycle_suffix}",
                         input={
                             k: v
                             for k, v in node_output.items()
@@ -395,6 +499,27 @@ class OrchestratorRunner:
                         },
                         metadata={"node": node_name},
                     )
+
+                    # OV8: Routing decision spans — emitted after key nodes
+                    # so Langfuse shows the routing decision taken after each.
+                    if node_name == "agent":
+                        _tool_calls = node_output.get("tool_calls") or []
+                        _tc_count = len(_tool_calls)
+                        _destination = "tools" if _tc_count > 0 else "evaluator"
+                        lf_trace.span(
+                            name=f"routing/after_agent{_cycle_suffix}",
+                            input={"tool_calls_count": _tc_count},
+                            output={"destination": _destination},
+                            metadata={"node": node_name},
+                        )
+                    elif node_name == "classifier":
+                        _task_type = node_output.get("task_type", "")
+                        lf_trace.span(
+                            name=f"routing/after_classifier{_cycle_suffix}",
+                            input={"task_type": _task_type},
+                            output={"destination": "planner"},
+                            metadata={"node": node_name},
+                        )
 
                     # Emit step_started for each node as it completes
                     step_event = self._make_event(
@@ -501,6 +626,9 @@ class OrchestratorRunner:
                     await self._persist_event(run_service, run_id, timeout_event)
                     yield timeout_event
                     _timed_out = True
+                    graph_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError, Exception):
+                        await graph_task
                     break
 
             # LS2: Mark run as failed if timed out
@@ -543,6 +671,31 @@ class OrchestratorRunner:
             _compaction_model = result.get("selected_model") or model or "gpt-4.1"
             from noa.orchestrator.token_budget import needs_compaction
             if needs_compaction(_current_messages, _compaction_model):
+                # MEM3: Pre-compaction memory flush — extract user facts from the
+                # messages about to be summarized so they survive lossy compaction.
+                if _memory_tool is not None:
+                    try:
+                        _flush_facts = [
+                            m.get("content", "")
+                            for m in _current_messages
+                            if m.get("role") in ("user", "assistant")
+                            and m.get("content")
+                        ]
+                        if _flush_facts:
+                            await _memory_tool.auto_extract(
+                                facts=_flush_facts,
+                                source_thread_id=run_id,
+                                user_id=user_id,
+                            )
+                            logger.debug(
+                                "MEM3: pre-compaction flush: %d msgs run_id=%s",
+                                len(_flush_facts),
+                                run_id,
+                            )
+                    except Exception:  # noqa: BLE001
+                        logger.debug(
+                            "MEM3: pre-compaction flush failed — continuing"
+                        )
                 from noa.orchestrator.nodes.agent import invoke_llm
                 from noa.orchestrator.nodes.compactor import (
                     COMPACTION_MODEL,
@@ -1018,6 +1171,14 @@ class OrchestratorRunner:
                 await self._persist_event(run_service, run_id, result_ready_event)
                 yield result_ready_event
 
+                # BE-AP1: Best-effort run summary update after approval resume.
+                await self._update_run_summary(
+                    run_service,
+                    run_id,
+                    resume_response,
+                    resume_result,
+                )
+
             try:
                 await run_service.update_status(run_id, "completed")
             except Exception:  # noqa: BLE001
@@ -1063,6 +1224,60 @@ class OrchestratorRunner:
             "payload": payload,
             "timestamp": datetime.now(UTC).isoformat(),
         }
+
+    @staticmethod
+    async def _update_run_summary(
+        run_service: Any,
+        run_id: str,
+        response: str | None,
+        tool_results: Any,
+    ) -> None:
+        """Best-effort: update the run's summary field after completion.
+
+        BE-AP1: Called after approval resume to persist a human-readable
+        summary of what the run produced.  Skipped when response is empty.
+        Exceptions are swallowed — this is a best-effort, non-critical update.
+
+        Args:
+            run_service: RunService instance with update_run method.
+            run_id: The run ID to update.
+            response: Final LLM response text.
+            tool_results: Either a list of tool result dicts, or a dict
+                containing a "tool_results" key.
+        """
+        if not response:
+            return
+
+        # Normalise tool_results to a list
+        if isinstance(tool_results, dict):
+            _tr_list = tool_results.get("tool_results", [])
+        elif isinstance(tool_results, list):
+            _tr_list = tool_results
+        else:
+            _tr_list = []
+
+        # Collect unique tool names
+        tool_names: list[str] = []
+        seen: set[str] = set()
+        for tr in _tr_list:
+            if not isinstance(tr, dict):
+                continue
+            name = tr.get("name") or tr.get("tool_name", "")
+            if name and name not in seen:
+                tool_names.append(name)
+                seen.add(name)
+
+        summary = response
+        if tool_names:
+            summary = f"{response} [tools: {', '.join(tool_names)}]"
+
+        try:
+            await run_service.update_run(run_id=run_id, summary=summary)
+        except Exception:  # noqa: BLE001
+            logger.debug(
+                "_update_run_summary: update_run failed for run_id=%s — ignoring",
+                run_id,
+            )
 
     @staticmethod
     def _extract_response(result: dict[str, Any]) -> str:

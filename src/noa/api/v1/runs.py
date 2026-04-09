@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from datetime import UTC, datetime
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy import func, select
 
 from noa.api.deps import get_db_session
@@ -17,6 +19,9 @@ from noa.api.schemas.common import success_envelope
 from noa.auth.middleware import AuthUser, require_auth
 from noa.db.models.run import Run, RunEvent
 from noa.db.models.usage import UsageStats
+from noa.runs.service import RunService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/runs", tags=["runs"])
 
@@ -338,3 +343,87 @@ async def complete_run(
         data={"run_id": str(run_id), "status": "completed"},
         trace_id=rid,
     )
+
+
+class ResumeRequest(BaseModel):
+    response: str
+
+
+@router.post("/{run_id}/resume")
+async def resume_run(
+    run_id: uuid.UUID,
+    body: ResumeRequest,
+    request: Request,
+    user: AuthUser = Depends(require_auth),  # noqa: B008
+    db: Any = Depends(get_db_session),  # noqa: B008
+) -> dict[str, Any]:
+    """Resume an ask_user-interrupted run with the user's response.
+
+    OV8: Called by the frontend AskUserCard when the user submits a response.
+    Finds the run, verifies ownership, then calls runner.resume() with
+    decision dict containing the ask_user response payload.
+    """
+    rid = trace_id_ctx.get("")
+
+    result = await db.execute(select(Run).where(Run.id == run_id))
+    run = result.scalar_one_or_none()
+
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    if run.user_id != user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorised")
+
+    if run.status != "awaiting_approval":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Run is not awaiting input (status={run.status})",
+        )
+
+    from noa.api.app_state import get_runner, get_session_factory
+
+    runner = get_runner()
+    if runner is None:
+        raise HTTPException(status_code=503, detail="Runner unavailable")
+
+    session_factory = get_session_factory()
+    if session_factory is None:
+        raise HTTPException(status_code=503, detail="Session factory unavailable")
+
+    asyncio.create_task(
+        _resume_with_response(
+            runner=runner,
+            session_factory=session_factory,
+            run_id=str(run_id),
+            user_response=body.response,
+        )
+    )
+    logger.info("Queued ask_user resume for run_id=%s", run_id)
+
+    return success_envelope(
+        data={"run_id": str(run_id), "status": "resuming"},
+        trace_id=rid,
+    )
+
+
+async def _resume_with_response(
+    *,
+    runner: Any,
+    session_factory: Any,
+    run_id: str,
+    user_response: str,
+) -> None:
+    """Fire-and-forget: resume the graph with the user's ask_user response."""
+    try:
+        async with session_factory() as db_session:
+            run_service = RunService(session=db_session)
+            async for _event in runner.resume(
+                run_id=run_id,
+                decision={"decision": "ask_user_response", "response": user_response},
+                run_service=run_service,
+            ):
+                pass
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "Failed to resume ask_user graph for run_id=%s", run_id, exc_info=True
+        )

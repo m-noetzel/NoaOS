@@ -11,6 +11,8 @@ export const VALID_SSE_EVENTS: Set<string> = new Set<string>([
   "run_started", "run_completed", "run_failed", "run_cancelled", "meta",
   // UX-H10: tool lifecycle and step events
   "tool_start", "tool_end", "step",
+  // OV8: ask_user interrupt
+  "ask_user",
 ]);
 
 export type SSECallback = (event: SSEEvent) => void;

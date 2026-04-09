@@ -287,6 +287,26 @@ Dependency order: OV1 → OV2 → OV3 → OV4 → OV5 → OV6 → OV7 → OV8
 
 ---
 
+### Wave 29: Memory Intelligence, Streaming & Data Integrity
+
+Improve memory quality and proactivity (MEM1-MEM3), add concurrent token delivery (TS1), UX improvements for execution graph and privacy classification (UX1-UX2), LLM quality test suite (QA1), and fix four data-integrity gaps identified during audit (DI1-DI4).
+
+| ID | Phase | Status | Tests | Branch | Est. | Actual | Notes |
+|----|-------|--------|-------|--------|------|--------|-------|
+| **MEM1** | Proactive Memory Storage | **Complete** | 7 Python | main | ~15 min | ~10 min | Rewrote system_prompt.txt Memory Usage section: STRICT→PROACTIVE, added 6 fact categories (personal facts, preferences, habits, important dates, project context, scheduling patterns) |
+| **MEM2** | Automatic Memory Recall at Turn Start | **Complete** | 5 Python | main | ~30 min | ~25 min | `recalled_context` field in AgentState; runner calls `_recall_context()` before graph; agent_node injects as system message prefix (additive with OV6 in-node recall) |
+| **MEM3** | Pre-Compaction Memory Flush | **Complete** | 3 Python | main | ~20 min | ~20 min | Before `compact_messages()`, runner calls `memory_tool.auto_extract()` on all user/assistant messages; failure is best-effort (compaction always runs) |
+| **TS1** | Concurrent Token Delivery | **Complete** | 7 Python | main | ~45 min | ~45 min | TECH-H1/W24-M1: Runner runs graph as background task (`asyncio.ensure_future`). Token callback puts `token_stream` events directly into shared `_event_queue`; main generator drains queue concurrently. Tokens arrive in real-time during LLM generation, not post-node-completion. |
+| **UX2** | Privacy Classifier Semantic Scoring | **Complete** | 10 Python | main | ~30 min | ~20 min | RV-M2: Semantic scoring via nomic-embed-text (Ollama) already implemented in `src/noa/privacy/classifier.py` (PC1 delivered the code). UX2 adds phase-specific tests: "draft my resignation letter" detected via cosine similarity, graceful Ollama fallback, keyword OR semantic OR logic. `classify_async` embeds user message against private-intent reference; similarity > threshold (0.7) triggers private. |
+| **UX1** | Execution Graph Node Detail Content | **Complete** | 12 TS | main | ~30 min | ~25 min | UX-RG1: Classifier node added to RunGraph when `classification_done` event present — shows task_type + privacy_mode. Planner panel now shows archetype badge + plan text. Evaluator node added when `step_started {step: evaluator}` event or result_ready has eval_verdict/eval_scores. Empty states for all 3 node types. `RunGraph.tsx` extended with 5 node types (classifier, agent, evaluator added). |
+| **QA1** | LLM Quality Test Suite | **Complete** | 23 Python | main | ~30 min | ~20 min | RV-M3: YAML fixture-based structural property test suite (`tests/quality/`). 7 fixtures (simple_utility, execution_with_tools, privacy_routing, tool_selection, decision_intelligence, research_task, memory_extraction). 23 tests with `@pytest.mark.quality` marker. Tests classifier routing, planner archetype/ReAct selection, privacy routing (pure-function, no LLM), and tool_call structural properties. LLM boundary mocked; internal logic runs real code. |
+| **DI1** | Multi-Round Tool-Call Extraction Fix | **Complete** | 12 Python | main | ~30 min | ~30 min | W26-M1: Rewrote `_extract_turn_messages()` in chat.py to correctly separate multiple tool-call rounds per turn (each round → separate assistant+tool pair). Also generates synthetic IDs (`tool_<n>`) for providers (Ollama, Kimi) that omit `id` on tool calls, preventing key collision on repeated same-tool calls. |
+| **DI2** | Idempotency Cache → PostgreSQL | **Complete** | 10 Python | main | ~30 min | ~25 min | RV-M1: Replaced `_active_idempotency_keys` in-memory dict in chat.py with DB-backed `_check_chat_idempotency()` and `_register_chat_idempotency()` helpers using `idempotency_keys` table (already exists from CX1). Chat-level keys stored with `"chat:"` prefix to differentiate from tool-level keys. Existing sweep from CX1 handles cleanup. ToolGateway already used DB (CX1). |
+| **DI3** | RLS Endpoint Wiring | **Complete** | 7 Python | main | ~20 min | ~20 min | W24B-L1: Wired `set_domain_context()` into approvals.py endpoints (pending, history, decide). Added optional `domain` query param to listing endpoints. `decide_approval` uses empty domain (bypass + IDOR check ensures ownership). memory.py uses MemoryStore (no SQL session), so not applicable there. threads.py was already wired. |
+| **DI4** | Smart Domain Redirect Implementation | **Complete** | 6 Python | main | ~0 min | ~0 min | OI8-M1: Already fully implemented in chat.py — auto-creates thread in correct domain, emits redirect meta event. All 6 OI8 tests pass. MetaEvent TypedDict in sse_types.py has optional redirect fields. |
+
+---
+
 ## Deployment Roadmap
 
 ### Stage 1 — Local Development (current)

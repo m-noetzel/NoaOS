@@ -69,21 +69,30 @@ def test_chat_module_empty_response_path_yields_failed() -> None:
 
 
 def test_approvals_denied_path_finalizes_run() -> None:
-    """approvals.py source must finalize the run as 'failed' when denied."""
+    """approvals.py must resume the graph when denied.
+
+    OV2: approval decisions are handled by runner.resume() which manages
+    run finalization inside the graph (no direct _run.status assignment).
+    """
     import noa.api.v1.approvals as approvals_module
 
     source = inspect.getsource(approvals_module)
-    # Both approved and denied paths must change run status
-    assert "_run.status = \"failed\"" in source, (
-        "approvals.py must set run status to 'failed' on denial (CHAT-H2)"
+    # OV2: graph is resumed with the decision; runner handles finalization
+    assert "runner.resume" in source, (
+        "approvals.py must call runner.resume() to finalize run on decision (OV2)"
     )
 
 
 def test_approvals_approved_path_finalizes_run() -> None:
-    """approvals.py source must finalize the run as 'completed'/'failed' after approval."""
+    """approvals.py must resume the graph when approved.
+
+    OV2: approval decisions are handled by runner.resume() which manages
+    run finalization inside the graph.
+    """
     import noa.api.v1.approvals as approvals_module
 
     source = inspect.getsource(approvals_module)
-    assert 'final_status = "failed" if response.error else "completed"' in source, (
-        "approvals.py must finalize approved run as completed/failed (CHAT-H2)"
+    # OV2: both approved and denied flow through runner.resume()
+    assert "runner.resume" in source, (
+        "approvals.py must call runner.resume() to finalize approved run (OV2)"
     )

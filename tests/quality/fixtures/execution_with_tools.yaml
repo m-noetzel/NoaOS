@@ -1,0 +1,8 @@
+name: "web search execution task"
+category: "execution_with_tools"
+prompt: "Search for the latest news on AI research breakthroughs"
+expected:
+  task_type: "execution"
+  has_tool_calls: true
+  tool_names: ["web_search"]
+  has_plan: false

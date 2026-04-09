@@ -346,6 +346,47 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
             },
         },
     },
+    "ask_user": {
+        "description": "Ask the user for structured input during task execution.",
+        "functions": {
+            "ask_user": {
+                "description": (
+                    "Pause the task and ask the user a question. "
+                    "Renders a card in the UI with optional answer buttons "
+                    "and/or a freetext input field."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "question": {
+                            "type": "string",
+                            "description": "The question to ask the user.",
+                        },
+                        "options": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": (
+                                "Up to 3 suggested answer options "
+                                "(rendered as buttons)."
+                            ),
+                            "default": [],
+                        },
+                        "allow_freetext": {
+                            "type": "boolean",
+                            "description": (
+                                "Whether to show a freetext input field "
+                                "in addition to any option buttons."
+                            ),
+                            "default": True,
+                        },
+                    },
+                    "required": ["question"],
+                },
+                "risk_tier": "low",
+                "domain": "external",
+            },
+        },
+    },
     "external_memory": {
         "description": "Remember and recall facts in the external domain.",
         "functions": {

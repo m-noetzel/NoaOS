@@ -4,7 +4,7 @@
 
 Noa is a self-hosted AI agent that enforces privacy boundaries through container-level network isolation, governs every action through risk-tiered approvals, tracks costs with hard budget limits, and integrates with Google Calendar, Gmail, Notion, and web search. It ships with a React web UI and a native iOS app.
 
-Built as a portfolio project demonstrating applied agent engineering: LangGraph state machine orchestration, container-based domain isolation, function-level tool governance, immutable audit logging, multi-provider LLM routing, and production-grade infrastructure with 2,100+ tests across 123 test files.
+Built as a portfolio project demonstrating applied agent engineering: LangGraph state machine orchestration, container-based domain isolation, function-level tool governance, self-evaluating response quality loop, immutable audit logging, multi-provider LLM routing, and production-grade infrastructure with 2,800+ Python and 270+ Swift tests across 168 test files.
 
 ![Chat — multi-step tool chain with streaming results](assets/chat.png)
 
@@ -16,6 +16,7 @@ Built as a portfolio project demonstrating applied agent engineering: LangGraph 
 - [Problem Statement](#problem-statement)
 - [What It Does](#what-it-does)
 - [Architecture](#architecture)
+- [What Changed Since Phase 1](#what-changed-since-phase-1)
 - [Agent & Prompt Engineering](#agent--prompt-engineering)
 - [Tech Stack](#tech-stack)
 - [How to Run and Test](#how-to-run-and-test)
@@ -71,11 +72,13 @@ Noa addresses this by enforcing:
 
 1. User sends a message in the **Chat** interface (web or iOS)
 2. The **privacy router** classifies the request as private or external based on content analysis, tool dependencies, and user overrides
-3. The **LangGraph orchestrator** runs the deterministic state machine: router → agent → tools → responder
-4. The **agent node** invokes the appropriate LLM (local Ollama or cloud API) with available tools
-5. **Tool calls** are dispatched through the governed gateway — rate-limited, idempotent, audited, risk-classified
-6. Results stream back via **SSE** in real time with tool call visibility
-7. The **cost tracker** records token usage and checks budget limits at every step
+3. The **task classifier** categorizes intent (simple utility, execution, research, decision intelligence) — obvious messages bypass the LLM via heuristic fast-path
+4. The **planner** generates a brief execution plan for complex tasks (research, decision intelligence); simple and execution tasks skip this step entirely
+5. The **agent node** invokes the appropriate LLM (local Ollama or cloud API) with available tools
+6. **Tool calls** are dispatched through the governed gateway — rate-limited, idempotent, audited, risk-classified
+7. The **evaluator** scores the response on a quality rubric and can reroute to the agent for self-correction (max 2 cycles)
+8. Results stream back via **SSE** in real time with tool call visibility
+9. The **cost tracker** records token usage and checks budget limits at every step
 
 ### Dual-Domain Architecture
 
@@ -100,12 +103,16 @@ Noa addresses this by enforcing:
 ### Orchestrator (LangGraph State Machine)
 
 ```
-__start__ → ROUTER → AGENT ──(has tool_calls)──→ TOOLS ──(rounds < max)──→ AGENT
-                       │                           │
-                       └──(no tool_calls)──→ RESPONDER ←──(rounds >= max)──┘
-                                                │
-                                             __end__
+__start__ → ROUTER → CLASSIFIER ──(simple_utility)──→ AGENT ⇄ TOOLS
+                         │                              │
+                         └──(complex)──→ PLANNER → AGENT │
+                                                         ↓
+                                                    EVALUATOR ──(reroute, max 2×)──→ AGENT
+                                                         │
+                                                      __end__
 ```
+
+**6 nodes, 4 conditional edges.** The classifier fast-paths simple messages (greetings, acknowledgements) directly to the agent, skipping the planner. The evaluator scores every non-trivial response and can reroute to the agent for self-correction (max 2 cycles).
 
 **Bounded autonomy:** Max 10 tool calls per step, max 3 rounds (configurable), 120-second timeout, cost tracking at every iteration.
 
@@ -118,15 +125,15 @@ POST /api/v1/chat (SSE stream)
     ↓
 OrchestratorRunner.run()
     ↓
-LangGraph: router_node → agent_node → (conditional) tool_node → responder_node
+LangGraph: router → classifier → [planner] → agent → [tools] → evaluator
     ↓
 Provider dispatch (Anthropic / OpenAI / Google AI / Ollama)
     ↓
 Tool calls → ToolGateway → Adapters (Google, Notion, Tavily, Memory)
     ↓
-SSE event stream: meta → tool_calls → tool_results → response → done
+SSE event stream: meta → classification → tool_calls → tool_results → eval → response → done
     ↓
-RunService persists Run + Events + UsageStats to PostgreSQL
+RunService persists Run + Events + UsageStats + EvaluationScores to PostgreSQL
 ```
 
 **Key isolation guarantee:** The `noa-internal` Docker network has no internet route. Even if the private worker code had a bug that tried to phone home, the network layer blocks it. Private data physically cannot leave the machine.
@@ -147,6 +154,51 @@ RunService persists Run + Events + UsageStats to PostgreSQL
 
 ---
 
+## What Changed Since Phase 1
+
+Phase 1 received a score of 100. The reviewer identified six areas for improvement — all six have been addressed in Waves 23-29:
+
+### Reviewer Feedback → Implementation
+
+| Reviewer Feedback | What We Built |
+|-------------------|---------------|
+| **No LLM observability tool** — "relies solely on structured JSON logs" | Integrated **Langfuse** (self-hosted, open-source) for full trace capture. Every graph execution is traced: node timings, token usage, tool calls, evaluation scores. Fixed token key mapping and span structure in Wave 28. |
+| **No response quality evaluation** — "no golden prompts, no fixture-based comparison" | Added an **Evaluator node** to the LangGraph pipeline. Scores every non-trivial response on a task-type-specific rubric (goal alignment, completeness, grounding, confidence, actionability). Responses below threshold are rerouted to the agent with feedback (max 2 cycles). Scores persist to `response_evaluations` for trend analysis. |
+| **No user feedback loop** — "no mechanism for users to rate agent responses" | Added **thumbs up/down** per assistant message. Ratings write back to `response_evaluations` as ground truth, forming a self-improvement flywheel: evaluate → measure → calibrate → improve. |
+| **"Could improve architecture by adding planning agent"** | Added **Classifier** and **Planner** nodes. The classifier categorizes intent (simple utility, execution, research, decision intelligence) with a heuristic fast-path for obvious messages. The planner generates execution strategies for complex tasks. Graph grew from 4 to 6 nodes. |
+| **Privacy classifier relies on keyword matching** | The new **task classifier** uses LLM-based classification with structured JSON output, augmented by a heuristic bypass for obvious simple messages (greetings, single emoji, acknowledgements). |
+| **Checkpointer race condition** — "SELECT then INSERT without upsert" | Replaced with **PostgreSQL upsert** semantics (`INSERT ... ON CONFLICT DO UPDATE`). |
+| **Idempotency cache is in-memory only** | Moved chat-level idempotency to **PostgreSQL** (`idempotency_keys` table with `"chat:"` prefix). Survives restarts, automatic cleanup via periodic sweep. |
+
+### Additional Improvements (Waves 25-29)
+
+| Area | What We Built |
+|------|---------------|
+| **Kimi 2.5 / Moonshot AI** | New LLM provider (`KimiClient`, OpenAI-compatible). Models: `kimi-k2` (131K context), `moonshot-v1-128k`. Fully wired: router, config, DB, frontend model picker, pricing. |
+| **Orchestrator overhaul (Wave 28)** | Responder node removed (agent delivers response directly). Approval flow uses LangGraph native `interrupt()`. Classifier fast-path skips planner for simple/execution tasks. `ask_user` structured input tool. 8 phases, 14 findings resolved. |
+| **Proactive memory** | System prompt rewritten: STRICT → PROACTIVE memory. 6 fact categories. Automatic recall at turn start. Pre-compaction memory flush (extracts facts before message compaction). |
+| **Concurrent token streaming** | Runner executes graph as background task; token callbacks feed a shared event queue. Tokens arrive in real-time during LLM generation, not post-node-completion. |
+| **JWT token revocation** | `TokenBlacklist` table, middleware check on every request, logout revocation, hourly sweep of expired entries. |
+| **Voice UX** | `useVoiceRecorder` hook, mic button in ChatComposer, recording indicator bar, transcription via `/voice/transcribe`. |
+| **iOS Widget & Shortcuts** | WidgetKit widget (small/medium, last thread), `SharedDataManager` (App Groups), `SendMessage` + `ListThreads` AppIntents, Siri phrase integration. |
+| **Frontend bundle optimization** | 13 lazy-loaded routes, manual chunk splitting (react/router/charts/radix/query), `check-bundle-size.sh` (500KB gate). |
+| **Data integrity fixes (Wave 29)** | Multi-round tool-call extraction fix, idempotency cache → PostgreSQL, RLS endpoint wiring for approvals, smart domain redirect. |
+| **Execution graph UI** | RunGraph shows all 6 node types: classifier (task_type + privacy badge), planner (archetype + plan text), evaluator (verdict + dimension scores). |
+
+### By the Numbers
+
+| Metric | Phase 1 | Phase 2 |
+|--------|---------|---------|
+| Orchestrator nodes | 4 (router → agent → tools → responder) | 6 (router → classifier → planner → agent → tools → evaluator) |
+| LLM providers | 4 (Anthropic, OpenAI, Google AI, Ollama) | 5 (+Kimi / Moonshot AI) |
+| Python tests | 2,100+ | 2,800+ |
+| Swift tests | 224 | 274 |
+| Test files | 123 | 168 |
+| Waves completed | 22 | 29 |
+| Phases completed | 130+ | 190+ |
+
+---
+
 ## Agent & Prompt Engineering
 
 ### System Prompt
@@ -162,6 +214,33 @@ The system prompt (`prompts/system_prompt.txt`) is the single source of truth �
 | Content analysis | Medium | Keywords like "journal", "diary", "password" → private |
 | Fail-safe default | Lowest | Low confidence → defaults to private (safer) |
 
+### Task Classification (New in Phase 2)
+
+Before the agent runs, the classifier categorizes the request to optimize the pipeline:
+
+| Task Type | Planner | Evaluator Rubric | Example |
+|-----------|---------|------------------|---------|
+| `simple_utility` | Skipped | Skipped | "Hi", "Thanks", single emoji |
+| `execution` | Skipped (archetype only) | Lightweight (2 dimensions) | "Create a meeting tomorrow at 2pm" |
+| `research` | Full plan (2-4 steps) | Extended (+source quality, recency, reasoning) | "Compare React vs. Svelte for my use case" |
+| `decision_intelligence` | Full plan (2-4 steps) | Extended (+option coverage, tradeoff clarity) | "Should I take the job offer?" |
+
+### Self-Evaluating Response Loop (New in Phase 2)
+
+The evaluator scores every non-trivial response using a cheap LLM call:
+
+```
+Agent response
+    ↓
+Evaluator scores on rubric (1-5 per dimension)
+    ↓
+Overall score >= 3.0  → pass   → __end__
+Overall score >= 2.0  → reroute → agent (with feedback, max 2 cycles)
+Overall score <  2.0  → flag   → __end__ (logged for review)
+```
+
+Scores persist to `response_evaluations` in PostgreSQL. User thumbs-up/down ratings write back as ground truth, forming a self-improvement flywheel: evaluate → measure → calibrate → improve.
+
 ### Tool Governance
 
 Tools are dispatched through a governed gateway with 8-step enforcement per call: capability check → rate limit → idempotency → risk classification → execution → output validation → audit → cost tracking.
@@ -173,6 +252,7 @@ Tools are dispatched through a governed gateway with 8-step enforcement per call
 | **Gmail** | `search_emails()`, `read_email()`, `send_email()` | Low / Medium | External |
 | **Notion** | `search_pages()`, `read_page()`, `create_page()` | Low / Medium | External |
 | **Memory** | `remember()`, `recall()` | Medium | Private |
+| **Ask User** | `ask_user()` | Low | External |
 
 ### Multi-Model Routing
 
@@ -181,6 +261,7 @@ Tools are dispatched through a governed gateway with 8-step enforcement per call
 | **Anthropic** | Claude Sonnet 4, Haiku 4.5, Opus 4 | Default external provider |
 | **OpenAI** | GPT-4.1, GPT-4.1-mini, GPT-4o, GPT-4o-mini | Alternative external |
 | **Google AI** | Gemini Pro | Google ecosystem tasks |
+| **Kimi / Moonshot AI** | Kimi K2, Moonshot v1 128K | Long-context tasks (131K window) |
 | **Ollama** | Any local model (Llama 3.1, Qwen 3, Mistral, ...) | Private domain (free, offline) |
 
 Users select the model per conversation in the UI. The router enforces that private-mode requests never reach cloud providers.
@@ -208,13 +289,14 @@ Round 2: send_email(to: user, subject: "AI Regulation Summary", body: <synthesiz
 | **Auth** | JWT (python-jose), bcrypt, Google OAuth 2.0 |
 | **Cloud LLMs** | Anthropic SDK, OpenAI SDK, Google AI SDK |
 | **Local LLM** | Ollama |
+| **Observability** | Langfuse (self-hosted, open-source LLM tracing) |
 | **Frontend** | React 18, Vite, Tailwind CSS, Radix UI, TanStack Query, Zod |
 | **iOS** | SwiftUI, async/await actors, ASWebAuthenticationSession |
 | **Streaming** | Server-Sent Events (SSE) with 15s keepalive |
 | **Reverse Proxy** | Caddy (TLS, Let's Encrypt) |
 | **Containers** | Docker Compose (7 services, 2 isolated networks) |
 | **Security** | nh3 (HTML sanitization), DOMPurify (frontend), certificate pinning (iOS) |
-| **Testing** | pytest (2,100+), Vitest, Playwright, XCTest |
+| **Testing** | pytest (2,800+), Vitest, Playwright, XCTest (270+) |
 | **Static Analysis** | ruff, mypy (strict), ESLint, TypeScript strict |
 
 ---
@@ -301,13 +383,15 @@ cd web && npm run test:e2e                    # Playwright E2E
 
 ## What to Review
 
-### Start Here (6 files)
+### Start Here (8 files)
 
 | File | Description |
 |------|-------------|
-| `src/noa/orchestrator/graph.py` | LangGraph state machine — topology, conditional edges, bounded autonomy |
-| `src/noa/orchestrator/runner.py` | Execution engine — compiles graph, streams SSE events, enforces timeout |
+| `src/noa/orchestrator/graph.py` | LangGraph state machine — 6 nodes, 4 conditional edges, bounded autonomy |
+| `src/noa/orchestrator/runner.py` | Execution engine — compiles graph, streams SSE events, Langfuse tracing |
 | `src/noa/tools/gateway.py` | Tool dispatch — rate limiting, idempotency, audit, cost tracking |
+| `src/noa/orchestrator/nodes/classifier.py` | Task classifier — heuristic fast-path + LLM classification |
+| `src/noa/orchestrator/nodes/evaluator.py` | Response evaluator — rubric scoring, reroute logic, score persistence |
 | `src/noa/orchestrator/nodes/router.py` | Privacy classification — domain routing, model selection |
 | `src/noa/policy/engine.py` | Approval framework — risk tiers, step-up auth |
 | `src/noa/api/v1/chat.py` | Chat endpoint — SSE streaming, orchestrator invocation |
@@ -317,6 +401,8 @@ cd web && npm run test:e2e                    # Playwright E2E
 - Dual-domain isolation via Docker networks (not row-level filtering or encryption)
 - LangGraph for deterministic outer shell with bounded LLM autonomy inside
 - Fixed graph topology with conditional edges (not dynamic graph construction)
+- Task classifier with heuristic fast-path to minimize unnecessary LLM calls
+- Self-evaluating response loop with configurable rubric and reroute threshold
 - File-based system prompt as single source of truth (UI reads/writes directly)
 - Function-level tool capabilities (not just tool-level on/off)
 - Hash-chain audit log for tamper detection
@@ -333,6 +419,8 @@ cd web && npm run test:e2e                    # Playwright E2E
 |----------|-----------|
 | **Dual-domain network isolation** | Container-level network isolation guarantees private data never reaches the internet — simpler and stronger than row-level filtering or encryption at rest |
 | **LangGraph deterministic orchestrator** | Fixed topology with conditional edges gives predictable execution while allowing multi-step tool chaining within bounded limits |
+| **Task classifier with fast-path** | Heuristic bypass for obvious messages (greetings, emoji) avoids unnecessary LLM calls; LLM classification for ambiguous intent |
+| **Self-evaluating response loop** | Cheap LLM scores every response on a rubric; below-threshold responses reroute to the agent with actionable feedback (max 2 cycles) |
 | **Risk-tiered approval model** | Graduated trust matches action consequence — read operations auto-approve, writes require confirmation, deletes require biometric |
 | **Function-level tool governance** | Granting `gmail.read_email` without `gmail.send_email` gives fine-grained control that tool-level on/off cannot achieve |
 | **Hard budget enforcement** | Cost limits are enforced before execution (not after) — prevents bill shock from runaway API calls |
@@ -340,6 +428,7 @@ cd web && npm run test:e2e                    # Playwright E2E
 | **File-based system prompt** | `prompts/system_prompt.txt` is the single source of truth — the UI reads and writes it directly, no hidden backend overrides |
 | **SSE streaming with keepalive** | 15-second keepalive pings prevent proxy timeouts during long tool calls; clients see real-time tool execution |
 | **iOS native with certificate pinning** | SPKI-based pinning in release builds prevents MITM; offline queue handles network interruptions |
+| **Langfuse over LangSmith** | Self-hosted open-source tracing aligns with privacy-first ethos; no data leaves the machine |
 
 ---
 
@@ -350,18 +439,17 @@ cd web && npm run test:e2e                    # Playwright E2E
 | Local model quality varies by hardware (70b needs significant VRAM) | By design | 3-tier model policy: 8b fast, 14b default, 70b judge — users select based on hardware |
 | Single-user system (no multi-tenancy) | By design | Personal agent running on personal hardware; designed for one user |
 | Single-machine container isolation (not physical) | Phase 1 | Phase 2 targets dedicated hardware for private domain with mTLS |
-| Memory grows unbounded | Open | Manual clearing available; no automatic pruning yet |
+| Memory uses in-process store (no vector indexing) | Open | pgvector migration planned for ANN-indexed retrieval at scale |
 | Ollama structured output depends on model compliance | Mitigated | JSON schema in API payload + repeated instructions in prompt |
 
 ---
 
 ## Questions for the Reviewer
 
-1. **Domain isolation** — Is container-level network isolation sufficient for Phase 1, or should encryption at rest be added for the private domain before moving to physical isolation?
-2. **Approval model** — Are the 3 risk tiers (Low/Medium/High) well-calibrated? Should there be a 4th tier for irreversible actions (e.g., "delete all emails matching...")?
-3. **Tool governance** — Is function-level capability granting the right granularity, or is it over-engineered for a single-user system?
-4. **Agent autonomy** — Is 3 tool-rounds with 10 calls per round the right balance between capability and safety?
-5. **Biggest risk** — What is the single biggest architectural risk you see?
+1. **Evaluator calibration** — The rubric uses 5 dimensions scored 1-5 with a pass threshold of 3.0. Is this granularity right, or would a simpler pass/fail with explanations be more practical?
+2. **Planner as tool** — The planner is currently a graph node. An alternative design makes it a tool the agent can invoke on demand. Which approach better fits the governed execution model?
+3. **Domain isolation** — Is container-level network isolation sufficient for Phase 1, or should encryption at rest be added for the private domain before moving to physical isolation?
+4. **Biggest risk** — What is the single biggest architectural risk you see?
 
 ---
 
@@ -427,9 +515,9 @@ Track token usage, per-run costs, and budget limits across all providers.
 
 | Phase | Scope | Status |
 |-------|-------|--------|
-| **Waves 1-24** | Core platform: backend, iOS, web, tools, governance, domain isolation, quality infra, observability (160+ phases) | Complete |
-| **Phase 2** | Physical isolation: dedicated Mac for private domain, mTLS, air-gapped network | Planned |
-| **Future** | MCP Server: expose Noa as an MCP server for Claude Desktop integration | Planned |
+| **Phase 1 (Waves 1-22)** | Core platform: backend, iOS, web, tools, governance, domain isolation, quality infra (130+ phases) | Complete (Score: 100) |
+| **Phase 2 (Waves 23-29)** | Reviewer feedback: orchestrator overhaul (classifier, planner, evaluator), Langfuse observability, Kimi 2.5 provider, user feedback loop, proactive memory, concurrent streaming, security hardening, data integrity fixes (60+ phases) | Complete |
+| **Next** | pgvector memory, physical domain isolation (dedicated Mac, mTLS), MCP Server (expose Noa for Claude Desktop) | Planned |
 
 ---
 

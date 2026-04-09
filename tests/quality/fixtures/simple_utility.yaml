@@ -1,0 +1,7 @@
+name: "simple arithmetic question"
+category: "simple_utility"
+prompt: "What is 2 + 2?"
+expected:
+  task_type: "simple_utility"
+  has_tool_calls: false
+  has_plan: false

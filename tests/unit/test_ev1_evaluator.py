@@ -39,12 +39,11 @@ from noa.orchestrator.nodes.evaluator import (
 
 class TestGetDimensions:
     def test_base_dimensions_for_execution(self) -> None:
+        # OV4: execution uses lightweight 2-dimension rubric
         dims = _get_dimensions("execution")
         assert "goal_alignment" in dims
-        assert "completeness" in dims
-        assert "grounding" in dims
-        assert "confidence_honesty" in dims
         assert "actionability" in dims
+        # execution uses a lightweight rubric — no full base dims
         assert "option_coverage" not in dims
         assert "source_quality" not in dims
 
@@ -63,8 +62,11 @@ class TestGetDimensions:
         assert "completeness" in dims
 
     def test_none_task_type_returns_base(self) -> None:
+        # OV4: None returns full 5-dimension base rubric (not execution lightweight)
         dims = _get_dimensions(None)
-        assert dims == _get_dimensions("execution")
+        assert "goal_alignment" in dims
+        assert "completeness" in dims
+        assert "grounding" in dims
 
     def test_simple_utility_returns_base(self) -> None:
         # simple_utility skips evaluation entirely, but if called it gets base dims
@@ -112,55 +114,55 @@ class TestParseScores:
             "scores": {"goal_alignment": 4.0, "completeness": 3.5},
             "reasoning": "Good response",
         })
-        scores = _parse_scores(content, dims)
+        scores, _ = _parse_scores(content, dims)
         assert scores["goal_alignment"] == pytest.approx(4.0)
         assert scores["completeness"] == pytest.approx(3.5)
 
     def test_integer_scores_converted_to_float(self) -> None:
         dims = ["goal_alignment"]
         content = json.dumps({"scores": {"goal_alignment": 4}})
-        scores = _parse_scores(content, dims)
+        scores, _ = _parse_scores(content, dims)
         assert isinstance(scores["goal_alignment"], float)
         assert scores["goal_alignment"] == pytest.approx(4.0)
 
     def test_scores_clamped_to_0_5(self) -> None:
         dims = ["goal_alignment"]
         content = json.dumps({"scores": {"goal_alignment": 7.0}})
-        scores = _parse_scores(content, dims)
+        scores, _ = _parse_scores(content, dims)
         assert scores["goal_alignment"] == pytest.approx(5.0)
 
         content2 = json.dumps({"scores": {"goal_alignment": -1.0}})
-        scores2 = _parse_scores(content2, dims)
+        scores2, _ = _parse_scores(content2, dims)
         assert scores2["goal_alignment"] == pytest.approx(0.0)
 
     def test_missing_dimension_falls_back_to_default(self) -> None:
         dims = ["goal_alignment", "completeness"]
         content = json.dumps({"scores": {"goal_alignment": 4.0}})
-        scores = _parse_scores(content, dims)
+        scores, _ = _parse_scores(content, dims)
         # Missing dimension gets 3.0 fallback
         assert scores["completeness"] == pytest.approx(3.0)
 
     def test_malformed_json_returns_defaults(self) -> None:
         dims = ["goal_alignment", "completeness"]
-        scores = _parse_scores("this is not json", dims)
+        scores, _ = _parse_scores("this is not json", dims)
         assert scores["goal_alignment"] == pytest.approx(3.0)
         assert scores["completeness"] == pytest.approx(3.0)
 
     def test_no_json_brackets_returns_defaults(self) -> None:
         dims = ["goal_alignment"]
-        scores = _parse_scores("no brackets here", dims)
+        scores, _ = _parse_scores("no brackets here", dims)
         assert scores["goal_alignment"] == pytest.approx(3.0)
 
     def test_scores_not_dict_returns_defaults(self) -> None:
         dims = ["goal_alignment"]
         content = json.dumps({"scores": [1, 2, 3]})
-        scores = _parse_scores(content, dims)
+        scores, _ = _parse_scores(content, dims)
         assert scores["goal_alignment"] == pytest.approx(3.0)
 
     def test_json_embedded_in_text(self) -> None:
         dims = ["goal_alignment"]
         content = 'Sure! Here is my evaluation: {"scores": {"goal_alignment": 5.0}}'
-        scores = _parse_scores(content, dims)
+        scores, _ = _parse_scores(content, dims)
         assert scores["goal_alignment"] == pytest.approx(5.0)
 
 
@@ -269,8 +271,9 @@ class TestEvaluatorNode:
         assert len(result["messages"]) > 1  # original + feedback
         # Last message should be feedback
         last_msg = result["messages"][-1]
-        assert last_msg["role"] == "user"
-        assert "improvement" in last_msg["content"].lower()
+        # OV4: feedback injected as developer role message
+        assert last_msg["role"] in ("user", "developer")
+        assert "improvement" in last_msg["content"].lower() or "feedback" in last_msg["content"].lower()
         # Cycle should be incremented
         assert result["eval_cycle"] == 1
         # Response should be cleared for re-generation

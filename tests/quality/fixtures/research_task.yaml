@@ -1,0 +1,7 @@
+name: "research task with synthesis"
+category: "research"
+prompt: "Compare the pros and cons of Python vs Go for building backend APIs, considering performance, developer experience, and ecosystem"
+expected:
+  task_type: "research"
+  has_tool_calls: false
+  has_plan: true

@@ -5,6 +5,7 @@ import { useToast } from "@/hooks/use-toast";
 import type { SSEEvent, SSEEventType } from "@/api/types";
 import type { Message } from "@/api/types";
 import { asString, asRecord } from "@/lib/utils";
+import type { PendingAskUser } from "@/components/chat/AskUserCard";
 
 export interface PendingApproval {
   tool: string;
@@ -21,6 +22,7 @@ export interface UseChatSSEOptions {
   setStreamEvents: React.Dispatch<React.SetStateAction<SSEEvent[]>>;
   setCurrentRunId: React.Dispatch<React.SetStateAction<string | null>>;
   setPendingApproval: React.Dispatch<React.SetStateAction<PendingApproval | null>>;
+  setPendingAskUser: React.Dispatch<React.SetStateAction<PendingAskUser | null>>;
   setOptimisticMessage: (msg: Message | null) => void;
   /** OI8: Called when the backend auto-redirected the message to a new thread. */
   onDomainRedirect?: (newThreadId: string, originalThreadId: string) => void;
@@ -33,6 +35,7 @@ export function useChatSSE({
   setStreamEvents,
   setCurrentRunId,
   setPendingApproval,
+  setPendingAskUser,
   setOptimisticMessage,
   onDomainRedirect,
 }: UseChatSSEOptions) {
@@ -96,6 +99,17 @@ export function useChatSSE({
             approval_id: typeof event.data.approval_id === "string" ? event.data.approval_id : undefined,
           });
           break;
+        case "ask_user":
+          // OV8: graph interrupted waiting for user input
+          setPendingAskUser({
+            run_id: asString(event.data.run_id),
+            question: asString(event.data.question),
+            options: Array.isArray(event.data.options)
+              ? (event.data.options as unknown[]).map((o) => String(o))
+              : [],
+            allow_freetext: event.data.allow_freetext !== false,
+          });
+          break;
         case "error":
           setIsStreaming(false);
           toast({
@@ -115,6 +129,7 @@ export function useChatSSE({
       setStreamEvents,
       setCurrentRunId,
       setPendingApproval,
+      setPendingAskUser,
       setOptimisticMessage,
       onDomainRedirect,
       toast,

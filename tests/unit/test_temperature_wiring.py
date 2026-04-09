@@ -142,13 +142,11 @@ class TestInvokeLLMTemperatureForwarding:
         mock_router = _make_router()
         set_router(mock_router)
         try:
-            asyncio.get_event_loop().run_until_complete(
-                invoke_llm(
-                    "ollama/llama3.1",
-                    _BASE_MESSAGES,
-                    temperature=0.8,
-                )
-            )
+            asyncio.run(invoke_llm(
+                "ollama/llama3.1",
+                _BASE_MESSAGES,
+                temperature=0.8,
+            ))
         finally:
             set_router(None)  # type: ignore[arg-type]
 
@@ -162,13 +160,11 @@ class TestInvokeLLMTemperatureForwarding:
         mock_router = _make_router()
         set_router(mock_router)
         try:
-            asyncio.get_event_loop().run_until_complete(
-                invoke_llm(
-                    "ollama/llama3.1",
-                    _BASE_MESSAGES,
-                    temperature=None,
-                )
-            )
+            asyncio.run(invoke_llm(
+                "ollama/llama3.1",
+                _BASE_MESSAGES,
+                temperature=None,
+            ))
         finally:
             set_router(None)  # type: ignore[arg-type]
 
@@ -198,7 +194,7 @@ class TestAgentNodeTemperatureInState:
                 "temperature": 0.6,
                 "available_tools": [],
             }
-            asyncio.get_event_loop().run_until_complete(agent_node(state))
+            asyncio.run(agent_node(state))
         finally:
             set_router(None)  # type: ignore[arg-type]
 
@@ -218,7 +214,7 @@ class TestAgentNodeTemperatureInState:
                 # No temperature key
                 "available_tools": [],
             }
-            asyncio.get_event_loop().run_until_complete(agent_node(state))
+            asyncio.run(agent_node(state))
         finally:
             set_router(None)  # type: ignore[arg-type]
 
@@ -250,7 +246,7 @@ class TestAgentNodeTemperatureInState:
                 "temperature": 0.3,
                 "available_tools": [],
             }
-            asyncio.get_event_loop().run_until_complete(agent_node(state))
+            asyncio.run(agent_node(state))
         finally:
             set_router(None)  # type: ignore[arg-type]
 
